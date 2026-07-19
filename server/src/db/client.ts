@@ -5,7 +5,10 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const dbPath = resolve(process.cwd(), process.env.DATABASE_PATH ?? "./data/finance.sqlite");
+// Resolved relative to this file (i.e. server/), not process.cwd() — the
+// server can be launched with a different working directory (e.g. from the
+// repo root), and DATABASE_PATH is documented as relative to server/.
+const dbPath = resolve(__dirname, "../..", process.env.DATABASE_PATH ?? "./data/finance.sqlite");
 mkdirSync(dirname(dbPath), { recursive: true });
 
 export const db = new DatabaseSync(dbPath);

@@ -1,5 +1,9 @@
 import jwt from "jsonwebtoken";
 import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Thin client for the Enable Banking API (pan-EU/UK open banking aggregator).
@@ -21,7 +25,9 @@ function getPrivateKey(): string {
   if (cachedPrivateKey) return cachedPrivateKey;
   const path = process.env.ENABLE_BANKING_PRIVATE_KEY_PATH;
   if (!path) throw new Error("ENABLE_BANKING_PRIVATE_KEY_PATH is not set");
-  cachedPrivateKey = readFileSync(path, "utf-8");
+  // Resolved relative to server/ (this file's directory, two levels up),
+  // not process.cwd() — same reasoning as db/client.ts's DATABASE_PATH.
+  cachedPrivateKey = readFileSync(resolve(__dirname, "../..", path), "utf-8");
   return cachedPrivateKey;
 }
 
