@@ -1,10 +1,13 @@
 import { Router } from "express";
 import { createHash, randomUUID } from "node:crypto";
 import { db, withTransaction } from "../db/client.js";
+import { requireAuth } from "../middleware/requireAuth.js";
 import * as enableBanking from "../services/enableBanking.js";
 import type { RemoteTransaction } from "../services/enableBanking.js";
 
 export const bankLinkRouter = Router();
+
+bankLinkRouter.use(requireAuth);
 
 bankLinkRouter.get("/institutions", async (req, res) => {
   const country = (req.query.country as string) ?? "GB";
@@ -24,9 +27,9 @@ bankLinkRouter.post("/authorize", async (req, res) => {
 
   const state = randomUUID();
   db.prepare(
-    `INSERT INTO bank_connections (id, institution_id, institution_name, country, status)
-     VALUES (?, ?, ?, ?, 'pending')`
-  ).run(state, aspsp_name, aspsp_name, country);
+    `INSERT INTO bank_connections (id, user_id, institution_id, institution_name, country, status)
+     VALUES (?, ?, ?, ?, ?, 'pending')`
+  ).run(state, req.user!.id, aspsp_name, aspsp_name, country);
 
   const authorization = await enableBanking.startAuthorization(
     { name: aspsp_name, country },
@@ -47,7 +50,7 @@ bankLinkRouter.post("/sessions", async (req, res) => {
     return;
   }
 
-  const connection = db.prepare("SELECT * FROM bank_connections WHERE id = ?").get(state);
+  const connection = db.prepare("SELECT * FROM bank_connections WHERE id = ? AND user_id = ?").get(state, req.user!.id);
   if (!connection) {
     res.status(404).json({ error: "no pending bank connection for this state" });
     return;
@@ -58,13 +61,14 @@ bankLinkRouter.post("/sessions", async (req, res) => {
   db.prepare("UPDATE bank_connections SET status = 'linked' WHERE id = ?").run(state);
 
   const insertAccount = db.prepare(
-    `INSERT OR IGNORE INTO accounts (id, bank_connection_id, name, iban, currency, source)
-     VALUES (?, ?, ?, ?, ?, 'enablebanking')`
+    `INSERT OR IGNORE INTO accounts (id, user_id, bank_connection_id, name, iban, currency, source)
+     VALUES (?, ?, ?, ?, ?, ?, 'enablebanking')`
   );
 
   for (const account of session.accounts) {
     insertAccount.run(
       account.uid,
+      req.user!.id,
       state,
       account.name ?? "Linked account",
       account.account_id?.iban ?? null,
@@ -90,11 +94,18 @@ function transactionId(accountUid: string, tx: RemoteTransaction): string {
 // Step 3: pull transactions for a linked account and upsert them.
 bankLinkRouter.post("/accounts/:accountId/sync", async (req, res) => {
   const { accountId } = req.params;
+
+  const account = db.prepare("SELECT 1 FROM accounts WHERE id = ? AND user_id = ?").get(accountId, req.user!.id);
+  if (!account) {
+    res.status(404).json({ error: "account not found" });
+    return;
+  }
+
   const transactions = await enableBanking.listAccountTransactions(accountId);
 
   const insert = db.prepare(
-    `INSERT OR IGNORE INTO transactions (id, account_id, booking_date, amount, currency, description, counterparty, source)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'enablebanking')`
+    `INSERT OR IGNORE INTO transactions (id, user_id, account_id, booking_date, amount, currency, description, counterparty, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'enablebanking')`
   );
 
   let synced = 0;
@@ -102,6 +113,7 @@ bankLinkRouter.post("/accounts/:accountId/sync", async (req, res) => {
     for (const tx of transactions) {
       const result = insert.run(
         transactionId(accountId, tx),
+        req.user!.id,
         accountId,
         tx.booking_date,
         signedAmount(tx),

@@ -1,9 +1,13 @@
 import cors from "cors";
 import { config } from "dotenv";
 import express from "express";
+import session from "express-session";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import passport from "./auth/passport.js";
+import { pruneExpiredSessions, SqliteSessionStore } from "./auth/sessionStore.js";
 import { accountsRouter } from "./routes/accounts.js";
+import { authRouter } from "./routes/auth.js";
 import { bankLinkRouter } from "./routes/bankLink.js";
 import { budgetsRouter } from "./routes/budgets.js";
 import { categoriesRouter } from "./routes/categories.js";
@@ -18,11 +22,36 @@ import { transactionsRouter } from "./routes/transactions.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 config({ path: resolve(__dirname, "../../.env") });
 
+if (!process.env.SESSION_SECRET) {
+  console.warn(
+    "SESSION_SECRET is not set — using an insecure fallback. Everyone gets logged out on every restart, " +
+      "and sessions aren't safe beyond localhost dev. Set SESSION_SECRET in .env before deploying anywhere."
+  );
+}
+
 const app = express();
 
-app.use(cors());
+app.use(cors({ origin: process.env.CLIENT_URL ?? "http://localhost:5173", credentials: true }));
 app.use(express.json());
 
+app.use(
+  session({
+    store: new SqliteSessionStore(),
+    secret: process.env.SESSION_SECRET ?? "insecure-dev-only-fallback-secret",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      secure: false, // localhost dev is plain http; flip this on behind HTTPS
+      sameSite: "lax",
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+    },
+  })
+);
+app.use(passport.initialize());
+app.use(passport.session());
+
+app.use("/api/auth", authRouter);
 app.use("/api/transactions", transactionsRouter);
 app.use("/api/accounts", accountsRouter);
 app.use("/api/categories", categoriesRouter);
@@ -38,6 +67,9 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   console.error(err);
   res.status(500).json({ error: err.message });
 });
+
+pruneExpiredSessions();
+setInterval(pruneExpiredSessions, 1000 * 60 * 60);
 
 const port = Number(process.env.PORT ?? 3001);
 app.listen(port, () => console.log(`API listening on http://localhost:${port}`));

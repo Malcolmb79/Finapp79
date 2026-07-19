@@ -1,15 +1,18 @@
 import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { db } from "../db/client.js";
+import { requireAuth } from "../middleware/requireAuth.js";
 import type { Transaction } from "../types.js";
 
 export const transactionsRouter = Router();
 
+transactionsRouter.use(requireAuth);
+
 transactionsRouter.get("/", (req, res) => {
   const { accountId, from, to } = req.query;
 
-  let query = "SELECT * FROM transactions WHERE 1=1";
-  const params: string[] = [];
+  let query = "SELECT * FROM transactions WHERE user_id = ?";
+  const params: string[] = [req.user!.id];
 
   if (accountId) {
     query += " AND account_id = ?";
@@ -37,18 +40,34 @@ transactionsRouter.post("/", (req, res) => {
     return;
   }
 
+  const account = db.prepare("SELECT 1 FROM accounts WHERE id = ? AND user_id = ?").get(account_id, req.user!.id);
+  if (!account) {
+    res.status(404).json({ error: "account not found" });
+    return;
+  }
+
   const id = randomUUID();
   db.prepare(
-    `INSERT INTO transactions (id, account_id, category_id, booking_date, amount, currency, description, counterparty, source)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual')`
-  ).run(id, account_id, category_id ?? null, booking_date, amount, currency ?? "USD", description ?? null, counterparty ?? null);
+    `INSERT INTO transactions (id, user_id, account_id, category_id, booking_date, amount, currency, description, counterparty, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')`
+  ).run(
+    id,
+    req.user!.id,
+    account_id,
+    category_id ?? null,
+    booking_date,
+    amount,
+    currency ?? "USD",
+    description ?? null,
+    counterparty ?? null
+  );
 
   const created = db.prepare("SELECT * FROM transactions WHERE id = ?").get(id);
   res.status(201).json(created);
 });
 
 transactionsRouter.patch("/:id", (req, res) => {
-  const existing = db.prepare("SELECT * FROM transactions WHERE id = ?").get(req.params.id);
+  const existing = db.prepare("SELECT * FROM transactions WHERE id = ? AND user_id = ?").get(req.params.id, req.user!.id);
 
   if (!existing) {
     res.status(404).json({ error: "transaction not found" });
@@ -64,14 +83,20 @@ transactionsRouter.patch("/:id", (req, res) => {
     `UPDATE transactions SET
        category_id = ${hasCategory ? "?" : "category_id"},
        description = ${hasDescription ? "?" : "description"}
-     WHERE id = ?`
-  ).run(...[hasCategory ? req.body.category_id : undefined, hasDescription ? req.body.description : undefined, req.params.id].filter((v) => v !== undefined));
+     WHERE id = ? AND user_id = ?`
+  ).run(
+    ...[hasCategory ? req.body.category_id : undefined, hasDescription ? req.body.description : undefined, req.params.id, req.user!.id].filter(
+      (v) => v !== undefined
+    )
+  );
 
   res.json(db.prepare("SELECT * FROM transactions WHERE id = ?").get(req.params.id));
 });
 
 transactionsRouter.delete("/:id", (req, res) => {
-  const result = db.prepare("DELETE FROM transactions WHERE id = ? AND source = 'manual'").run(req.params.id);
+  const result = db
+    .prepare("DELETE FROM transactions WHERE id = ? AND user_id = ? AND source = 'manual'")
+    .run(req.params.id, req.user!.id);
   if (result.changes === 0) {
     res.status(404).json({ error: "manual transaction not found" });
     return;

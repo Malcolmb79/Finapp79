@@ -1,7 +1,11 @@
 import { Bell, Search, User } from "lucide-react";
+import { useAuth } from "../../contexts/AuthContext.js";
+import { initials } from "../../utils/avatarColor.js";
 import ThemeToggle from "../ThemeToggle.js";
 
 export default function TopHeader() {
+  const { user } = useAuth();
+
   return (
     <header className="top-header">
       <div className="search-input" style={{ position: "relative" }}>
@@ -16,9 +20,13 @@ export default function TopHeader() {
         <button className="icon-button" aria-label="Notifications" disabled>
           <Bell size={17} />
         </button>
-        <div className="avatar-chip" style={{ background: "var(--accent)", color: "var(--accent-ink)" }}>
-          <User size={17} />
-        </div>
+        {user?.avatar_url ? (
+          <img src={user.avatar_url} alt={user.name ?? "Account"} className="avatar-chip" referrerPolicy="no-referrer" />
+        ) : (
+          <div className="avatar-chip" style={{ background: "var(--accent)", color: "var(--accent-ink)" }}>
+            {user?.name ? initials(user.name) : <User size={17} />}
+          </div>
+        )}
       </div>
     </header>
   );

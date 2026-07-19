@@ -1,8 +1,11 @@
 import { Router } from "express";
 import { createHash } from "node:crypto";
 import { db, withTransaction } from "../db/client.js";
+import { requireAuth } from "../middleware/requireAuth.js";
 
 export const importCsvRouter = Router();
+
+importCsvRouter.use(requireAuth);
 
 /**
  * Expects a pre-parsed array of rows from the client (date, amount, description),
@@ -20,9 +23,15 @@ importCsvRouter.post("/", (req, res) => {
     return;
   }
 
+  const account = db.prepare("SELECT 1 FROM accounts WHERE id = ? AND user_id = ?").get(account_id, req.user!.id);
+  if (!account) {
+    res.status(404).json({ error: "account not found" });
+    return;
+  }
+
   const insert = db.prepare(
-    `INSERT OR IGNORE INTO transactions (id, account_id, booking_date, amount, currency, description, source)
-     VALUES (?, ?, ?, ?, 'USD', ?, 'csv')`
+    `INSERT OR IGNORE INTO transactions (id, user_id, account_id, booking_date, amount, currency, description, source)
+     VALUES (?, ?, ?, ?, ?, 'USD', ?, 'csv')`
   );
 
   let imported = 0;
@@ -30,7 +39,7 @@ importCsvRouter.post("/", (req, res) => {
     for (const row of rows) {
       const hashInput = `${account_id}:${row.date}:${row.amount}:${row.description ?? ""}`;
       const id = createHash("sha256").update(hashInput).digest("hex");
-      const result = insert.run(id, account_id, row.date, row.amount, row.description ?? null);
+      const result = insert.run(id, req.user!.id, account_id, row.date, row.amount, row.description ?? null);
       if (result.changes > 0) imported++;
     }
   });

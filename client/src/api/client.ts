@@ -64,7 +64,23 @@ export interface SavingsGoal {
   target_date: string | null;
 }
 
+export interface AppUser {
+  id: string;
+  email: string | null;
+  name: string | null;
+  avatar_url: string | null;
+}
+
+export interface AuthProviders {
+  google: boolean;
+  facebook: boolean;
+}
+
 export const api = {
+  getMe: () => request<AppUser>("/auth/me"),
+  getAuthProviders: () => request<AuthProviders>("/auth/providers"),
+  logout: () => request<void>("/auth/logout", { method: "POST" }),
+
   listTransactions: (accountId?: string) =>
     request<Transaction[]>(`/transactions${accountId ? `?accountId=${accountId}` : ""}`),
   createTransaction: (tx: Partial<Transaction>) =>

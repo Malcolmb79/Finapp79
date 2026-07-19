@@ -1,10 +1,13 @@
 import { Router } from "express";
 import { db } from "../db/client.js";
+import { requireAuth } from "../middleware/requireAuth.js";
 
 export const categoriesRouter = Router();
 
-categoriesRouter.get("/", (_req, res) => {
-  res.json(db.prepare("SELECT * FROM categories ORDER BY name").all());
+categoriesRouter.use(requireAuth);
+
+categoriesRouter.get("/", (req, res) => {
+  res.json(db.prepare("SELECT * FROM categories WHERE user_id = ? ORDER BY name").all(req.user!.id));
 });
 
 categoriesRouter.post("/", (req, res) => {
@@ -14,6 +17,10 @@ categoriesRouter.post("/", (req, res) => {
     return;
   }
 
-  const result = db.prepare("INSERT INTO categories (name, parent_id) VALUES (?, ?)").run(name, parent_id ?? null);
+  const result = db.prepare("INSERT INTO categories (user_id, name, parent_id) VALUES (?, ?, ?)").run(
+    req.user!.id,
+    name,
+    parent_id ?? null
+  );
   res.status(201).json(db.prepare("SELECT * FROM categories WHERE id = ?").get(result.lastInsertRowid));
 });

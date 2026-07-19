@@ -1,10 +1,13 @@
 import { Router } from "express";
 import { db } from "../db/client.js";
+import { requireAuth } from "../middleware/requireAuth.js";
 
 export const savingsRouter = Router();
 
-savingsRouter.get("/", (_req, res) => {
-  res.json(db.prepare("SELECT * FROM savings_goals ORDER BY created_at").all());
+savingsRouter.use(requireAuth);
+
+savingsRouter.get("/", (req, res) => {
+  res.json(db.prepare("SELECT * FROM savings_goals WHERE user_id = ? ORDER BY created_at").all(req.user!.id));
 });
 
 savingsRouter.post("/", (req, res) => {
@@ -15,8 +18,8 @@ savingsRouter.post("/", (req, res) => {
   }
 
   const result = db
-    .prepare("INSERT INTO savings_goals (name, target_amount, target_date) VALUES (?, ?, ?)")
-    .run(name, target_amount, target_date ?? null);
+    .prepare("INSERT INTO savings_goals (user_id, name, target_amount, target_date) VALUES (?, ?, ?, ?)")
+    .run(req.user!.id, name, target_amount, target_date ?? null);
 
   res.status(201).json(db.prepare("SELECT * FROM savings_goals WHERE id = ?").get(result.lastInsertRowid));
 });
@@ -31,18 +34,22 @@ savingsRouter.post("/:id/contribute", (req, res) => {
     return;
   }
 
-  const existing = db.prepare("SELECT * FROM savings_goals WHERE id = ?").get(req.params.id);
+  const existing = db.prepare("SELECT * FROM savings_goals WHERE id = ? AND user_id = ?").get(req.params.id, req.user!.id);
   if (!existing) {
     res.status(404).json({ error: "savings goal not found" });
     return;
   }
 
-  db.prepare("UPDATE savings_goals SET current_amount = MAX(0, current_amount + ?) WHERE id = ?").run(amount, req.params.id);
+  db.prepare("UPDATE savings_goals SET current_amount = MAX(0, current_amount + ?) WHERE id = ? AND user_id = ?").run(
+    amount,
+    req.params.id,
+    req.user!.id
+  );
   res.json(db.prepare("SELECT * FROM savings_goals WHERE id = ?").get(req.params.id));
 });
 
 savingsRouter.delete("/:id", (req, res) => {
-  const result = db.prepare("DELETE FROM savings_goals WHERE id = ?").run(req.params.id);
+  const result = db.prepare("DELETE FROM savings_goals WHERE id = ? AND user_id = ?").run(req.params.id, req.user!.id);
   if (result.changes === 0) {
     res.status(404).json({ error: "savings goal not found" });
     return;

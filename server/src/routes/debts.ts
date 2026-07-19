@@ -1,10 +1,13 @@
 import { Router } from "express";
 import { db } from "../db/client.js";
+import { requireAuth } from "../middleware/requireAuth.js";
 
 export const debtsRouter = Router();
 
-debtsRouter.get("/", (_req, res) => {
-  res.json(db.prepare("SELECT * FROM debts ORDER BY apr DESC").all());
+debtsRouter.use(requireAuth);
+
+debtsRouter.get("/", (req, res) => {
+  res.json(db.prepare("SELECT * FROM debts WHERE user_id = ? ORDER BY apr DESC").all(req.user!.id));
 });
 
 debtsRouter.post("/", (req, res) => {
@@ -15,8 +18,8 @@ debtsRouter.post("/", (req, res) => {
   }
 
   const result = db
-    .prepare("INSERT INTO debts (name, balance, apr, minimum_payment) VALUES (?, ?, ?, ?)")
-    .run(name, balance, apr ?? 0, minimum_payment);
+    .prepare("INSERT INTO debts (user_id, name, balance, apr, minimum_payment) VALUES (?, ?, ?, ?, ?)")
+    .run(req.user!.id, name, balance, apr ?? 0, minimum_payment);
 
   res.status(201).json(db.prepare("SELECT * FROM debts WHERE id = ?").get(result.lastInsertRowid));
 });
@@ -24,7 +27,7 @@ debtsRouter.post("/", (req, res) => {
 // Only fields present in the body are touched, so e.g. recording a payment
 // (balance only) doesn't require resending apr/minimum_payment.
 debtsRouter.patch("/:id", (req, res) => {
-  const existing = db.prepare("SELECT * FROM debts WHERE id = ?").get(req.params.id);
+  const existing = db.prepare("SELECT * FROM debts WHERE id = ? AND user_id = ?").get(req.params.id, req.user!.id);
   if (!existing) {
     res.status(404).json({ error: "debt not found" });
     return;
@@ -37,16 +40,17 @@ debtsRouter.patch("/:id", (req, res) => {
     return;
   }
 
-  db.prepare(`UPDATE debts SET ${updates.map((f) => `${f} = ?`).join(", ")} WHERE id = ?`).run(
+  db.prepare(`UPDATE debts SET ${updates.map((f) => `${f} = ?`).join(", ")} WHERE id = ? AND user_id = ?`).run(
     ...updates.map((f) => req.body[f]),
-    req.params.id
+    req.params.id,
+    req.user!.id
   );
 
   res.json(db.prepare("SELECT * FROM debts WHERE id = ?").get(req.params.id));
 });
 
 debtsRouter.delete("/:id", (req, res) => {
-  const result = db.prepare("DELETE FROM debts WHERE id = ?").run(req.params.id);
+  const result = db.prepare("DELETE FROM debts WHERE id = ? AND user_id = ?").run(req.params.id, req.user!.id);
   if (result.changes === 0) {
     res.status(404).json({ error: "debt not found" });
     return;
