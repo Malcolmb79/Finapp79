@@ -1,9 +1,7 @@
+import "./loadEnv.js";
 import cors from "cors";
-import { config } from "dotenv";
 import express from "express";
 import session from "express-session";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import passport from "./auth/passport.js";
 import { pruneExpiredSessions, SqliteSessionStore } from "./auth/sessionStore.js";
 import { accountsRouter } from "./routes/accounts.js";
@@ -15,12 +13,6 @@ import { debtsRouter } from "./routes/debts.js";
 import { importCsvRouter } from "./routes/importCsv.js";
 import { savingsRouter } from "./routes/savings.js";
 import { transactionsRouter } from "./routes/transactions.js";
-
-// `.env` lives at the monorepo root, not server/ — dotenv's default
-// (process.cwd()) only works if you happen to launch node from the repo
-// root, which npm workspaces don't (cwd is set to server/).
-const __dirname = dirname(fileURLToPath(import.meta.url));
-config({ path: resolve(__dirname, "../../.env") });
 
 if (!process.env.SESSION_SECRET) {
   console.warn(
