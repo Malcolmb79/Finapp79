@@ -1,15 +1,19 @@
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, rectSortingStrategy } from "@dnd-kit/sortable";
+import { ArrowDownRight, ArrowUpRight, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import CashFlowCard, { type MonthFlow } from "../components/dashboard/CashFlowCard.js";
 import MagnitudeBarList from "../components/dashboard/MagnitudeBarList.js";
+import NetWorthCard, { type TrendPoint } from "../components/dashboard/NetWorthCard.js";
 import SortableCard from "../components/dashboard/SortableCard.js";
-import StatTile from "../components/dashboard/StatTile.js";
 import { api, type Account, type Category, type Transaction } from "../api/client.js";
+import { avatarColorVar, initials } from "../utils/avatarColor.js";
 
-const WIDGET_IDS = ["overview", "accounts", "category", "month"] as const;
+const WIDGET_IDS = ["netWorth", "accounts", "cashflow", "transactions", "category"] as const;
 type WidgetId = (typeof WIDGET_IDS)[number];
 
-const STORAGE_KEY = "dashboard.widgetOrder";
+const STORAGE_KEY = "dashboard.widgetOrder.v2";
 
 function loadWidgetOrder(): WidgetId[] {
   try {
@@ -28,14 +32,17 @@ export default function Dashboard() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [widgetOrder, setWidgetOrder] = useState<WidgetId[]>(loadWidgetOrder);
+  const [syncingAll, setSyncingAll] = useState(false);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
-  useEffect(() => {
+  function refresh() {
     api.listTransactions().then(setTransactions);
     api.listAccounts().then(setAccounts);
     api.listCategories().then(setCategories);
-  }, []);
+  }
+
+  useEffect(refresh, []);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(widgetOrder));
@@ -51,8 +58,47 @@ export default function Dashboard() {
     });
   }
 
-  const total = transactions.reduce((sum, tx) => sum + tx.amount, 0);
-  const spend = transactions.filter((tx) => tx.amount < 0).reduce((sum, tx) => sum + tx.amount, 0);
+  async function handleSyncAll() {
+    const linked = accounts.filter((a) => a.source === "enablebanking");
+    if (linked.length === 0) return;
+    setSyncingAll(true);
+    try {
+      await Promise.all(linked.map((a) => api.syncAccount(a.id)));
+      refresh();
+    } finally {
+      setSyncingAll(false);
+    }
+  }
+
+  const netWorth = transactions.reduce((sum, tx) => sum + tx.amount, 0);
+  const thisMonthKey = new Date().toISOString().slice(0, 7);
+  const monthDelta = transactions
+    .filter((tx) => tx.booking_date.startsWith(thisMonthKey))
+    .reduce((sum, tx) => sum + tx.amount, 0);
+
+  const income = transactions.filter((tx) => tx.amount > 0).reduce((sum, tx) => sum + tx.amount, 0);
+  const expenses = Math.abs(transactions.filter((tx) => tx.amount < 0).reduce((sum, tx) => sum + tx.amount, 0));
+
+  const monthKeys = [...new Set(transactions.map((tx) => tx.booking_date.slice(0, 7)))].sort().slice(-6);
+  const monthFlows: MonthFlow[] = monthKeys.map((key) => {
+    const monthTx = transactions.filter((tx) => tx.booking_date.startsWith(key));
+    return {
+      label: key.slice(5),
+      income: monthTx.filter((tx) => tx.amount > 0).reduce((s, tx) => s + tx.amount, 0),
+      expenses: Math.abs(monthTx.filter((tx) => tx.amount < 0).reduce((s, tx) => s + tx.amount, 0)),
+    };
+  });
+
+  const netWorthTrend: TrendPoint[] = (() => {
+    const sorted = [...monthKeys];
+    let running = transactions
+      .filter((tx) => sorted.length > 0 && tx.booking_date < `${sorted[0]}-01`)
+      .reduce((s, tx) => s + tx.amount, 0);
+    return sorted.map((key) => {
+      running += transactions.filter((tx) => tx.booking_date.startsWith(key)).reduce((s, tx) => s + tx.amount, 0);
+      return { label: key.slice(5), value: running };
+    });
+  })();
 
   const categoryNames = new Map(categories.map((c) => [c.id, c.name]));
   const spendByCategory = new Map<string, number>();
@@ -65,35 +111,31 @@ export default function Dashboard() {
     .sort((a, b) => b[1] - a[1])
     .map(([label, value]) => ({ label, value }));
 
-  const byMonth = new Map<string, number>();
-  for (const tx of transactions) {
-    if (tx.amount >= 0) continue;
-    const month = tx.booking_date.slice(0, 7);
-    byMonth.set(month, (byMonth.get(month) ?? 0) + Math.abs(tx.amount));
-  }
-  const monthRows = [...byMonth.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .slice(-6)
-    .map(([label, value]) => ({ label, value }));
-
   const byAccount = new Map<string, number>();
   for (const tx of transactions) {
     byAccount.set(tx.account_id, (byAccount.get(tx.account_id) ?? 0) + tx.amount);
   }
+  const accountNames = new Map(accounts.map((a) => [a.id, a.name]));
 
-  const widgetContent: Record<WidgetId, { title: string; body: React.ReactNode }> = {
-    overview: {
-      title: "Overview",
-      body: (
-        <div className="stat-row">
-          <StatTile label="Net total" value={total.toFixed(2)} />
-          <StatTile label="Total spend" value={spend.toFixed(2)} />
-          <StatTile label="Transactions" value={String(transactions.length)} />
-        </div>
-      ),
+  const recentTransactions = [...transactions]
+    .sort((a, b) => b.booking_date.localeCompare(a.booking_date))
+    .slice(0, 5);
+
+  const linkedAccountCount = accounts.filter((a) => a.source === "enablebanking").length;
+
+  const widgetContent: Record<WidgetId, { title: string; span?: 2; headerExtra?: React.ReactNode; body: React.ReactNode }> = {
+    netWorth: {
+      title: "Net worth",
+      span: 2,
+      body: <NetWorthCard current={netWorth} delta={monthDelta} points={netWorthTrend} />,
     },
     accounts: {
       title: "Accounts",
+      headerExtra: (
+        <Link to="/accounts" className="card__link">
+          Manage ›
+        </Link>
+      ),
       body:
         accounts.length === 0 ? (
           <p className="empty-state">No accounts yet.</p>
@@ -101,25 +143,81 @@ export default function Dashboard() {
           <div>
             {accounts.map((a) => (
               <div className="account-row" key={a.id}>
-                <span>{a.name}</span>
+                <div className="avatar-chip" style={{ background: avatarColorVar(a.name) }}>
+                  {initials(a.name)}
+                </div>
+                <div className="account-row__info">
+                  <div className="account-row__name">{a.name}</div>
+                  <div className="account-row__meta">
+                    <span className="status-dot" />
+                    {a.source === "enablebanking" ? "Linked" : "Manual"}
+                  </div>
+                </div>
                 <span className="account-row__balance">{(byAccount.get(a.id) ?? 0).toFixed(2)}</span>
               </div>
             ))}
           </div>
         ),
     },
-    category: { title: "Spend by category", body: <MagnitudeBarList data={categoryRows} /> },
-    month: { title: "Spend by month", body: <MagnitudeBarList data={monthRows} /> },
+    cashflow: {
+      title: "Monthly cash flow",
+      span: 2,
+      body: <CashFlowCard income={income} expenses={expenses} months={monthFlows} />,
+    },
+    transactions: {
+      title: "Recent transactions",
+      headerExtra: (
+        <Link to="/transactions" className="card__link">
+          All ›
+        </Link>
+      ),
+      body:
+        recentTransactions.length === 0 ? (
+          <p className="empty-state">No transactions yet.</p>
+        ) : (
+          <div>
+            {recentTransactions.map((tx) => (
+              <div className="tx-row" key={tx.id}>
+                <div className="tx-row__icon">
+                  {tx.amount >= 0 ? (
+                    <ArrowDownRight size={15} color="var(--good)" />
+                  ) : (
+                    <ArrowUpRight size={15} color="var(--text-muted)" />
+                  )}
+                </div>
+                <div className="tx-row__info">
+                  <div className="tx-row__name">{tx.description || accountNames.get(tx.account_id) || "Transaction"}</div>
+                  <div className="tx-row__meta">{tx.category_id != null ? categoryNames.get(tx.category_id) : "Uncategorized"}</div>
+                </div>
+                <span className={`tx-row__amount${tx.amount >= 0 ? " tx-row__amount--positive" : ""}`}>
+                  {tx.amount >= 0 ? "+" : ""}
+                  {tx.amount.toFixed(2)}
+                </span>
+              </div>
+            ))}
+          </div>
+        ),
+    },
+    category: { title: "Spending by category", body: <MagnitudeBarList data={categoryRows} /> },
   };
 
   return (
     <div>
-      <h1>Dashboard</h1>
+      <div className="page-header">
+        <div>
+          <h1>Dashboard</h1>
+          <p className="page-header__subtitle">Drag cards to rearrange</p>
+        </div>
+        <button className="btn-accent" onClick={handleSyncAll} disabled={syncingAll || linkedAccountCount === 0}>
+          <RefreshCw size={15} className={syncingAll ? "spin" : undefined} />
+          Sync all
+        </button>
+      </div>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={widgetOrder} strategy={rectSortingStrategy}>
           <div className="dashboard-grid">
             {widgetOrder.map((id) => (
-              <SortableCard key={id} id={id} title={widgetContent[id].title}>
+              <SortableCard key={id} id={id} title={widgetContent[id].title} span={widgetContent[id].span} headerExtra={widgetContent[id].headerExtra}>
                 {widgetContent[id].body}
               </SortableCard>
             ))}

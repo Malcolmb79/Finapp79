@@ -48,18 +48,18 @@ export default function BankLinkCallback() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (status === "linking") return <p>Finishing up the bank link...</p>;
-  if (status === "syncing") return <p>Pulling transactions from your bank...</p>;
+  if (status === "linking") return <div className="card">Finishing up the bank link...</div>;
+  if (status === "syncing") return <div className="card">Pulling transactions from your bank...</div>;
   if (status === "error")
     return (
-      <div>
+      <div className="card">
         <p>Something went wrong: {error}</p>
         <Link to="/bank-link">Try again</Link>
       </div>
     );
 
   return (
-    <div>
+    <div className="card">
       <p>Bank linked. Imported {syncedCount} transactions.</p>
       <Link to="/transactions">View transactions</Link>
     </div>
