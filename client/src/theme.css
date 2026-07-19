@@ -1,0 +1,318 @@
+/* Palette: dataviz skill's validated default (references/palette.md).
+   Light defined on :root; dark applies via prefers-color-scheme *and* the
+   viewer's explicit toggle (`data-theme`), which must win either direction —
+   the `:not([data-theme="light"])` guard lets a light stamp beat OS-dark. */
+
+:root {
+  color-scheme: light;
+
+  --page-plane: #f9f9f7;
+  --surface-1: #fcfcfb;
+  --surface-2: #f3f2ef;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #898781;
+  --gridline: #e1e0d9;
+  --baseline: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+  --success: #006300;
+
+  /* sequential blue ramp, for magnitude bars */
+  --seq-100: #cde2fb;
+  --seq-250: #86b6ef;
+  --seq-450: #2a78d6;
+  --seq-600: #184f95;
+
+  --accent: var(--seq-450);
+  --shadow: 0 1px 2px rgba(11, 11, 11, 0.04), 0 4px 12px rgba(11, 11, 11, 0.06);
+  --radius: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+
+    --page-plane: #0d0d0d;
+    --surface-1: #1a1a19;
+    --surface-2: #232322;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --gridline: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+    --success: #0ca30c;
+
+    --seq-100: #184f95;
+    --seq-250: #1c5cab;
+    --seq-450: #3987e5;
+    --seq-600: #86b6ef;
+
+    --accent: var(--seq-450);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 4px 16px rgba(0, 0, 0, 0.35);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --page-plane: #0d0d0d;
+  --surface-1: #1a1a19;
+  --surface-2: #232322;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #898781;
+  --gridline: #2c2c2a;
+  --baseline: #383835;
+  --border: rgba(255, 255, 255, 0.1);
+  --success: #0ca30c;
+
+  --seq-100: #184f95;
+  --seq-250: #1c5cab;
+  --seq-450: #3987e5;
+  --seq-600: #86b6ef;
+
+  --accent: var(--seq-450);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--page-plane);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+a {
+  color: var(--accent);
+}
+
+button,
+input,
+select {
+  font-family: inherit;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.45rem 0.7rem;
+}
+
+button {
+  cursor: pointer;
+  background: var(--surface-2);
+  transition: background-color 0.15s ease;
+}
+
+button:hover {
+  background: var(--gridline);
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th,
+td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--gridline);
+  text-align: left;
+}
+
+th {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Nav */
+
+.app-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--gridline);
+}
+
+.app-nav__links {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.app-nav__links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+.app-nav__links a:hover,
+.app-nav__links a.active {
+  color: var(--text-primary);
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+
+/* Cards */
+
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.25rem 1.4rem;
+}
+
+.card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.card__title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.card__drag-handle {
+  cursor: grab;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  padding: 0.2rem 0.4rem;
+  line-height: 1;
+  font-size: 1rem;
+  touch-action: none;
+}
+
+.card__drag-handle:hover {
+  color: var(--text-primary);
+  background: transparent;
+}
+
+.card--dragging {
+  box-shadow: 0 8px 24px rgba(11, 11, 11, 0.18);
+  opacity: 0.85;
+}
+
+/* Dashboard grid */
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.25rem;
+  align-items: start;
+}
+
+/* Stat tiles */
+
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.stat-tile__label {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  margin: 0 0 0.35rem;
+  white-space: nowrap;
+}
+
+.stat-tile__value {
+  font-size: 1.3rem;
+  font-weight: 600;
+  font-variant-numeric: proportional-nums;
+  margin: 0;
+  white-space: nowrap;
+}
+
+/* Magnitude bar list (sequential hue) */
+
+.bar-list__row {
+  margin-bottom: 0.7rem;
+}
+
+.bar-list__row:last-child {
+  margin-bottom: 0;
+}
+
+.bar-list__meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  margin-bottom: 0.3rem;
+  color: var(--text-secondary);
+}
+
+.bar-list__meta strong {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-list__track {
+  background: var(--surface-2);
+  height: 10px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.bar-list__fill {
+  height: 10px;
+  background: var(--seq-450);
+  border-radius: 0 4px 4px 0;
+  transition: width 0.3s ease;
+}
+
+/* Accounts list */
+
+.account-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--gridline);
+  font-size: 0.9rem;
+}
+
+.account-row:last-child {
+  border-bottom: none;
+}
+
+.account-row__balance {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.empty-state {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
