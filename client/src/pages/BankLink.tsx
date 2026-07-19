@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api } from "../api/client.js";
 
 export default function BankLink() {
-  const [country, setCountry] = useState("US");
+  const [country, setCountry] = useState("GB");
   const [institutions, setInstitutions] = useState<{ id: string; name: string }[]>([]);
 
   async function handleSearch() {
@@ -10,7 +10,10 @@ export default function BankLink() {
   }
 
   async function handleLink(id: string, name: string) {
-    const { authorizationUrl } = await api.startBankLink(id, name);
+    const { requisitionId, authorizationUrl } = await api.startBankLink(id, name);
+    // GoCardless's redirect back to us doesn't reliably include the
+    // requisition id, so stash it here for the callback page to pick up.
+    localStorage.setItem("gc_pending_requisition_id", requisitionId);
     window.location.href = authorizationUrl;
   }
 
@@ -18,6 +21,10 @@ export default function BankLink() {
     <div>
       <h1>Link a bank</h1>
       <p>Powered by GoCardless Bank Account Data (open banking).</p>
+      <p>
+        Testing with a sandbox account? Search "GB" and pick <strong>Sandbox Finance</strong> — GoCardless's
+        fake bank for testing, no real credentials needed.
+      </p>
       <input value={country} onChange={(e) => setCountry(e.target.value.toUpperCase())} maxLength={2} />
       <button onClick={handleSearch}>Search institutions</button>
       <ul>

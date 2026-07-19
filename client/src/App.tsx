@@ -1,5 +1,6 @@
 import { NavLink, Route, Routes } from "react-router-dom";
 import BankLink from "./pages/BankLink.js";
+import BankLinkCallback from "./pages/BankLinkCallback.js";
 import Dashboard from "./pages/Dashboard.js";
 import Transactions from "./pages/Transactions.js";
 
@@ -15,6 +16,7 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/transactions" element={<Transactions />} />
         <Route path="/bank-link" element={<BankLink />} />
+        <Route path="/bank-link/callback" element={<BankLinkCallback />} />
       </Routes>
     </div>
   );

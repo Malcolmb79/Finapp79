@@ -28,7 +28,7 @@ entry and CSV import still work; only the bank-link flow needs them.
 
 ## Architecture
 
-**`server/`** — Express + TypeScript API, SQLite via Node's built-in
+**`server/`** — Express 5 + TypeScript API, SQLite via Node's built-in
 `node:sqlite` (`DatabaseSync`) — chosen specifically to avoid a native
 node-gyp build step (no `better-sqlite3`), since that requires a working
 Python + native toolchain that isn't guaranteed to be set up. `node:sqlite`
@@ -36,6 +36,15 @@ has no `db.transaction()` helper like better-sqlite3 does, so
 `src/db/client.ts` exports a `withTransaction()` wrapper (manual
 BEGIN/COMMIT/ROLLBACK) used anywhere multiple inserts need to be atomic
 (CSV import, GoCardless transaction sync).
+
+Deliberately on Express 5, not 4: Express 4 doesn't catch rejected promises
+thrown inside `async (req, res) =>` route handlers, so an unhandled
+rejection there crashes the whole Node process — not just that request. All
+the GoCardless routes are async and call an external API that can reject
+(e.g. missing/invalid credentials), so this isn't hypothetical. Express 5
+forwards those rejections to the error-handling middleware in
+`src/index.ts` automatically, turning a process crash into a normal 500
+response.
 
 - `src/db/schema.sql` — table definitions, applied automatically on startup
   by `src/db/client.ts` (`db.exec(schema)` runs every boot; all DDL uses
@@ -51,6 +60,12 @@ BEGIN/COMMIT/ROLLBACK) used anywhere multiple inserts need to be atomic
      accounts and inserts rows into `accounts`.
   3. `POST /api/bank-link/accounts/:accountId/sync` pulls transactions for a
      linked account and upserts them into `transactions`.
+  On the client, `BankLink.tsx` stashes the requisition id in
+  `localStorage` right before redirecting to GoCardless, because
+  GoCardless's redirect back to us doesn't reliably round-trip it as a
+  query param. `BankLinkCallback.tsx` (mounted at `/bank-link/callback`,
+  which matches `GOCARDLESS_REDIRECT_URL` in `.env`) reads it back on
+  mount and drives steps 2 and 3.
 - `src/routes/importCsv.ts` — CSV rows are content-hashed (`sha256` of
   account+date+amount+description) to derive the transaction `id`, so
   re-importing the same file is a no-op via `INSERT OR IGNORE` instead of
