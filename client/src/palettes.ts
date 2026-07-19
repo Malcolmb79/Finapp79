@@ -31,3 +31,15 @@ export const PALETTES: Palette[] = [
 ];
 
 export const DEFAULT_PALETTE = PALETTES[0].name;
+
+/**
+ * Tetradic (rectangle) color scheme: [primary, +60°, +180°, +240°] — two
+ * complementary pairs 60° apart, a standard four-color harmony. The primary
+ * still drives every data-encoding surface (accent, sequential ramp) per
+ * the dataviz skill's "one hue for magnitude" rule; hues 2-4 are only for
+ * decorative/categorical use (widget icon badges, palette swatch preview),
+ * never for a chart series that represents a single measured quantity.
+ */
+export function paletteHues(hue: number): [number, number, number, number] {
+  return [hue, (hue + 60) % 360, (hue + 180) % 360, (hue + 240) % 360];
+}

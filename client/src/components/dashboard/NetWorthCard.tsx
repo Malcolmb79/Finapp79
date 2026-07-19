@@ -9,7 +9,17 @@ export interface TrendPoint {
  * or 1 categorical"). No axis/gridlines at this size — it's a sparkline-
  * scale trend, not an analytical chart; the number carries the value.
  */
-export default function NetWorthCard({ current, delta, points }: { current: number; delta: number; points: TrendPoint[] }) {
+export default function NetWorthCard({
+  current,
+  delta,
+  points,
+  mode = "chart",
+}: {
+  current: number;
+  delta: number;
+  points: TrendPoint[];
+  mode?: "chart" | "number";
+}) {
   const width = 560;
   const height = 140;
   const values = points.map((p) => p.value);
@@ -37,7 +47,7 @@ export default function NetWorthCard({ current, delta, points }: { current: numb
       <p className={`sidebar__net-worth-delta`} style={{ margin: "0.2rem 0 1rem" }}>
         {delta >= 0 ? "↗" : "↘"} {delta.toFixed(2)} this month
       </p>
-      {points.length > 1 ? (
+      {mode === "chart" && points.length > 1 ? (
         <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} preserveAspectRatio="none">
           <defs>
             <linearGradient id="netWorthFill" x1="0" y1="0" x2="0" y2="1">
@@ -48,9 +58,9 @@ export default function NetWorthCard({ current, delta, points }: { current: numb
           <path d={areaPath} fill="url(#netWorthFill)" stroke="none" />
           <path d={linePath} fill="none" stroke="var(--seq-450)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
         </svg>
-      ) : (
+      ) : mode === "chart" ? (
         <p className="empty-state">Not enough history for a trend yet.</p>
-      )}
+      ) : null}
     </div>
   );
 }

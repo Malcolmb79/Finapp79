@@ -15,7 +15,17 @@ const CHART_HEIGHT = 130;
  * identity, so a saturated accent (income) against a de-emphasized neutral
  * (expenses) reads clearer than two same-family hues here.
  */
-export default function CashFlowCard({ income, expenses, months }: { income: number; expenses: number; months: MonthFlow[] }) {
+export default function CashFlowCard({
+  income,
+  expenses,
+  months,
+  mode = "chart",
+}: {
+  income: number;
+  expenses: number;
+  months: MonthFlow[];
+  mode?: "chart" | "number";
+}) {
   const saved = income - expenses;
   const max = Math.max(1, ...months.flatMap((m) => [m.income, m.expenses]));
 
@@ -34,7 +44,7 @@ export default function CashFlowCard({ income, expenses, months }: { income: num
         </div>
       </div>
 
-      {months.length === 0 ? (
+      {mode !== "chart" ? null : months.length === 0 ? (
         <p className="empty-state">Nothing to show yet.</p>
       ) : (
         <svg viewBox={`0 0 ${width} ${CHART_HEIGHT}`} width="100%" height={CHART_HEIGHT} preserveAspectRatio="none">
