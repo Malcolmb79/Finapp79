@@ -8,7 +8,7 @@ export const transactionsRouter = Router();
 
 transactionsRouter.use(requireAuth);
 
-transactionsRouter.get("/", (req, res) => {
+transactionsRouter.get("/", async (req, res) => {
   const { accountId, from, to } = req.query;
 
   let query = "SELECT * FROM transactions WHERE user_id = ?";
@@ -28,11 +28,11 @@ transactionsRouter.get("/", (req, res) => {
   }
   query += " ORDER BY booking_date DESC";
 
-  const rows = db.prepare(query).all(...params) as unknown as Transaction[];
+  const rows = (await db.prepare(query).all(...params)) as unknown as Transaction[];
   res.json(rows);
 });
 
-transactionsRouter.post("/", (req, res) => {
+transactionsRouter.post("/", async (req, res) => {
   const { account_id, booking_date, amount, currency, description, counterparty, category_id } = req.body;
 
   if (!account_id || !booking_date || typeof amount !== "number") {
@@ -40,34 +40,36 @@ transactionsRouter.post("/", (req, res) => {
     return;
   }
 
-  const account = db.prepare("SELECT 1 FROM accounts WHERE id = ? AND user_id = ?").get(account_id, req.user!.id);
+  const account = await db.prepare("SELECT 1 FROM accounts WHERE id = ? AND user_id = ?").get(account_id, req.user!.id);
   if (!account) {
     res.status(404).json({ error: "account not found" });
     return;
   }
 
   const id = randomUUID();
-  db.prepare(
-    `INSERT INTO transactions (id, user_id, account_id, category_id, booking_date, amount, currency, description, counterparty, source)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')`
-  ).run(
-    id,
-    req.user!.id,
-    account_id,
-    category_id ?? null,
-    booking_date,
-    amount,
-    currency ?? "USD",
-    description ?? null,
-    counterparty ?? null
-  );
+  await db
+    .prepare(
+      `INSERT INTO transactions (id, user_id, account_id, category_id, booking_date, amount, currency, description, counterparty, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual')`
+    )
+    .run(
+      id,
+      req.user!.id,
+      account_id,
+      category_id ?? null,
+      booking_date,
+      amount,
+      currency ?? "USD",
+      description ?? null,
+      counterparty ?? null
+    );
 
-  const created = db.prepare("SELECT * FROM transactions WHERE id = ?").get(id);
+  const created = await db.prepare("SELECT * FROM transactions WHERE id = ?").get(id);
   res.status(201).json(created);
 });
 
-transactionsRouter.patch("/:id", (req, res) => {
-  const existing = db.prepare("SELECT * FROM transactions WHERE id = ? AND user_id = ?").get(req.params.id, req.user!.id);
+transactionsRouter.patch("/:id", async (req, res) => {
+  const existing = await db.prepare("SELECT * FROM transactions WHERE id = ? AND user_id = ?").get(req.params.id, req.user!.id);
 
   if (!existing) {
     res.status(404).json({ error: "transaction not found" });
@@ -79,22 +81,24 @@ transactionsRouter.patch("/:id", (req, res) => {
   const hasCategory = "category_id" in req.body;
   const hasDescription = "description" in req.body;
 
-  db.prepare(
-    `UPDATE transactions SET
-       category_id = ${hasCategory ? "?" : "category_id"},
-       description = ${hasDescription ? "?" : "description"}
-     WHERE id = ? AND user_id = ?`
-  ).run(
-    ...[hasCategory ? req.body.category_id : undefined, hasDescription ? req.body.description : undefined, req.params.id, req.user!.id].filter(
-      (v) => v !== undefined
+  await db
+    .prepare(
+      `UPDATE transactions SET
+         category_id = ${hasCategory ? "?" : "category_id"},
+         description = ${hasDescription ? "?" : "description"}
+       WHERE id = ? AND user_id = ?`
     )
-  );
+    .run(
+      ...[hasCategory ? req.body.category_id : undefined, hasDescription ? req.body.description : undefined, req.params.id, req.user!.id].filter(
+        (v) => v !== undefined
+      )
+    );
 
-  res.json(db.prepare("SELECT * FROM transactions WHERE id = ?").get(req.params.id));
+  res.json(await db.prepare("SELECT * FROM transactions WHERE id = ?").get(req.params.id));
 });
 
-transactionsRouter.delete("/:id", (req, res) => {
-  const result = db
+transactionsRouter.delete("/:id", async (req, res) => {
+  const result = await db
     .prepare("DELETE FROM transactions WHERE id = ? AND user_id = ? AND source = 'manual'")
     .run(req.params.id, req.user!.id);
   if (result.changes === 0) {

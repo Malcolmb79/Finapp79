@@ -23,8 +23,19 @@ let cachedPrivateKey: string | null = null;
 
 function getPrivateKey(): string {
   if (cachedPrivateKey) return cachedPrivateKey;
+
+  // Vercel deployments can't read ENABLE_BANKING_PRIVATE_KEY_PATH off disk —
+  // the .pem file is gitignored (never committed) and so never makes it
+  // into the deployment bundle. ENABLE_BANKING_PRIVATE_KEY holds the same
+  // PEM content directly as an env var instead, set from the Vercel
+  // dashboard; the file-path variant remains for local dev convenience.
+  if (process.env.ENABLE_BANKING_PRIVATE_KEY) {
+    cachedPrivateKey = process.env.ENABLE_BANKING_PRIVATE_KEY.replace(/\\n/g, "\n");
+    return cachedPrivateKey;
+  }
+
   const path = process.env.ENABLE_BANKING_PRIVATE_KEY_PATH;
-  if (!path) throw new Error("ENABLE_BANKING_PRIVATE_KEY_PATH is not set");
+  if (!path) throw new Error("Set either ENABLE_BANKING_PRIVATE_KEY or ENABLE_BANKING_PRIVATE_KEY_PATH");
   // Resolved relative to server/ (this file's directory, two levels up),
   // not process.cwd() — same reasoning as db/client.ts's DATABASE_PATH.
   cachedPrivateKey = readFileSync(resolve(__dirname, "../..", path), "utf-8");

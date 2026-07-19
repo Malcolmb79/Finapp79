@@ -28,26 +28,57 @@ Run from the repo root (npm workspaces: `server`, `client`).
 
 Requires Node.js >=22.5 and a `.env` file (copy `.env.example`). Enable
 Banking needs `ENABLE_BANKING_APP_ID` and `ENABLE_BANKING_PRIVATE_KEY_PATH`
-— see the comments in `.env.example` for the self-serve signup + certificate
-steps (no billing, free sandbox with a mock bank). Sign-in needs at least
-one of `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` or
-`FACEBOOK_CLIENT_ID`/`FACEBOOK_CLIENT_SECRET`, plus `SESSION_SECRET`. None
-of these crash the server if missing — the corresponding feature just
+(or `ENABLE_BANKING_PRIVATE_KEY` — see Deployment below) — see the comments
+in `.env.example` for the self-serve signup + certificate steps (no
+billing, free sandbox with a mock bank). Sign-in needs at least one of
+`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, `FACEBOOK_CLIENT_ID`/
+`FACEBOOK_CLIENT_SECRET`, or nothing at all (email/password sign-up is
+always available), plus `SESSION_SECRET`. `POSTGRES_URL` is optional for
+local dev (see Architecture below) but required in production. None of
+these crash the server if missing — the corresponding feature just
 degrades (bank-link errors per-request; an unconfigured OAuth provider's
 login button redirects to an error instead of you being unable to boot the
-app at all) — but without at least one OAuth provider configured, you can't
-sign in and the whole app behind `RequireAuth` is unreachable.
+app at all).
 
 ## Architecture
 
-**`server/`** — Express 5 + TypeScript API, SQLite via Node's built-in
-`node:sqlite` (`DatabaseSync`) — chosen specifically to avoid a native
-node-gyp build step (no `better-sqlite3`), since that requires a working
-Python + native toolchain that isn't guaranteed to be set up. `node:sqlite`
-has no `db.transaction()` helper like better-sqlite3 does, so
-`src/db/client.ts` exports a `withTransaction()` wrapper (manual
-BEGIN/COMMIT/ROLLBACK) used anywhere multiple inserts need to be atomic
-(CSV import, Enable Banking transaction sync).
+**`server/`** — Express 5 + TypeScript API, Postgres via `src/db/client.ts`,
+which picks between two drivers based on whether `POSTGRES_URL` is set:
+  - **Set** (Vercel deployment) — `@neondatabase/serverless`, talking to
+    real Vercel Postgres (Neon-backed) over the network. (Not
+    `@vercel/postgres`: that package is deprecated now that Vercel Postgres
+    moved to a native Neon integration — `@neondatabase/serverless` is what
+    it wrapped anyway, and is the currently-recommended client.)
+  - **Unset** (local dev, the default) — `@electric-sql/pglite`, a WASM
+    Postgres that runs in-process with zero external service or native
+    build step, persisted to `server/data/pgdata/` (gitignored). Same "no
+    required install for local dev" reasoning that originally picked
+    `node:sqlite` over `better-sqlite3` — just aimed at a Postgres-compatible
+    engine now that production needs real Postgres, so there's no dialect
+    split between dev and prod.
+
+Both drivers only expose an async `query(text, params)` (Postgres `$1, $2`
+placeholders), but every route was originally written against
+`node:sqlite`'s synchronous `db.prepare(sql).get/all/run(...params)` shape
+with `?` placeholders. Rather than rewrite every call site's SQL,
+`db.prepare()` in `client.ts` is a compatibility shim: it translates `?` ->
+`$1, $2, ...` once and keeps the exact same `get`/`all`/`run` call shape
+everywhere else (now returning Promises) — the actual per-route changes
+were adding `await`, not restructuring queries. Two real dialect
+differences did need fixing at the call sites, though, and would bite again
+if copied into new queries: SQLite's scalar `MAX(a, b)` is Postgres's
+`GREATEST(a, b)` (Postgres's `MAX` is aggregate-only), and there's no
+`lastInsertRowid` — inserts that need the new row use `RETURNING *`/`get()`
+instead of `run()`.
+
+`withTransaction()` wraps a driver-level dedicated connection (not just a
+BEGIN/COMMIT around ordinary pooled queries) — for the Postgres driver,
+`pool.query()` may multiplex separate calls across different physical
+connections, so BEGIN on one and an INSERT on another wouldn't actually be
+in the same transaction. Its callback receives a `tx` with its own
+`.prepare()`, bound to that one connection; callers use `tx.prepare(...)`
+inside the callback instead of the outer `db.prepare(...)` (see
+`bankLink.ts`'s sync route or `importCsv.ts`).
 
 Deliberately on Express 5, not 4: Express 4 doesn't catch rejected promises
 thrown inside `async (req, res) =>` route handlers, so an unhandled
@@ -55,8 +86,15 @@ rejection there crashes the whole Node process — not just that request. All
 the Enable Banking routes are async and call an external API that can
 reject (e.g. missing/invalid credentials), so this isn't hypothetical.
 Express 5 forwards those rejections to the error-handling middleware in
-`src/index.ts` automatically, turning a process crash into a normal 500
+`src/app.ts` automatically, turning a process crash into a normal 500
 response.
+
+`src/app.ts` builds and exports the configured Express app (no
+`app.listen()`); `src/index.ts` is the local-dev entrypoint (imports
+`loadEnv.js` first — see the comment there on why import order matters —
+then `app.ts`, then calls `.listen()`). `/api/index.ts` at the repo root is
+the Vercel entrypoint: it re-exports the same `app`, which Vercel's
+Node.js runtime accepts as a request handler directly.
 
 ### Authentication (multi-user, Google/Facebook OAuth)
 
@@ -76,64 +114,36 @@ query, or one user's data leaks into another's response.
   `GET /api/auth/providers` exposes it so the client can gray out buttons
   for providers that aren't set up instead of offering a dead link.
 - `src/auth/sessionStore.ts` — a hand-rolled `express-session` Store backed
-  by the same SQLite file as everything else, not the default in-memory
-  store. That default explicitly warns it's unfit for production and,
-  worse for local dev, doesn't survive process restarts — which `tsx
-  watch` does constantly. Sessions living in SQLite mean you don't get
-  logged out every time a file save triggers a restart.
-- `src/db/migrate.ts` — see "Multi-user migration" below. Runs on every
-  boot, after `schema.sql`; it's a no-op once the database is already
-  migrated.
-- `src/auth/findOrCreateUser.ts` — resolves an OAuth callback profile to an
-  app user. Three cases, checked in order: (1) this `(provider,
-  provider_user_id)` has signed in before, return that user; (2) nobody
-  has claimed the pre-auth "legacy" data yet (see migration below) — this
-  is the first OAuth login this instance has ever seen, so it claims the
-  legacy user rather than creating a new one; (3) otherwise, link to an
-  existing user by matching email (so the same person can add a second
-  provider), or create a brand new user.
-
-**Multi-user migration** (`src/db/migrate.ts`) exists because this app
-started single-user with no `user_id` anywhere, and upgrading it couldn't
-be allowed to silently drop existing accounts/transactions/etc. On an
-upgrade, every legacy table gets `user_id` backfilled to a fixed
-placeholder `"legacy"` user (no email) — `findOrCreateUser` hands that
-user's data to whoever completes the very first OAuth login on this
-instance, then behaves as normal multi-user isolation for everyone after
-that. Two non-obvious things learned building this migration, both still
-relevant if you touch it:
-  1. **`node:sqlite`'s `ALTER TABLE` does not participate in an explicit
-     `BEGIN`/`ROLLBACK`** the way plain DML does — observed directly, a
-     failure partway through an earlier version of this migration left
-     `ALTER`-added columns in place while an uncommitted `UPDATE` in the
-     same transaction rolled back, producing a column that existed but was
-     `NULL` everywhere. Because of this, `migrate()` doesn't rely on
-     transactional atomicity at all — every step re-checks the *actual*
-     database state (via `PRAGMA table_info`/`PRAGMA index_list`, not a
-     "have I already run" flag) and is safe to run again from any partial
-     state, including ones a crash left behind.
-  2. **`categories.name` and `budgets.category_id` needed a full table
-     rebuild, not just `DROP INDEX`.** Both had an inline column-level
-     `UNIQUE` constraint pre-auth; SQLite implements that as an autoindex
-     that *cannot* be dropped with `DROP INDEX` (unlike a constraint added
-     via a separate `CREATE INDEX`) — the only way to loosen "globally
-     unique" to "unique per user" is rename-recreate-copy-drop, which is
-     what `rebuildWithoutLegacyUniqueIndex()` does.
-
+  by the same Postgres database as everything else, not the default
+  in-memory store (unfit for production, and doesn't survive a serverless
+  function tearing down between invocations either). `expires_at` is
+  compared against an ISO string computed in application code
+  (`new Date().toISOString()`), not a DB-side `NOW()`, so both sides of
+  every comparison are in the same format regardless of which driver is
+  active. There's no `setInterval` sweeping expired rows — that doesn't
+  survive serverless — so `set()` probabilistically (~1%) calls
+  `pruneExpiredSessions()` on write instead.
+- `src/auth/findOrCreateUser.ts` — resolves an OAuth callback profile (or
+  email/password signup, via `createLocalUser`) to an app user: an existing
+  `(provider, provider_user_id)` identity returns that user; otherwise an
+  existing user is matched by email (so the same person can add a second
+  sign-in method) or a new one is created.
 - `src/db/schema.sql` — table definitions, applied automatically on startup
-  by `src/db/client.ts` (`db.exec(schema)` runs every boot; all DDL uses
-  `CREATE TABLE IF NOT EXISTS`, so it's safe to re-run). The
-  `idx_categories_user_name` and `idx_budgets_user_category` unique
-  indexes are deliberately *not* here even though they're part of the
-  final schema — see the comments on those tables and in `migrate.ts` for
-  why a standalone `CREATE INDEX` referencing `user_id` in this file would
-  fail on an upgrade before the migration ever gets to add that column.
+  by `src/db/client.ts`'s `initDb()` (top-level `await` in `app.ts`; all
+  DDL uses `CREATE TABLE`/`INDEX IF NOT EXISTS`, so it's safe to re-run —
+  on Vercel this happens once per cold start). Unlike the SQLite version
+  this schema started as, `user_id`/`password_hash`/every per-user unique
+  index are just part of the table definitions from the start — there's no
+  migration step, since this targets a database that starts empty.
 - `src/services/enableBanking.ts` — the only place that talks to the Enable
   Banking API. Auth is a locally-signed short-lived RS256 JWT (`kid` =
-  `ENABLE_BANKING_APP_ID`, signed with the private key at
-  `ENABLE_BANKING_PRIVATE_KEY_PATH`) sent as a bearer token on every
-  request — there's no token endpoint/network round trip like OAuth
-  client-credentials flows, so nothing needs caching.
+  `ENABLE_BANKING_APP_ID`) sent as a bearer token on every request — no
+  token endpoint/network round trip like OAuth client-credentials flows, so
+  nothing needs caching. The private key itself comes from
+  `ENABLE_BANKING_PRIVATE_KEY` (raw PEM content — the only option that
+  works on Vercel, since the gitignored `.pem` file never reaches the
+  deployment) if set, else `ENABLE_BANKING_PRIVATE_KEY_PATH` (a file path,
+  local-dev convenience).
 - `src/routes/bankLink.ts` — the open banking flow. Unlike a requisition
   ID from a single "create link" call, Enable Banking identifies a bank by
   a `(name, country)` pair and returns `code`/`state` directly in the
@@ -157,10 +167,10 @@ relevant if you touch it:
      this app's negative-is-outflow convention.
 - `src/routes/importCsv.ts` — CSV rows are content-hashed (`sha256` of
   account+date+amount+description) to derive the transaction `id`, so
-  re-importing the same file is a no-op via `INSERT OR IGNORE` instead of
-  creating duplicates. Enable Banking transactions dedupe the same way,
-  preferring the provider's `transaction_id`/`entry_reference` and falling
-  back to a content hash if neither is present.
+  re-importing the same file is a no-op via `ON CONFLICT (id) DO NOTHING`
+  instead of creating duplicates. Enable Banking transactions dedupe the
+  same way, preferring the provider's `transaction_id`/`entry_reference`
+  and falling back to a content hash if neither is present.
 - Manual transactions (`source = 'manual'`) are the only ones that can be
   deleted (`DELETE /api/transactions/:id` filters on `source = 'manual'`) —
   synced and imported transactions are meant to stay in sync with their
@@ -229,3 +239,32 @@ why, and for the migration that added it retroactively.
 - `savings_goals.current_amount` is only ever changed via `POST
   /api/savings/:id/contribute` (adds a delta), not a raw `PATCH`, so the
   client never has to read-modify-write it itself.
+
+## Deployment (Vercel)
+
+One Vercel project serves both halves from this repo:
+- `vercel.json` (repo root) builds the client (`npm run build --workspace
+  client`, output `client/dist`) and rewrites `/api/:path*` to the
+  serverless function, everything else to `index.html` (SPA fallback).
+  Same-origin in production, so `client/src/api/client.ts`'s relative
+  `/api/*` paths work unchanged from dev — no separate API domain, no CORS
+  needed there (the `cors()` middleware in `app.ts` still matters for local
+  dev, where client and server run on different ports).
+- `/api/index.ts` is the one serverless function handling every `/api/*`
+  route — Express does its own internal routing via the routers already
+  mounted in `app.ts`, so one catch-all function is correct, not one
+  function per route.
+- Required env vars (Vercel dashboard -> Settings -> Environment
+  Variables): `SESSION_SECRET`, `CLIENT_URL` (your production URL),
+  `POSTGRES_URL` (set automatically once you link the Postgres storage
+  integration — see `.env.example`), plus whichever of the OAuth/Enable
+  Banking vars you're using. `ENABLE_BANKING_PRIVATE_KEY` (raw PEM
+  content) is required there instead of the `_PATH` variant, since the key
+  file is gitignored and never reaches the deployment.
+- OAuth redirect URIs need your production URL added alongside the
+  localhost ones already registered (Google Cloud Console / Meta for
+  Developers) — `https://your-app.vercel.app/api/auth/google/callback`
+  etc.
+- Session cookies are `secure` only when `NODE_ENV === "production"`
+  (Vercel sets this automatically); `app.set("trust proxy", 1)` in
+  `app.ts` is required for that to work correctly behind Vercel's proxy.

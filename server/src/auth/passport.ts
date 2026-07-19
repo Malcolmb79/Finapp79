@@ -27,9 +27,9 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
         callbackURL: "/api/auth/google/callback",
       },
-      (_accessToken, _refreshToken, profile, done) => {
+      async (_accessToken, _refreshToken, profile, done) => {
         try {
-          const user = findOrCreateUser(
+          const user = await findOrCreateUser(
             "google",
             profile.id,
             profile.emails?.[0]?.value ?? null,
@@ -55,9 +55,9 @@ if (process.env.FACEBOOK_CLIENT_ID && process.env.FACEBOOK_CLIENT_SECRET) {
         callbackURL: "/api/auth/facebook/callback",
         profileFields: ["id", "displayName", "emails", "photos"],
       },
-      (_accessToken, _refreshToken, profile, done) => {
+      async (_accessToken, _refreshToken, profile, done) => {
         try {
-          const user = findOrCreateUser(
+          const user = await findOrCreateUser(
             "facebook",
             profile.id,
             profile.emails?.[0]?.value ?? null,
@@ -79,7 +79,7 @@ if (process.env.FACEBOOK_CLIENT_ID && process.env.FACEBOOK_CLIENT_SECRET) {
 passport.use(
   new LocalStrategy({ usernameField: "email" }, async (email, password, done) => {
     try {
-      const user = getUserByEmail(email);
+      const user = await getUserByEmail(email);
       if (!user || !user.password_hash) {
         done(null, false, { message: "Incorrect email or password." });
         return;
@@ -101,9 +101,9 @@ passport.serializeUser((user, done) => {
   done(null, (user as AppUser).id);
 });
 
-passport.deserializeUser((id: string, done) => {
+passport.deserializeUser(async (id: string, done) => {
   try {
-    const user = db.prepare("SELECT id, email, name, avatar_url FROM users WHERE id = ?").get(id) as AppUser | undefined;
+    const user = await db.prepare("SELECT id, email, name, avatar_url FROM users WHERE id = ?").get<AppUser>(id);
     done(null, user ?? false);
   } catch (err) {
     done(err);

@@ -26,10 +26,12 @@ bankLinkRouter.post("/authorize", async (req, res) => {
   }
 
   const state = randomUUID();
-  db.prepare(
-    `INSERT INTO bank_connections (id, user_id, institution_id, institution_name, country, status)
-     VALUES (?, ?, ?, ?, ?, 'pending')`
-  ).run(state, req.user!.id, aspsp_name, aspsp_name, country);
+  await db
+    .prepare(
+      `INSERT INTO bank_connections (id, user_id, institution_id, institution_name, country, status)
+       VALUES (?, ?, ?, ?, ?, 'pending')`
+    )
+    .run(state, req.user!.id, aspsp_name, aspsp_name, country);
 
   const authorization = await enableBanking.startAuthorization(
     { name: aspsp_name, country },
@@ -50,7 +52,7 @@ bankLinkRouter.post("/sessions", async (req, res) => {
     return;
   }
 
-  const connection = db.prepare("SELECT * FROM bank_connections WHERE id = ? AND user_id = ?").get(state, req.user!.id);
+  const connection = await db.prepare("SELECT * FROM bank_connections WHERE id = ? AND user_id = ?").get(state, req.user!.id);
   if (!connection) {
     res.status(404).json({ error: "no pending bank connection for this state" });
     return;
@@ -58,15 +60,16 @@ bankLinkRouter.post("/sessions", async (req, res) => {
 
   const session = await enableBanking.exchangeCode(code);
 
-  db.prepare("UPDATE bank_connections SET status = 'linked' WHERE id = ?").run(state);
+  await db.prepare("UPDATE bank_connections SET status = 'linked' WHERE id = ?").run(state);
 
   const insertAccount = db.prepare(
-    `INSERT OR IGNORE INTO accounts (id, user_id, bank_connection_id, name, iban, currency, source)
-     VALUES (?, ?, ?, ?, ?, ?, 'enablebanking')`
+    `INSERT INTO accounts (id, user_id, bank_connection_id, name, iban, currency, source)
+     VALUES (?, ?, ?, ?, ?, ?, 'enablebanking')
+     ON CONFLICT (id) DO NOTHING`
   );
 
   for (const account of session.accounts) {
-    insertAccount.run(
+    await insertAccount.run(
       account.uid,
       req.user!.id,
       state,
@@ -95,7 +98,7 @@ function transactionId(accountUid: string, tx: RemoteTransaction): string {
 bankLinkRouter.post("/accounts/:accountId/sync", async (req, res) => {
   const { accountId } = req.params;
 
-  const account = db.prepare("SELECT 1 FROM accounts WHERE id = ? AND user_id = ?").get(accountId, req.user!.id);
+  const account = await db.prepare("SELECT 1 FROM accounts WHERE id = ? AND user_id = ?").get(accountId, req.user!.id);
   if (!account) {
     res.status(404).json({ error: "account not found" });
     return;
@@ -103,23 +106,23 @@ bankLinkRouter.post("/accounts/:accountId/sync", async (req, res) => {
 
   const transactions = await enableBanking.listAccountTransactions(accountId);
 
-  const insert = db.prepare(
-    `INSERT OR IGNORE INTO transactions (id, user_id, account_id, booking_date, amount, currency, description, counterparty, source)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'enablebanking')`
-  );
-
   let synced = 0;
-  withTransaction(() => {
-    for (const tx of transactions) {
-      const result = insert.run(
-        transactionId(accountId, tx),
+  await withTransaction(async (tx) => {
+    const insert = tx.prepare(
+      `INSERT INTO transactions (id, user_id, account_id, booking_date, amount, currency, description, counterparty, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'enablebanking')
+       ON CONFLICT (id) DO NOTHING`
+    );
+    for (const t of transactions) {
+      const result = await insert.run(
+        transactionId(accountId, t),
         req.user!.id,
         accountId,
-        tx.booking_date,
-        signedAmount(tx),
-        tx.transaction_amount.currency,
-        (tx.remittance_information ?? []).join(" ") || null,
-        tx.creditor?.name ?? tx.debtor?.name ?? null
+        t.booking_date,
+        signedAmount(t),
+        t.transaction_amount.currency,
+        (t.remittance_information ?? []).join(" ") || null,
+        t.creditor?.name ?? t.debtor?.name ?? null
       );
       if (result.changes > 0) synced++;
     }

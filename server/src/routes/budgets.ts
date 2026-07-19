@@ -10,8 +10,8 @@ function monthStart(): string {
   return `${new Date().toISOString().slice(0, 7)}-01`;
 }
 
-budgetsRouter.get("/", (req, res) => {
-  const rows = db
+budgetsRouter.get("/", async (req, res) => {
+  const rows = await db
     .prepare(
       `SELECT
          b.id,
@@ -23,7 +23,7 @@ budgetsRouter.get("/", (req, res) => {
        JOIN categories c ON c.id = b.category_id
        LEFT JOIN transactions t ON t.category_id = b.category_id AND t.user_id = b.user_id
        WHERE b.user_id = ?
-       GROUP BY b.id
+       GROUP BY b.id, c.name
        ORDER BY c.name`
     )
     .all(monthStart(), req.user!.id);
@@ -33,30 +33,32 @@ budgetsRouter.get("/", (req, res) => {
 
 // Upsert: one budget per (user, category), so setting a new limit for a
 // category that already has one just updates it rather than erroring.
-budgetsRouter.post("/", (req, res) => {
+budgetsRouter.post("/", async (req, res) => {
   const { category_id, monthly_limit } = req.body;
   if (!category_id || typeof monthly_limit !== "number" || monthly_limit <= 0) {
     res.status(400).json({ error: "category_id and a positive monthly_limit are required" });
     return;
   }
 
-  const category = db.prepare("SELECT 1 FROM categories WHERE id = ? AND user_id = ?").get(category_id, req.user!.id);
+  const category = await db.prepare("SELECT 1 FROM categories WHERE id = ? AND user_id = ?").get(category_id, req.user!.id);
   if (!category) {
     res.status(404).json({ error: "category not found" });
     return;
   }
 
-  db.prepare(
-    `INSERT INTO budgets (user_id, category_id, monthly_limit) VALUES (?, ?, ?)
-     ON CONFLICT(user_id, category_id) DO UPDATE SET monthly_limit = excluded.monthly_limit`
-  ).run(req.user!.id, category_id, monthly_limit);
+  await db
+    .prepare(
+      `INSERT INTO budgets (user_id, category_id, monthly_limit) VALUES (?, ?, ?)
+       ON CONFLICT (user_id, category_id) DO UPDATE SET monthly_limit = excluded.monthly_limit`
+    )
+    .run(req.user!.id, category_id, monthly_limit);
 
-  const created = db.prepare("SELECT * FROM budgets WHERE user_id = ? AND category_id = ?").get(req.user!.id, category_id);
+  const created = await db.prepare("SELECT * FROM budgets WHERE user_id = ? AND category_id = ?").get(req.user!.id, category_id);
   res.status(201).json(created);
 });
 
-budgetsRouter.delete("/:id", (req, res) => {
-  const result = db.prepare("DELETE FROM budgets WHERE id = ? AND user_id = ?").run(req.params.id, req.user!.id);
+budgetsRouter.delete("/:id", async (req, res) => {
+  const result = await db.prepare("DELETE FROM budgets WHERE id = ? AND user_id = ?").run(req.params.id, req.user!.id);
   if (result.changes === 0) {
     res.status(404).json({ error: "budget not found" });
     return;

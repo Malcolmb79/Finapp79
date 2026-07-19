@@ -26,14 +26,14 @@ authRouter.post("/signup", async (req, res, next) => {
     res.status(400).json({ error: "Password must be at least 8 characters." });
     return;
   }
-  if (getUserByEmail(email)) {
+  if (await getUserByEmail(email)) {
     res.status(409).json({ error: "An account with this email already exists." });
     return;
   }
 
   try {
     const passwordHash = await hashPassword(password);
-    const user = createLocalUser(email, typeof name === "string" && name.trim() ? name.trim() : null, passwordHash);
+    const user = await createLocalUser(email, typeof name === "string" && name.trim() ? name.trim() : null, passwordHash);
     req.login(user, (err) => {
       if (err) {
         next(err);
@@ -74,14 +74,14 @@ authRouter.get("/me", (req, res) => {
   res.json(req.user);
 });
 
-authRouter.patch("/me", requireAuth, (req, res) => {
+authRouter.patch("/me", requireAuth, async (req, res) => {
   const { name } = req.body as { name?: unknown };
   if (typeof name !== "string" || !name.trim()) {
     res.status(400).json({ error: "Name can't be empty." });
     return;
   }
-  db.prepare("UPDATE users SET name = ? WHERE id = ?").run(name.trim(), req.user!.id);
-  const updated = db.prepare("SELECT id, email, name, avatar_url FROM users WHERE id = ?").get(req.user!.id);
+  await db.prepare("UPDATE users SET name = ? WHERE id = ?").run(name.trim(), req.user!.id);
+  const updated = await db.prepare("SELECT id, email, name, avatar_url FROM users WHERE id = ?").get(req.user!.id);
   res.json(updated);
 });
 
@@ -93,7 +93,7 @@ authRouter.post("/password", requireAuth, async (req, res, next) => {
     return;
   }
 
-  const row = db.prepare("SELECT password_hash FROM users WHERE id = ?").get(req.user!.id) as { password_hash: string | null };
+  const row = (await db.prepare("SELECT password_hash FROM users WHERE id = ?").get(req.user!.id)) as { password_hash: string | null };
 
   try {
     // Users who signed up via OAuth have no password_hash yet — this both
@@ -106,19 +106,19 @@ authRouter.post("/password", requireAuth, async (req, res, next) => {
       }
     }
     const newHash = await hashPassword(newPassword);
-    db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(newHash, req.user!.id);
+    await db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(newHash, req.user!.id);
     res.status(204).send();
   } catch (err) {
     next(err);
   }
 });
 
-authRouter.get("/identities", requireAuth, (req, res) => {
+authRouter.get("/identities", requireAuth, async (req, res) => {
   const providers = (
-    db.prepare("SELECT provider FROM oauth_identities WHERE user_id = ?").all(req.user!.id) as { provider: string }[]
+    (await db.prepare("SELECT provider FROM oauth_identities WHERE user_id = ?").all(req.user!.id)) as { provider: string }[]
   ).map((row) => row.provider);
   const hasPassword = !!(
-    db.prepare("SELECT password_hash FROM users WHERE id = ?").get(req.user!.id) as { password_hash: string | null }
+    (await db.prepare("SELECT password_hash FROM users WHERE id = ?").get(req.user!.id)) as { password_hash: string | null }
   ).password_hash;
   res.json({ providers, hasPassword });
 });

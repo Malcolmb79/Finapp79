@@ -7,11 +7,11 @@ export const accountsRouter = Router();
 
 accountsRouter.use(requireAuth);
 
-accountsRouter.get("/", (req, res) => {
-  res.json(db.prepare("SELECT * FROM accounts WHERE user_id = ? ORDER BY created_at").all(req.user!.id));
+accountsRouter.get("/", async (req, res) => {
+  res.json(await db.prepare("SELECT * FROM accounts WHERE user_id = ? ORDER BY created_at").all(req.user!.id));
 });
 
-accountsRouter.post("/", (req, res) => {
+accountsRouter.post("/", async (req, res) => {
   const { name, currency } = req.body;
   if (!name) {
     res.status(400).json({ error: "name is required" });
@@ -19,11 +19,11 @@ accountsRouter.post("/", (req, res) => {
   }
 
   const id = randomUUID();
-  db.prepare("INSERT INTO accounts (id, user_id, name, currency, source) VALUES (?, ?, ?, ?, 'manual')").run(
+  await db.prepare("INSERT INTO accounts (id, user_id, name, currency, source) VALUES (?, ?, ?, ?, 'manual')").run(
     id,
     req.user!.id,
     name,
     currency ?? "USD"
   );
-  res.status(201).json(db.prepare("SELECT * FROM accounts WHERE id = ?").get(id));
+  res.status(201).json(await db.prepare("SELECT * FROM accounts WHERE id = ?").get(id));
 });

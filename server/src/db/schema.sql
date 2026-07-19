@@ -1,28 +1,39 @@
--- A person who can sign in. Created either by claiming the pre-auth
--- "legacy" placeholder (see migrate.ts) or by a brand-new OAuth login.
+-- Postgres schema (Vercel Postgres in production, pglite locally — see
+-- db/client.ts). Every statement is idempotent (IF NOT EXISTS throughout),
+-- run on every boot, safe to re-run from any state. Unlike the SQLite
+-- version this app started with, there's no ALTER-TABLE migration dance
+-- here: this schema targets a fresh database, so user_id/password_hash and
+-- every per-user unique index are just part of the table definitions from
+-- the start rather than retrofitted.
+
+-- A person who can sign in. Created either by an OAuth callback or by
+-- email/password signup.
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT UNIQUE,
   name TEXT,
   avatar_url TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  password_hash TEXT,                -- nullable: OAuth-only users never set one
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
 );
 
 -- One row per (provider, provider_user_id) a user has signed in with.
 -- Separate from `users` so the same person can link both Google and
 -- Facebook to one account later without a schema change.
 CREATE TABLE IF NOT EXISTS oauth_identities (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
   provider TEXT NOT NULL,           -- google | facebook
   provider_user_id TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text,
   UNIQUE (provider, provider_user_id)
 );
 
 -- Backing store for express-session (see auth/sessionStore.ts). `sid` is
 -- the opaque token in the session cookie; `data` is the session's JSON
--- blob (currently just { userId }).
+-- blob (currently just { userId }). expires_at is compared against an
+-- ISO string generated in application code (not DB-side NOW()), so its
+-- format always matches exactly what pruneExpiredSessions writes.
 CREATE TABLE IF NOT EXISTS sessions (
   sid TEXT PRIMARY KEY,
   data TEXT NOT NULL,
@@ -39,7 +50,7 @@ CREATE TABLE IF NOT EXISTS bank_connections (
   institution_name TEXT NOT NULL,
   country TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending', -- pending | linked | expired | error
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
 );
 
 -- Bank accounts, either synced from Enable Banking or created manually.
@@ -51,22 +62,19 @@ CREATE TABLE IF NOT EXISTS accounts (
   iban TEXT,
   currency TEXT NOT NULL DEFAULT 'USD',
   source TEXT NOT NULL DEFAULT 'manual', -- enablebanking | manual
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
 );
 
 -- Category names are unique per user, not globally — two different users
--- both wanting a "Groceries" category must not collide. The uniqueness
--- index itself is created in migrate.ts, not here: on an upgraded database
--- `categories` already exists without `user_id` at the point schema.sql
--- runs (CREATE TABLE IF NOT EXISTS is a no-op for it), so a standalone
--- `CREATE INDEX ... (user_id, name)` statement in this file would fail the
--- entire schema.exec() batch before migrate() ever gets to add the column.
+-- both wanting a "Groceries" category must not collide.
 CREATE TABLE IF NOT EXISTS categories (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   user_id TEXT REFERENCES users(id),
   name TEXT NOT NULL,
   parent_id INTEGER REFERENCES categories(id)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_user_name ON categories (user_id, name);
 
 CREATE TABLE IF NOT EXISTS transactions (
   id TEXT PRIMARY KEY,              -- Enable Banking transaction_id/entry_reference, csv-import-derived hash, or generated uuid
@@ -74,12 +82,12 @@ CREATE TABLE IF NOT EXISTS transactions (
   account_id TEXT NOT NULL REFERENCES accounts(id),
   category_id INTEGER REFERENCES categories(id),
   booking_date TEXT NOT NULL,       -- ISO date
-  amount REAL NOT NULL,             -- negative = outflow, positive = inflow
+  amount DOUBLE PRECISION NOT NULL, -- negative = outflow, positive = inflow
   currency TEXT NOT NULL DEFAULT 'USD',
   description TEXT,
   counterparty TEXT,
   source TEXT NOT NULL DEFAULT 'manual', -- enablebanking | manual | csv
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text,
   UNIQUE (account_id, id)
 );
 
@@ -89,46 +97,45 @@ CREATE INDEX IF NOT EXISTS idx_transactions_account_date
 CREATE INDEX IF NOT EXISTS idx_transactions_category
   ON transactions (category_id);
 
--- idx_transactions_user is created in migrate.ts, not here — same reason
--- as the categories/budgets indexes above: transactions already exists
--- without user_id on an upgraded database at the point this file runs.
+CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions (user_id);
 
 -- One monthly spending limit per category. "Spent this month" is computed
 -- at query time from transactions, not stored — it always reflects the
 -- current calendar month, matching how the rest of the app treats "this
--- month" (no historical budget-period tracking yet).
--- One budget per (user, category) — see the categories comment above for
--- why that uniqueness index lives in migrate.ts instead of here.
+-- month" (no historical budget-period tracking yet). One budget per
+-- (user, category).
 CREATE TABLE IF NOT EXISTS budgets (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   user_id TEXT REFERENCES users(id),
   category_id INTEGER NOT NULL REFERENCES categories(id),
-  monthly_limit REAL NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  monthly_limit DOUBLE PRECISION NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_budgets_user_category ON budgets (user_id, category_id);
 
 -- A debt/loan balance being paid down. Payoff time is computed client-side
 -- from balance/apr/minimum_payment via standard amortization math — not
 -- stored, since it's a projection that changes as balance changes.
 CREATE TABLE IF NOT EXISTS debts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   user_id TEXT REFERENCES users(id),
   name TEXT NOT NULL,
-  balance REAL NOT NULL,
-  apr REAL NOT NULL DEFAULT 0,       -- annual percentage rate, e.g. 19.99 for 19.99%
-  minimum_payment REAL NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  balance DOUBLE PRECISION NOT NULL,
+  apr DOUBLE PRECISION NOT NULL DEFAULT 0, -- annual percentage rate, e.g. 19.99 for 19.99%
+  minimum_payment DOUBLE PRECISION NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
 );
 
 -- A savings goal with manually-tracked progress (not linked to a specific
 -- account balance, since a goal like "vacation fund" is often notional
 -- rather than a literal separate account).
 CREATE TABLE IF NOT EXISTS savings_goals (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   user_id TEXT REFERENCES users(id),
   name TEXT NOT NULL,
-  target_amount REAL NOT NULL,
-  current_amount REAL NOT NULL DEFAULT 0,
+  target_amount DOUBLE PRECISION NOT NULL,
+  current_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
   target_date TEXT,                  -- nullable ISO date
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
 );

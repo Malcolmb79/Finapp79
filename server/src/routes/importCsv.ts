@@ -12,7 +12,7 @@ importCsvRouter.use(requireAuth);
  * plus the target account_id. Row ids are content-hashed so re-importing the
  * same CSV is a no-op instead of creating duplicate transactions.
  */
-importCsvRouter.post("/", (req, res) => {
+importCsvRouter.post("/", async (req, res) => {
   const { account_id, rows } = req.body as {
     account_id: string;
     rows: { date: string; amount: number; description?: string }[];
@@ -23,23 +23,23 @@ importCsvRouter.post("/", (req, res) => {
     return;
   }
 
-  const account = db.prepare("SELECT 1 FROM accounts WHERE id = ? AND user_id = ?").get(account_id, req.user!.id);
+  const account = await db.prepare("SELECT 1 FROM accounts WHERE id = ? AND user_id = ?").get(account_id, req.user!.id);
   if (!account) {
     res.status(404).json({ error: "account not found" });
     return;
   }
 
-  const insert = db.prepare(
-    `INSERT OR IGNORE INTO transactions (id, user_id, account_id, booking_date, amount, currency, description, source)
-     VALUES (?, ?, ?, ?, ?, 'USD', ?, 'csv')`
-  );
-
   let imported = 0;
-  withTransaction(() => {
+  await withTransaction(async (tx) => {
+    const insert = tx.prepare(
+      `INSERT INTO transactions (id, user_id, account_id, booking_date, amount, currency, description, source)
+       VALUES (?, ?, ?, ?, ?, 'USD', ?, 'csv')
+       ON CONFLICT (id) DO NOTHING`
+    );
     for (const row of rows) {
       const hashInput = `${account_id}:${row.date}:${row.amount}:${row.description ?? ""}`;
       const id = createHash("sha256").update(hashInput).digest("hex");
-      const result = insert.run(id, req.user!.id, account_id, row.date, row.amount, row.description ?? null);
+      const result = await insert.run(id, req.user!.id, account_id, row.date, row.amount, row.description ?? null);
       if (result.changes > 0) imported++;
     }
   });
