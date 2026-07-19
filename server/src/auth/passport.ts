@@ -1,8 +1,10 @@
 import passport from "passport";
 import { Strategy as FacebookStrategy } from "passport-facebook";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
+import { Strategy as LocalStrategy } from "passport-local";
 import { db } from "../db/client.js";
-import { findOrCreateUser, type AppUser } from "./findOrCreateUser.js";
+import { findOrCreateUser, getUserByEmail, type AppUser } from "./findOrCreateUser.js";
+import { verifyPassword } from "./password.js";
 
 /**
  * Strategies are only registered when their credentials are actually
@@ -71,6 +73,29 @@ if (process.env.FACEBOOK_CLIENT_ID && process.env.FACEBOOK_CLIENT_SECRET) {
   );
   configuredProviders.facebook = true;
 }
+
+// Always registered — email/password needs no external credentials, unlike
+// the OAuth strategies above.
+passport.use(
+  new LocalStrategy({ usernameField: "email" }, async (email, password, done) => {
+    try {
+      const user = getUserByEmail(email);
+      if (!user || !user.password_hash) {
+        done(null, false, { message: "Incorrect email or password." });
+        return;
+      }
+      const valid = await verifyPassword(password, user.password_hash);
+      if (!valid) {
+        done(null, false, { message: "Incorrect email or password." });
+        return;
+      }
+      const appUser: AppUser = { id: user.id, email: user.email, name: user.name, avatar_url: user.avatar_url };
+      done(null, appUser);
+    } catch (err) {
+      done(err as Error);
+    }
+  })
+);
 
 passport.serializeUser((user, done) => {
   done(null, (user as AppUser).id);

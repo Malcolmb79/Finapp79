@@ -76,10 +76,20 @@ export interface AuthProviders {
   facebook: boolean;
 }
 
+export interface AuthIdentities {
+  providers: string[];
+  hasPassword: boolean;
+}
+
 export const api = {
   getMe: () => request<AppUser>("/auth/me"),
   getAuthProviders: () => request<AuthProviders>("/auth/providers"),
   logout: () => request<void>("/auth/logout", { method: "POST" }),
+  signup: (email: string, password: string, name?: string) =>
+    request<AppUser>("/auth/signup", { method: "POST", body: JSON.stringify({ email, password, name }) }),
+  login: (email: string, password: string) =>
+    request<AppUser>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  getIdentities: () => request<AuthIdentities>("/auth/identities"),
 
   listTransactions: (accountId?: string) =>
     request<Transaction[]>(`/transactions${accountId ? `?accountId=${accountId}` : ""}`),

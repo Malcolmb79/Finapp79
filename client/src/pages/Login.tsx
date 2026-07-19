@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useEffect, useState, type FormEvent } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, type AuthProviders } from "../api/client.js";
+import { useAuth } from "../contexts/AuthContext.js";
 
 const ERROR_MESSAGES: Record<string, string> = {
   google_not_configured: "Google sign-in isn't set up on this server yet.",
@@ -9,16 +10,60 @@ const ERROR_MESSAGES: Record<string, string> = {
   facebook_failed: "Facebook sign-in didn't complete. Please try again.",
 };
 
+// api/client.ts throws `Error("<status>: <bodyText>")`; the routes here
+// always send a JSON `{ error }` body, so pull that out for display instead
+// of showing the raw "409: {\"error\":...}" string.
+function extractErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error) {
+    const body = err.message.slice(err.message.indexOf(": ") + 2);
+    try {
+      const parsed = JSON.parse(body) as { error?: string };
+      if (parsed.error) return parsed.error;
+    } catch {
+      // Not JSON — fall through to the generic message.
+    }
+  }
+  return fallback;
+}
+
 export default function Login() {
   const [providers, setProviders] = useState<AuthProviders>({ google: false, facebook: false });
   const [searchParams] = useSearchParams();
-  const error = searchParams.get("error");
+  const oauthError = searchParams.get("error");
+  const { refresh } = useAuth();
+  const navigate = useNavigate();
+
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     api.getAuthProviders().then(setProviders);
   }, []);
 
   const noneConfigured = !providers.google && !providers.facebook;
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setFormError(null);
+    setSubmitting(true);
+    try {
+      if (mode === "signup") {
+        await api.signup(email, password, name);
+      } else {
+        await api.login(email, password);
+      }
+      await refresh();
+      navigate("/", { replace: true });
+    } catch (err) {
+      setFormError(extractErrorMessage(err, mode === "signup" ? "Couldn't create your account." : "Couldn't sign you in."));
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <div
@@ -30,18 +75,23 @@ export default function Login() {
         background: "var(--page-plane)",
       }}
     >
-      <div className="card" style={{ width: 340, textAlign: "center" }}>
+      <div className="card" style={{ width: 360, textAlign: "center" }}>
         <div className="sidebar__brand-icon" style={{ margin: "0 auto 1rem" }}>
           💰
         </div>
         <h1 style={{ marginBottom: "0.3rem" }}>Personal Finance</h1>
         <p className="page-header__subtitle" style={{ marginBottom: "1.5rem" }}>
-          Sign in to continue
+          {mode === "signup" ? "Create an account to continue" : "Sign in to continue"}
         </p>
 
-        {error && (
+        {oauthError && (
           <div className="budget-alert" style={{ textAlign: "left" }}>
-            {ERROR_MESSAGES[error] ?? "Something went wrong signing in."}
+            {ERROR_MESSAGES[oauthError] ?? "Something went wrong signing in."}
+          </div>
+        )}
+        {formError && (
+          <div className="budget-alert" style={{ textAlign: "left" }}>
+            {formError}
           </div>
         )}
 
@@ -76,10 +126,64 @@ export default function Login() {
 
         {noneConfigured && (
           <p className="empty-state" style={{ marginTop: "1.5rem" }}>
-            No sign-in providers are configured yet. Add Google or Facebook OAuth credentials to your server's{" "}
-            <code>.env</code> to enable them.
+            No OAuth providers are configured yet. Add Google or Facebook credentials to your server's <code>.env</code> to
+            enable them.
           </p>
         )}
+
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", margin: "1.25rem 0" }}>
+          <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+          <span className="page-header__subtitle" style={{ margin: 0 }}>
+            or
+          </span>
+          <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "0.6rem", textAlign: "left" }}>
+          {mode === "signup" && (
+            <input
+              type="text"
+              placeholder="Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoComplete="name"
+            />
+          )}
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
+            required
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete={mode === "signup" ? "new-password" : "current-password"}
+            minLength={mode === "signup" ? 8 : undefined}
+            required
+          />
+          <button type="submit" className="btn-accent" style={{ justifyContent: "center", padding: "0.6rem" }} disabled={submitting}>
+            {submitting ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
+          </button>
+        </form>
+
+        <p className="page-header__subtitle" style={{ marginTop: "1rem" }}>
+          {mode === "signup" ? "Already have an account?" : "Need an account?"}{" "}
+          <button
+            type="button"
+            onClick={() => {
+              setMode(mode === "signup" ? "signin" : "signup");
+              setFormError(null);
+            }}
+            style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", padding: 0, font: "inherit" }}
+          >
+            {mode === "signup" ? "Sign in" : "Sign up"}
+          </button>
+        </p>
       </div>
     </div>
   );

@@ -120,4 +120,10 @@ export function migrate(db: DatabaseSync): void {
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_user_name ON categories (user_id, name)");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_budgets_user_category ON budgets (user_id, category_id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions (user_id)");
+
+  // Nullable: OAuth-only users never get one, and that's the normal case, not
+  // a partial/invalid state.
+  if (!hasColumn(db, "users", "password_hash")) {
+    db.exec("ALTER TABLE users ADD COLUMN password_hash TEXT");
+  }
 }

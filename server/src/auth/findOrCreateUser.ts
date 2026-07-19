@@ -64,3 +64,31 @@ export function findOrCreateUser(
 
   return getUser(userId);
 }
+
+export function getUserByEmail(email: string): (AppUser & { password_hash: string | null }) | undefined {
+  return db.prepare("SELECT id, email, name, avatar_url, password_hash FROM users WHERE email = ?").get(email) as
+    | (AppUser & { password_hash: string | null })
+    | undefined;
+}
+
+/**
+ * Creates a new email/password user, or — same rule as OAuth — hands the
+ * unclaimed "legacy" data to this signup if nobody has claimed it yet.
+ * Callers must already have verified the email isn't taken by an existing
+ * user (see the /signup route), since that has a more specific error message
+ * than this function would produce.
+ */
+export function createLocalUser(email: string, name: string | null, passwordHash: string): AppUser {
+  const legacyUser = db.prepare("SELECT id, email FROM users WHERE id = ?").get(LEGACY_USER_ID) as
+    | { id: string; email: string | null }
+    | undefined;
+
+  if (legacyUser && legacyUser.email === null) {
+    db.prepare("UPDATE users SET email = ?, name = ?, password_hash = ? WHERE id = ?").run(email, name, passwordHash, LEGACY_USER_ID);
+    return getUser(LEGACY_USER_ID);
+  }
+
+  const userId = randomUUID();
+  db.prepare("INSERT INTO users (id, email, name, password_hash) VALUES (?, ?, ?, ?)").run(userId, email, name, passwordHash);
+  return getUser(userId);
+}
