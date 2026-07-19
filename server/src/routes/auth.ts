@@ -3,7 +3,7 @@ import { db } from "../db/client.js";
 import passport, { configuredProviders } from "../auth/passport.js";
 import { createLocalUser, getUserByEmail } from "../auth/findOrCreateUser.js";
 import { requireAuth } from "../middleware/requireAuth.js";
-import { hashPassword } from "../auth/password.js";
+import { hashPassword, verifyPassword } from "../auth/password.js";
 
 export const authRouter = Router();
 
@@ -72,6 +72,45 @@ authRouter.get("/me", (req, res) => {
     return;
   }
   res.json(req.user);
+});
+
+authRouter.patch("/me", requireAuth, (req, res) => {
+  const { name } = req.body as { name?: unknown };
+  if (typeof name !== "string" || !name.trim()) {
+    res.status(400).json({ error: "Name can't be empty." });
+    return;
+  }
+  db.prepare("UPDATE users SET name = ? WHERE id = ?").run(name.trim(), req.user!.id);
+  const updated = db.prepare("SELECT id, email, name, avatar_url FROM users WHERE id = ?").get(req.user!.id);
+  res.json(updated);
+});
+
+authRouter.post("/password", requireAuth, async (req, res, next) => {
+  const { currentPassword, newPassword } = req.body as { currentPassword?: unknown; newPassword?: unknown };
+
+  if (typeof newPassword !== "string" || newPassword.length < 8) {
+    res.status(400).json({ error: "New password must be at least 8 characters." });
+    return;
+  }
+
+  const row = db.prepare("SELECT password_hash FROM users WHERE id = ?").get(req.user!.id) as { password_hash: string | null };
+
+  try {
+    // Users who signed up via OAuth have no password_hash yet — this both
+    // sets their first password and changes an existing one, so no current-
+    // password check applies unless they already have one to verify against.
+    if (row.password_hash) {
+      if (typeof currentPassword !== "string" || !(await verifyPassword(currentPassword, row.password_hash))) {
+        res.status(401).json({ error: "Current password is incorrect." });
+        return;
+      }
+    }
+    const newHash = await hashPassword(newPassword);
+    db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(newHash, req.user!.id);
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
 });
 
 authRouter.get("/identities", requireAuth, (req, res) => {

@@ -90,6 +90,9 @@ export const api = {
   login: (email: string, password: string) =>
     request<AppUser>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   getIdentities: () => request<AuthIdentities>("/auth/identities"),
+  updateProfile: (name: string) => request<AppUser>("/auth/me", { method: "PATCH", body: JSON.stringify({ name }) }),
+  setPassword: (newPassword: string, currentPassword?: string) =>
+    request<void>("/auth/password", { method: "POST", body: JSON.stringify({ newPassword, currentPassword }) }),
 
   listTransactions: (accountId?: string) =>
     request<Transaction[]>(`/transactions${accountId ? `?accountId=${accountId}` : ""}`),
