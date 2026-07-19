@@ -46,3 +46,14 @@ CREATE INDEX IF NOT EXISTS idx_transactions_account_date
 
 CREATE INDEX IF NOT EXISTS idx_transactions_category
   ON transactions (category_id);
+
+-- One monthly spending limit per category. "Spent this month" is computed
+-- at query time from transactions, not stored — it always reflects the
+-- current calendar month, matching how the rest of the app treats "this
+-- month" (no historical budget-period tracking yet).
+CREATE TABLE IF NOT EXISTS budgets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  category_id INTEGER NOT NULL UNIQUE REFERENCES categories(id),
+  monthly_limit REAL NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

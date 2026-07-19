@@ -7,13 +7,14 @@ import CashFlowCard, { type MonthFlow } from "../components/dashboard/CashFlowCa
 import MagnitudeBarList from "../components/dashboard/MagnitudeBarList.js";
 import NetWorthCard, { type TrendPoint } from "../components/dashboard/NetWorthCard.js";
 import SortableCard from "../components/dashboard/SortableCard.js";
-import { api, type Account, type Category, type Transaction } from "../api/client.js";
+import { api, type Account, type Budget, type Category, type Transaction } from "../api/client.js";
 import { avatarColorVar, initials } from "../utils/avatarColor.js";
+import { budgetStatus } from "../utils/budgetStatus.js";
 
-const WIDGET_IDS = ["netWorth", "accounts", "cashflow", "transactions", "category"] as const;
+const WIDGET_IDS = ["netWorth", "accounts", "cashflow", "transactions", "category", "budgets"] as const;
 type WidgetId = (typeof WIDGET_IDS)[number];
 
-const STORAGE_KEY = "dashboard.widgetOrder.v2";
+const STORAGE_KEY = "dashboard.widgetOrder.v3";
 
 function loadWidgetOrder(): WidgetId[] {
   try {
@@ -31,6 +32,7 @@ export default function Dashboard() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [budgets, setBudgets] = useState<Budget[]>([]);
   const [widgetOrder, setWidgetOrder] = useState<WidgetId[]>(loadWidgetOrder);
   const [syncingAll, setSyncingAll] = useState(false);
 
@@ -40,6 +42,7 @@ export default function Dashboard() {
     api.listTransactions().then(setTransactions);
     api.listAccounts().then(setAccounts);
     api.listCategories().then(setCategories);
+    api.listBudgets().then(setBudgets);
   }
 
   useEffect(refresh, []);
@@ -199,6 +202,48 @@ export default function Dashboard() {
         ),
     },
     category: { title: "Spending by category", body: <MagnitudeBarList data={categoryRows} /> },
+    budgets: {
+      title: "Budgets",
+      headerExtra: (
+        <Link to="/budgets" className="card__link">
+          Manage ›
+        </Link>
+      ),
+      body:
+        budgets.length === 0 ? (
+          <p className="empty-state">No budgets set yet.</p>
+        ) : (
+          <div>
+            {(() => {
+              const nearLimit = budgets.filter((b) => budgetStatus(b.spent, b.monthly_limit) !== "good").length;
+              return (
+                nearLimit > 0 && (
+                  <div className="budget-alert">
+                    ⚠ {nearLimit} budget{nearLimit === 1 ? "" : "s"} near or over limit
+                  </div>
+                )
+              );
+            })()}
+            {budgets.map((b) => {
+              const status = budgetStatus(b.spent, b.monthly_limit);
+              const pct = Math.min(100, (b.spent / b.monthly_limit) * 100);
+              return (
+                <div className="budget-row" key={b.id}>
+                  <div className="budget-row__meta">
+                    <span>{b.category_name}</span>
+                    <span className="budget-row__amounts">
+                      {b.spent.toFixed(2)} / {b.monthly_limit.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="budget-row__track">
+                    <div className="budget-row__fill" data-status={status} style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ),
+    },
   };
 
   return (

@@ -27,6 +27,13 @@ export interface Category {
   parent_id: number | null;
 }
 
+export interface Budget {
+  id: number;
+  category_id: number;
+  monthly_limit: number;
+  created_at: string;
+}
+
 export interface BankConnection {
   id: string;
   institution_id: string;

@@ -1,10 +1,11 @@
-import { BarChart3, PiggyBank, Settings, Target } from "lucide-react";
+import { BarChart3, PiggyBank, Settings } from "lucide-react";
 import { Route, Routes } from "react-router-dom";
 import Sidebar from "./components/layout/Sidebar.js";
 import TopHeader from "./components/layout/TopHeader.js";
 import Accounts from "./pages/Accounts.js";
 import BankLink from "./pages/BankLink.js";
 import BankLinkCallback from "./pages/BankLinkCallback.js";
+import Budgets from "./pages/Budgets.js";
 import ComingSoon from "./pages/ComingSoon.js";
 import Dashboard from "./pages/Dashboard.js";
 import Transactions from "./pages/Transactions.js";
@@ -22,10 +23,7 @@ export default function App() {
             <Route path="/transactions" element={<Transactions />} />
             <Route path="/bank-link" element={<BankLink />} />
             <Route path="/bank-link/callback" element={<BankLinkCallback />} />
-            <Route
-              path="/budgets"
-              element={<ComingSoon title="Budgets" icon={Target} description="Set spending limits per category and track progress." />}
-            />
+            <Route path="/budgets" element={<Budgets />} />
             <Route
               path="/analytics"
               element={<ComingSoon title="Analytics" icon={BarChart3} description="Deeper trends and breakdowns across your finances." />}

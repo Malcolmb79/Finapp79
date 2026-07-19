@@ -40,6 +40,14 @@ export interface Category {
   parent_id: number | null;
 }
 
+export interface Budget {
+  id: number;
+  category_id: number;
+  category_name: string;
+  monthly_limit: number;
+  spent: number;
+}
+
 export const api = {
   listTransactions: (accountId?: string) =>
     request<Transaction[]>(`/transactions${accountId ? `?accountId=${accountId}` : ""}`),
@@ -56,6 +64,11 @@ export const api = {
   listCategories: () => request<Category[]>("/categories"),
   createCategory: (name: string, parentId?: number | null) =>
     request<Category>("/categories", { method: "POST", body: JSON.stringify({ name, parent_id: parentId ?? null }) }),
+
+  listBudgets: () => request<Budget[]>("/budgets"),
+  setBudget: (categoryId: number, monthlyLimit: number) =>
+    request<Budget>("/budgets", { method: "POST", body: JSON.stringify({ category_id: categoryId, monthly_limit: monthlyLimit }) }),
+  deleteBudget: (id: number) => request<void>(`/budgets/${id}`, { method: "DELETE" }),
 
   importCsv: (accountId: string, rows: { date: string; amount: number; description?: string }[]) =>
     request<{ imported: number; skipped: number }>("/import/csv", {

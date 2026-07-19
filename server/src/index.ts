@@ -5,6 +5,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { accountsRouter } from "./routes/accounts.js";
 import { bankLinkRouter } from "./routes/bankLink.js";
+import { budgetsRouter } from "./routes/budgets.js";
 import { categoriesRouter } from "./routes/categories.js";
 import { importCsvRouter } from "./routes/importCsv.js";
 import { transactionsRouter } from "./routes/transactions.js";
@@ -23,6 +24,7 @@ app.use(express.json());
 app.use("/api/transactions", transactionsRouter);
 app.use("/api/accounts", accountsRouter);
 app.use("/api/categories", categoriesRouter);
+app.use("/api/budgets", budgetsRouter);
 app.use("/api/import/csv", importCsvRouter);
 app.use("/api/bank-link", bankLinkRouter);
 
