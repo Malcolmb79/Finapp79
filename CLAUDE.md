@@ -60,6 +60,11 @@ BEGIN/COMMIT/ROLLBACK) used anywhere multiple inserts need to be atomic
   deleted (`DELETE /api/transactions/:id` filters on `source = 'manual'`) —
   synced and imported transactions are meant to stay in sync with their
   origin instead of being hand-edited away.
+- `PATCH /api/transactions/:id` only touches fields actually present in the
+  request body (checked via `"field" in req.body`), not just truthy ones —
+  needed so a category can be explicitly cleared back to `null`
+  (uncategorized) rather than that being indistinguishable from "field
+  omitted, leave it alone."
 
 **`client/`** — React + TypeScript, Vite, React Router. Dev server proxies
 `/api/*` to the Express server (see `vite.config.ts`), so client code always
@@ -67,8 +72,10 @@ calls relative paths through `src/api/client.ts` — never hardcode the API
 origin.
 
 Three pages under `src/pages/`: `Dashboard` (aggregate totals), `Transactions`
-(manual entry form + CSV import + table, all backed by the same `refresh()`
-callback pattern), `BankLink` (institution search → GoCardless redirect).
+(manual entry form + CSV import + category management + table, all backed by
+the same `refresh()` callback pattern), `BankLink` (institution search →
+GoCardless redirect). Categories are flat with an optional `parent_id` for
+subcategories, but there's no UI yet for picking a parent when creating one.
 
 ## Data model
 

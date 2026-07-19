@@ -1,8 +1,17 @@
 import { useState } from "react";
-import { api, type Account } from "../api/client.js";
+import { api, type Account, type Category } from "../api/client.js";
 
-export default function TransactionForm({ accounts, onCreated }: { accounts: Account[]; onCreated: () => void }) {
+export default function TransactionForm({
+  accounts,
+  categories,
+  onCreated,
+}: {
+  accounts: Account[];
+  categories: Category[];
+  onCreated: () => void;
+}) {
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
+  const [categoryId, setCategoryId] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
@@ -13,6 +22,7 @@ export default function TransactionForm({ accounts, onCreated }: { accounts: Acc
 
     await api.createTransaction({
       account_id: accountId,
+      category_id: categoryId ? Number(categoryId) : null,
       booking_date: date,
       amount: Number(amount),
       description,
@@ -28,6 +38,14 @@ export default function TransactionForm({ accounts, onCreated }: { accounts: Acc
         {accounts.map((a) => (
           <option key={a.id} value={a.id}>
             {a.name}
+          </option>
+        ))}
+      </select>
+      <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+        <option value="">Uncategorized</option>
+        {categories.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}
           </option>
         ))}
       </select>

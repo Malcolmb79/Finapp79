@@ -29,16 +29,28 @@ export interface Account {
   source: "gocardless" | "manual";
 }
 
+export interface Category {
+  id: number;
+  name: string;
+  parent_id: number | null;
+}
+
 export const api = {
   listTransactions: (accountId?: string) =>
     request<Transaction[]>(`/transactions${accountId ? `?accountId=${accountId}` : ""}`),
   createTransaction: (tx: Partial<Transaction>) =>
     request<Transaction>("/transactions", { method: "POST", body: JSON.stringify(tx) }),
+  updateTransaction: (id: string, patch: { category_id?: number | null; description?: string }) =>
+    request<Transaction>(`/transactions/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   deleteTransaction: (id: string) => request<void>(`/transactions/${id}`, { method: "DELETE" }),
 
   listAccounts: () => request<Account[]>("/accounts"),
   createAccount: (name: string, currency = "USD") =>
     request<Account>("/accounts", { method: "POST", body: JSON.stringify({ name, currency }) }),
+
+  listCategories: () => request<Category[]>("/categories"),
+  createCategory: (name: string, parentId?: number | null) =>
+    request<Category>("/categories", { method: "POST", body: JSON.stringify({ name, parent_id: parentId ?? null }) }),
 
   importCsv: (accountId: string, rows: { date: string; amount: number; description?: string }[]) =>
     request<{ imported: number; skipped: number }>("/import/csv", {

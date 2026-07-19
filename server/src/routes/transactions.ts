@@ -48,7 +48,6 @@ transactionsRouter.post("/", (req, res) => {
 });
 
 transactionsRouter.patch("/:id", (req, res) => {
-  const { category_id, description } = req.body;
   const existing = db.prepare("SELECT * FROM transactions WHERE id = ?").get(req.params.id);
 
   if (!existing) {
@@ -56,11 +55,17 @@ transactionsRouter.patch("/:id", (req, res) => {
     return;
   }
 
-  db.prepare("UPDATE transactions SET category_id = COALESCE(?, category_id), description = COALESCE(?, description) WHERE id = ?").run(
-    category_id ?? null,
-    description ?? null,
-    req.params.id
-  );
+  // Only touch fields the caller actually sent, so e.g. clearing category_id
+  // to null (uncategorizing) is distinguishable from "leave it alone".
+  const hasCategory = "category_id" in req.body;
+  const hasDescription = "description" in req.body;
+
+  db.prepare(
+    `UPDATE transactions SET
+       category_id = ${hasCategory ? "?" : "category_id"},
+       description = ${hasDescription ? "?" : "description"}
+     WHERE id = ?`
+  ).run(...[hasCategory ? req.body.category_id : undefined, hasDescription ? req.body.description : undefined, req.params.id].filter((v) => v !== undefined));
 
   res.json(db.prepare("SELECT * FROM transactions WHERE id = ?").get(req.params.id));
 });
