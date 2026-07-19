@@ -1,26 +1,34 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client.js";
 
 type Status = "linking" | "syncing" | "done" | "error";
 
 export default function BankLinkCallback() {
+  const [searchParams] = useSearchParams();
   const [status, setStatus] = useState<Status>("linking");
   const [error, setError] = useState<string | null>(null);
   const [syncedCount, setSyncedCount] = useState(0);
 
   useEffect(() => {
     (async () => {
-      const requisitionId = localStorage.getItem("gc_pending_requisition_id");
-      if (!requisitionId) {
-        setError("No pending bank link found. Start again from the Link a bank page.");
+      const authError = searchParams.get("error");
+      if (authError) {
+        setError(searchParams.get("error_description") ?? authError);
+        setStatus("error");
+        return;
+      }
+
+      const code = searchParams.get("code");
+      const state = searchParams.get("state");
+      if (!code || !state) {
+        setError("Missing code/state in the redirect. Start again from the Link a bank page.");
         setStatus("error");
         return;
       }
 
       try {
-        const { linkedAccounts } = await api.completeBankLink(requisitionId);
-        localStorage.removeItem("gc_pending_requisition_id");
+        const { linkedAccounts } = await api.completeBankLink(code, state);
 
         setStatus("syncing");
         let total = 0;
@@ -35,6 +43,9 @@ export default function BankLinkCallback() {
         setStatus("error");
       }
     })();
+    // Read the redirect's query params once on mount; re-running this on every
+    // searchParams identity change would re-exchange an already-used code.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (status === "linking") return <p>Finishing up the bank link...</p>;

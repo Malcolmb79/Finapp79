@@ -19,14 +19,19 @@ export interface Transaction {
   currency: string;
   description: string | null;
   counterparty: string | null;
-  source: "gocardless" | "manual" | "csv";
+  source: "enablebanking" | "manual" | "csv";
 }
 
 export interface Account {
   id: string;
   name: string;
   currency: string;
-  source: "gocardless" | "manual";
+  source: "enablebanking" | "manual";
+}
+
+export interface Aspsp {
+  name: string;
+  country: string;
 }
 
 export interface Category {
@@ -58,14 +63,17 @@ export const api = {
       body: JSON.stringify({ account_id: accountId, rows }),
     }),
 
-  listInstitutions: (country: string) => request<{ id: string; name: string }[]>(`/bank-link/institutions?country=${country}`),
-  startBankLink: (institutionId: string, institutionName: string) =>
-    request<{ requisitionId: string; authorizationUrl: string }>("/bank-link/requisitions", {
+  listInstitutions: (country: string) => request<Aspsp[]>(`/bank-link/institutions?country=${country}`),
+  startBankLink: (aspspName: string, country: string) =>
+    request<{ state: string; authorizationUrl: string }>("/bank-link/authorize", {
       method: "POST",
-      body: JSON.stringify({ institution_id: institutionId, institution_name: institutionName }),
+      body: JSON.stringify({ aspsp_name: aspspName, country }),
     }),
-  completeBankLink: (requisitionId: string) =>
-    request<{ linkedAccounts: string[] }>(`/bank-link/requisitions/${requisitionId}/complete`, { method: "POST" }),
+  completeBankLink: (code: string, state: string) =>
+    request<{ linkedAccounts: string[] }>("/bank-link/sessions", {
+      method: "POST",
+      body: JSON.stringify({ code, state }),
+    }),
   syncAccount: (accountId: string) =>
     request<{ synced: number; totalFetched: number }>(`/bank-link/accounts/${accountId}/sync`, { method: "POST" }),
 };

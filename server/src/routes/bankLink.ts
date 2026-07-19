@@ -1,95 +1,117 @@
 import { Router } from "express";
+import { createHash, randomUUID } from "node:crypto";
 import { db, withTransaction } from "../db/client.js";
-import * as gocardless from "../services/gocardless.js";
+import * as enableBanking from "../services/enableBanking.js";
+import type { RemoteTransaction } from "../services/enableBanking.js";
 
 export const bankLinkRouter = Router();
 
 bankLinkRouter.get("/institutions", async (req, res) => {
-  const country = (req.query.country as string) ?? "US";
-  const institutions = await gocardless.listInstitutions(country);
-  res.json(institutions);
+  const country = (req.query.country as string) ?? "GB";
+  const aspsps = await enableBanking.listAspsps(country);
+  res.json(aspsps);
 });
 
 // Step 1: start a bank link. Returns the URL to redirect the user to.
-bankLinkRouter.post("/requisitions", async (req, res) => {
-  const { institution_id, institution_name } = req.body;
-  if (!institution_id) {
-    res.status(400).json({ error: "institution_id is required" });
+// We generate our own `state` up front so we have somewhere to record the
+// pending connection before the user ever leaves our site.
+bankLinkRouter.post("/authorize", async (req, res) => {
+  const { aspsp_name, country } = req.body;
+  if (!aspsp_name || !country) {
+    res.status(400).json({ error: "aspsp_name and country are required" });
     return;
   }
 
-  const requisition = await gocardless.createRequisition(institution_id);
-
+  const state = randomUUID();
   db.prepare(
-    `INSERT INTO bank_connections (id, institution_id, institution_name, status)
-     VALUES (?, ?, ?, 'pending')`
-  ).run(requisition.id, institution_id, institution_name ?? institution_id);
+    `INSERT INTO bank_connections (id, institution_id, institution_name, country, status)
+     VALUES (?, ?, ?, ?, 'pending')`
+  ).run(state, aspsp_name, aspsp_name, country);
 
-  res.json({ requisitionId: requisition.id, authorizationUrl: requisition.link });
+  const authorization = await enableBanking.startAuthorization(
+    { name: aspsp_name, country },
+    state,
+    process.env.ENABLE_BANKING_REDIRECT_URL ?? ""
+  );
+
+  res.json({ state, authorizationUrl: authorization.url });
 });
 
-// Step 2: after the user authorizes at their bank and is redirected back,
-// resolve the linked accounts and store them.
-bankLinkRouter.post("/requisitions/:id/complete", async (req, res) => {
-  const requisition = await gocardless.getRequisition(req.params.id);
-
-  if (requisition.status !== "LN" && requisition.accounts.length === 0) {
-    res.status(409).json({ error: "requisition not yet linked", status: requisition.status });
+// Step 2: after the user authorizes at their bank, Enable Banking redirects
+// back with ?code=&state=. Exchange the code for a session and store the
+// linked accounts.
+bankLinkRouter.post("/sessions", async (req, res) => {
+  const { code, state } = req.body;
+  if (!code || !state) {
+    res.status(400).json({ error: "code and state are required" });
     return;
   }
 
-  const connection = db.prepare("SELECT * FROM bank_connections WHERE id = ?").get(req.params.id);
+  const connection = db.prepare("SELECT * FROM bank_connections WHERE id = ?").get(state);
   if (!connection) {
-    res.status(404).json({ error: "bank connection not found" });
+    res.status(404).json({ error: "no pending bank connection for this state" });
     return;
   }
 
-  db.prepare("UPDATE bank_connections SET status = 'linked' WHERE id = ?").run(req.params.id);
+  const session = await enableBanking.exchangeCode(code);
+
+  db.prepare("UPDATE bank_connections SET status = 'linked' WHERE id = ?").run(state);
 
   const insertAccount = db.prepare(
     `INSERT OR IGNORE INTO accounts (id, bank_connection_id, name, iban, currency, source)
-     VALUES (?, ?, ?, ?, ?, 'gocardless')`
+     VALUES (?, ?, ?, ?, ?, 'enablebanking')`
   );
 
-  for (const accountId of requisition.accounts) {
-    const details = await gocardless.getAccountDetails(accountId);
+  for (const account of session.accounts) {
     insertAccount.run(
-      accountId,
-      req.params.id,
-      details.account.name ?? "Linked account",
-      details.account.iban ?? null,
-      details.account.currency
+      account.uid,
+      state,
+      account.name ?? "Linked account",
+      account.account_id?.iban ?? null,
+      account.currency
     );
   }
 
-  res.json({ linkedAccounts: requisition.accounts });
+  res.json({ linkedAccounts: session.accounts.map((a) => a.uid) });
 });
+
+function signedAmount(tx: RemoteTransaction): number {
+  const magnitude = Math.abs(Number(tx.transaction_amount.amount));
+  return tx.credit_debit_indicator === "DBIT" ? -magnitude : magnitude;
+}
+
+function transactionId(accountUid: string, tx: RemoteTransaction): string {
+  if (tx.transaction_id) return tx.transaction_id;
+  if (tx.entry_reference) return `${accountUid}:${tx.entry_reference}`;
+  const hashInput = `${accountUid}:${tx.booking_date}:${tx.transaction_amount.amount}:${(tx.remittance_information ?? []).join(" ")}`;
+  return createHash("sha256").update(hashInput).digest("hex");
+}
 
 // Step 3: pull transactions for a linked account and upsert them.
 bankLinkRouter.post("/accounts/:accountId/sync", async (req, res) => {
   const { accountId } = req.params;
-  const { transactions } = await gocardless.getAccountTransactions(accountId);
+  const transactions = await enableBanking.listAccountTransactions(accountId);
 
   const insert = db.prepare(
     `INSERT OR IGNORE INTO transactions (id, account_id, booking_date, amount, currency, description, counterparty, source)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'gocardless')`
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'enablebanking')`
   );
 
   let synced = 0;
   withTransaction(() => {
-    for (const tx of transactions.booked) {
+    for (const tx of transactions) {
       const result = insert.run(
-        tx.transactionId,
+        transactionId(accountId, tx),
         accountId,
-        tx.bookingDate,
-        Number(tx.transactionAmount.amount),
-        tx.transactionAmount.currency,
-        tx.remittanceInformationUnstructured ?? null,
-        tx.creditorName ?? tx.debtorName ?? null
+        tx.booking_date,
+        signedAmount(tx),
+        tx.transaction_amount.currency,
+        (tx.remittance_information ?? []).join(" ") || null,
+        tx.creditor?.name ?? tx.debtor?.name ?? null
       );
       if (result.changes > 0) synced++;
     }
   });
 
-  res.json({ synced, totalFetched: transactions.booked.length });
+  res.json({ synced, totalFetched: transactions.length });
 });

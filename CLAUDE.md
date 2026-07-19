@@ -5,8 +5,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 A local personal expense tracker. Transactions arrive three ways: automatically
-via open banking (GoCardless Bank Account Data), manual entry through the UI,
-or CSV import for banks GoCardless doesn't cover.
+via open banking (Enable Banking), manual entry through the UI, or CSV import
+for banks Enable Banking doesn't cover.
+
+Originally built against GoCardless Bank Account Data; switched to Enable
+Banking after GoCardless closed new signups (see
+`https://bankaccountdata.gocardless.com/new-signups-disabled`). If you see
+references to GoCardless anywhere outside this history note, they're stale.
 
 ## Commands
 
@@ -21,10 +26,11 @@ Run from the repo root (npm workspaces: `server`, `client`).
 - `npm run test` — run server tests (vitest)
   - Single test file: `npm run test --workspace server -- path/to/file.test.ts`
 
-Requires Node.js >=22.5 and a `.env` file (copy `.env.example`) with GoCardless
-`GOCARDLESS_SECRET_ID` / `GOCARDLESS_SECRET_KEY` — get a free sandbox account
-at https://bankaccountdata.gocardless.com/. Without real credentials, manual
-entry and CSV import still work; only the bank-link flow needs them.
+Requires Node.js >=22.5 and a `.env` file (copy `.env.example`) with
+`ENABLE_BANKING_APP_ID` and `ENABLE_BANKING_PRIVATE_KEY_PATH` — see the
+comments in `.env.example` for the self-serve signup + certificate steps
+(no billing, free sandbox with a mock bank). Without real credentials,
+manual entry and CSV import still work; only the bank-link flow needs them.
 
 ## Architecture
 
@@ -35,42 +41,53 @@ Python + native toolchain that isn't guaranteed to be set up. `node:sqlite`
 has no `db.transaction()` helper like better-sqlite3 does, so
 `src/db/client.ts` exports a `withTransaction()` wrapper (manual
 BEGIN/COMMIT/ROLLBACK) used anywhere multiple inserts need to be atomic
-(CSV import, GoCardless transaction sync).
+(CSV import, Enable Banking transaction sync).
 
 Deliberately on Express 5, not 4: Express 4 doesn't catch rejected promises
 thrown inside `async (req, res) =>` route handlers, so an unhandled
 rejection there crashes the whole Node process — not just that request. All
-the GoCardless routes are async and call an external API that can reject
-(e.g. missing/invalid credentials), so this isn't hypothetical. Express 5
-forwards those rejections to the error-handling middleware in
+the Enable Banking routes are async and call an external API that can
+reject (e.g. missing/invalid credentials), so this isn't hypothetical.
+Express 5 forwards those rejections to the error-handling middleware in
 `src/index.ts` automatically, turning a process crash into a normal 500
 response.
 
 - `src/db/schema.sql` — table definitions, applied automatically on startup
   by `src/db/client.ts` (`db.exec(schema)` runs every boot; all DDL uses
   `CREATE TABLE IF NOT EXISTS`, so it's safe to re-run).
-- `src/services/gocardless.ts` — the only place that talks to the GoCardless
-  API. Handles token caching/refresh internally; callers just call functions
-  like `createRequisition`, `getAccountTransactions`.
-- `src/routes/bankLink.ts` — the three-step open banking flow:
-  1. `POST /api/bank-link/requisitions` creates a GoCardless requisition and
-     returns an authorization URL to redirect the user to.
-  2. After the user authorizes at their bank and is redirected back,
-     `POST /api/bank-link/requisitions/:id/complete` resolves the linked
-     accounts and inserts rows into `accounts`.
-  3. `POST /api/bank-link/accounts/:accountId/sync` pulls transactions for a
-     linked account and upserts them into `transactions`.
-  On the client, `BankLink.tsx` stashes the requisition id in
-  `localStorage` right before redirecting to GoCardless, because
-  GoCardless's redirect back to us doesn't reliably round-trip it as a
-  query param. `BankLinkCallback.tsx` (mounted at `/bank-link/callback`,
-  which matches `GOCARDLESS_REDIRECT_URL` in `.env`) reads it back on
-  mount and drives steps 2 and 3.
+- `src/services/enableBanking.ts` — the only place that talks to the Enable
+  Banking API. Auth is a locally-signed short-lived RS256 JWT (`kid` =
+  `ENABLE_BANKING_APP_ID`, signed with the private key at
+  `ENABLE_BANKING_PRIVATE_KEY_PATH`) sent as a bearer token on every
+  request — there's no token endpoint/network round trip like OAuth
+  client-credentials flows, so nothing needs caching.
+- `src/routes/bankLink.ts` — the open banking flow. Unlike a requisition
+  ID from a single "create link" call, Enable Banking identifies a bank by
+  a `(name, country)` pair and returns `code`/`state` directly in the
+  redirect query string, so the flow is simpler than the GoCardless one it
+  replaced:
+  1. `POST /api/bank-link/authorize` generates our own `state` UUID,
+     records a `pending` row in `bank_connections` keyed on it, and asks
+     Enable Banking for an authorization URL.
+  2. The user authorizes at their bank (or, in sandbox, at Mock ASPSP) and
+     is redirected to `ENABLE_BANKING_REDIRECT_URL` with `?code=&state=`
+     in the query string. The client's `BankLinkCallback.tsx` (mounted at
+     `/bank-link/callback`) reads those directly off the URL — no
+     localStorage relay needed, unlike the previous provider.
+  3. `POST /api/bank-link/sessions` exchanges the code for a session,
+     looks up the pending `bank_connections` row by `state`, and inserts
+     the linked accounts.
+  4. `POST /api/bank-link/accounts/:accountId/sync` pulls transactions
+     (paginated via `continuation_key`) and upserts them. Enable Banking
+     reports amount as unsigned + a `credit_debit_indicator`
+     (`CRDT`/`DBIT`); `signedAmount()` in `bankLink.ts` converts that to
+     this app's negative-is-outflow convention.
 - `src/routes/importCsv.ts` — CSV rows are content-hashed (`sha256` of
   account+date+amount+description) to derive the transaction `id`, so
   re-importing the same file is a no-op via `INSERT OR IGNORE` instead of
-  creating duplicates. GoCardless-synced transactions dedupe the same way,
-  keyed on the provider's own `transactionId`.
+  creating duplicates. Enable Banking transactions dedupe the same way,
+  preferring the provider's `transaction_id`/`entry_reference` and falling
+  back to a content hash if neither is present.
 - Manual transactions (`source = 'manual'`) are the only ones that can be
   deleted (`DELETE /api/transactions/:id` filters on `source = 'manual'`) —
   synced and imported transactions are meant to stay in sync with their
@@ -86,21 +103,22 @@ response.
 calls relative paths through `src/api/client.ts` — never hardcode the API
 origin.
 
-Three pages under `src/pages/`: `Dashboard` (aggregate totals), `Transactions`
+Four pages under `src/pages/`: `Dashboard` (aggregate totals), `Transactions`
 (manual entry form + CSV import + category management + table, all backed by
 the same `refresh()` callback pattern), `BankLink` (institution search →
-GoCardless redirect). Categories are flat with an optional `parent_id` for
-subcategories, but there's no UI yet for picking a parent when creating one.
+Enable Banking redirect), `BankLinkCallback` (finishes the link and triggers
+the first sync — see the bankLink.ts flow above).
 
 ## Data model
 
-- `bank_connections` — one row per GoCardless requisition (a bank
-  authorization session).
-- `accounts` — either linked via `bank_connection_id` (source = `gocardless`)
-  or created manually (source = `manual`). Account `id` is the GoCardless
-  account id when synced, otherwise a generated UUID.
+- `bank_connections` — one row per Enable Banking authorization (keyed on
+  our own generated `state` UUID, since there's no single provider-issued
+  ID to key off before the user has even authorized).
+- `accounts` — either linked via `bank_connection_id` (source =
+  `enablebanking`) or created manually (source = `manual`). Account `id` is
+  the Enable Banking account `uid` when synced, otherwise a generated UUID.
 - `transactions.amount` — negative is outflow, positive is inflow, no
   separate sign/type column.
-- `transactions.source` is one of `gocardless` | `manual` | `csv` and
+- `transactions.source` is one of `enablebanking` | `manual` | `csv` and
   determines both the `id` derivation strategy and whether the row is
   user-deletable (see above).

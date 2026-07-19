@@ -6,5 +6,7 @@ build/
 *.sqlite
 *.sqlite3
 server/data/
+*.pem
+*_private_key*
 .DS_Store
 .claude/settings.local.json

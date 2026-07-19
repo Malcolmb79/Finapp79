@@ -1,20 +1,23 @@
--- Bank connections established via GoCardless (one per linked institution).
+-- Bank connections established via Enable Banking (one per linked institution).
+-- id is our own generated `state` uuid, since Enable Banking identifies an
+-- ASPSP by a (name, country) pair rather than a single opaque id.
 CREATE TABLE IF NOT EXISTS bank_connections (
-  id TEXT PRIMARY KEY,              -- GoCardless requisition id
-  institution_id TEXT NOT NULL,
+  id TEXT PRIMARY KEY,
+  institution_id TEXT NOT NULL,     -- ASPSP name
   institution_name TEXT NOT NULL,
+  country TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending', -- pending | linked | expired | error
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Bank accounts, either synced from GoCardless or created manually.
+-- Bank accounts, either synced from Enable Banking or created manually.
 CREATE TABLE IF NOT EXISTS accounts (
-  id TEXT PRIMARY KEY,              -- GoCardless account id, or a generated uuid for manual accounts
+  id TEXT PRIMARY KEY,              -- Enable Banking account uid, or a generated uuid for manual accounts
   bank_connection_id TEXT REFERENCES bank_connections(id),
   name TEXT NOT NULL,
   iban TEXT,
   currency TEXT NOT NULL DEFAULT 'USD',
-  source TEXT NOT NULL DEFAULT 'manual', -- gocardless | manual
+  source TEXT NOT NULL DEFAULT 'manual', -- enablebanking | manual
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -25,7 +28,7 @@ CREATE TABLE IF NOT EXISTS categories (
 );
 
 CREATE TABLE IF NOT EXISTS transactions (
-  id TEXT PRIMARY KEY,              -- GoCardless transactionId, csv-import-derived hash, or generated uuid
+  id TEXT PRIMARY KEY,              -- Enable Banking transaction_id/entry_reference, csv-import-derived hash, or generated uuid
   account_id TEXT NOT NULL REFERENCES accounts(id),
   category_id INTEGER REFERENCES categories(id),
   booking_date TEXT NOT NULL,       -- ISO date
@@ -33,7 +36,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   currency TEXT NOT NULL DEFAULT 'USD',
   description TEXT,
   counterparty TEXT,
-  source TEXT NOT NULL DEFAULT 'manual', -- gocardless | manual | csv
+  source TEXT NOT NULL DEFAULT 'manual', -- enablebanking | manual | csv
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (account_id, id)
 );

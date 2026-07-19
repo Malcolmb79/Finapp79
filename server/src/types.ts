@@ -4,7 +4,7 @@ export interface Account {
   name: string;
   iban: string | null;
   currency: string;
-  source: "gocardless" | "manual";
+  source: "enablebanking" | "manual";
   created_at: string;
 }
 
@@ -17,7 +17,7 @@ export interface Transaction {
   currency: string;
   description: string | null;
   counterparty: string | null;
-  source: "gocardless" | "manual" | "csv";
+  source: "enablebanking" | "manual" | "csv";
   created_at: string;
 }
 
@@ -31,6 +31,7 @@ export interface BankConnection {
   id: string;
   institution_id: string;
   institution_name: string;
+  country: string;
   status: "pending" | "linked" | "expired" | "error";
   created_at: string;
 }
