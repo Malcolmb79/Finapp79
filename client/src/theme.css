@@ -10,6 +10,13 @@
 :root {
   color-scheme: light;
 
+  /* The palette picker (Settings) only ever overrides these two — every
+     ramp step below is computed from them, so a "palette" is just a
+     hue/saturation pair rather than 8 hand-authored hex values per theme.
+     Default is Emerald, matching the app's original hand-picked green. */
+  --palette-hue: 160;
+  --palette-sat: 70%;
+
   --sidebar-bg: #ffffff;
   --page-plane: #f4f5f4;
   --surface-1: #ffffff;
@@ -21,10 +28,10 @@
   --baseline: #c7ccc8;
   --border: rgba(11, 15, 13, 0.1);
 
-  --seq-100: #d1fae5;
-  --seq-250: #6ee7b7;
-  --seq-450: #059669;
-  --seq-600: #065f46;
+  --seq-100: hsl(var(--palette-hue) var(--palette-sat) 90%);
+  --seq-250: hsl(var(--palette-hue) var(--palette-sat) 76%);
+  --seq-450: hsl(var(--palette-hue) var(--palette-sat) 38%);
+  --seq-600: hsl(var(--palette-hue) var(--palette-sat) 28%);
   --accent: var(--seq-450);
   --accent-ink: #ffffff;
 
@@ -61,12 +68,12 @@
     --baseline: #38383d;
     --border: rgba(255, 255, 255, 0.08);
 
-    --seq-100: #065f46;
-    --seq-250: #059669;
-    --seq-450: #34d399;
-    --seq-600: #a7f3d0;
+    --seq-100: hsl(var(--palette-hue) var(--palette-sat) 24%);
+    --seq-250: hsl(var(--palette-hue) var(--palette-sat) 34%);
+    --seq-450: hsl(var(--palette-hue) var(--palette-sat) 60%);
+    --seq-600: hsl(var(--palette-hue) var(--palette-sat) 78%);
     --accent: var(--seq-450);
-    --accent-ink: #04120c;
+    --accent-ink: hsl(var(--palette-hue) 25% 9%);
 
     --good: #22c55e;
     --warning: #f59e0b;
@@ -99,12 +106,12 @@
   --baseline: #38383d;
   --border: rgba(255, 255, 255, 0.08);
 
-  --seq-100: #065f46;
-  --seq-250: #059669;
-  --seq-450: #34d399;
-  --seq-600: #a7f3d0;
+  --seq-100: hsl(var(--palette-hue) var(--palette-sat) 24%);
+  --seq-250: hsl(var(--palette-hue) var(--palette-sat) 34%);
+  --seq-450: hsl(var(--palette-hue) var(--palette-sat) 60%);
+  --seq-600: hsl(var(--palette-hue) var(--palette-sat) 78%);
   --accent: var(--seq-450);
-  --accent-ink: #04120c;
+  --accent-ink: hsl(var(--palette-hue) 25% 9%);
 
   --good: #22c55e;
   --warning: #f59e0b;
@@ -354,6 +361,8 @@ th {
 .search-input {
   width: 100%;
   max-width: 340px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .top-header__actions {
@@ -372,6 +381,11 @@ th {
   justify-content: center;
   padding: 0;
   position: relative;
+  flex-shrink: 0;
+}
+
+.menu-button {
+  display: none;
 }
 
 .avatar-chip {
@@ -754,5 +768,52 @@ th {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* Below this width the fixed 264px sidebar would eat too much of the
+   screen, so it becomes an off-canvas drawer (hidden by default, toggled by
+   the hamburger button in TopHeader) and the main column takes full width. */
+@media (max-width: 860px) {
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 50;
+    width: min(var(--sidebar-width), 84vw);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+
+  .sidebar--open {
+    transform: translateX(0);
+    box-shadow: var(--shadow);
+  }
+
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 49;
+  }
+
+  .menu-button {
+    display: flex;
+  }
+
+  .top-header {
+    padding: 0.75rem 1rem;
+    gap: 0.6rem;
+  }
+
+  .page-content {
+    padding: 1rem;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stat-row {
+    gap: 0.5rem;
   }
 }

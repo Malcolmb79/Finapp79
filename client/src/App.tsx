@@ -1,5 +1,5 @@
-import { Settings } from "lucide-react";
-import { Outlet, Route, Routes } from "react-router-dom";
+import { useState } from "react";
+import { Outlet, Route, Routes, useLocation } from "react-router-dom";
 import RequireAuth from "./components/RequireAuth.js";
 import Sidebar from "./components/layout/Sidebar.js";
 import TopHeader from "./components/layout/TopHeader.js";
@@ -8,20 +8,34 @@ import Analytics from "./pages/Analytics.js";
 import BankLink from "./pages/BankLink.js";
 import BankLinkCallback from "./pages/BankLinkCallback.js";
 import Budgets from "./pages/Budgets.js";
-import ComingSoon from "./pages/ComingSoon.js";
 import Dashboard from "./pages/Dashboard.js";
 import DebtPlanner from "./pages/DebtPlanner.js";
 import Login from "./pages/Login.js";
 import Savings from "./pages/Savings.js";
+import Settings from "./pages/Settings.js";
 import Transactions from "./pages/Transactions.js";
 
 function AppShell() {
+  const [navOpen, setNavOpen] = useState(false);
+  const location = useLocation();
+  const [lastPathname, setLastPathname] = useState(location.pathname);
+
+  // Close the mobile drawer whenever the active module changes, so it never
+  // stays open after a nav click eats the screen real estate it exists to
+  // save. Adjusting state during render (React's documented pattern for
+  // "reset state when a prop changes") instead of an effect, since an effect
+  // here would cause an extra render on every navigation.
+  if (location.pathname !== lastPathname) {
+    setLastPathname(location.pathname);
+    setNavOpen(false);
+  }
+
   return (
     <RequireAuth>
       <div className="app-shell">
-        <Sidebar />
+        <Sidebar navOpen={navOpen} onCloseNav={() => setNavOpen(false)} />
         <div className="main">
-          <TopHeader />
+          <TopHeader onOpenNav={() => setNavOpen(true)} />
           <div className="page-content">
             <Outlet />
           </div>
@@ -45,10 +59,7 @@ export default function App() {
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/debt-planner" element={<DebtPlanner />} />
         <Route path="/savings" element={<Savings />} />
-        <Route
-          path="/settings"
-          element={<ComingSoon title="Settings" icon={Settings} description="Account, notification, and app preferences." />}
-        />
+        <Route path="/settings" element={<Settings />} />
       </Route>
     </Routes>
   );

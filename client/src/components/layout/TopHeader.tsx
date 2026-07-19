@@ -1,13 +1,16 @@
-import { Bell, Search, User } from "lucide-react";
+import { Bell, Menu, Search, User } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext.js";
 import { initials } from "../../utils/avatarColor.js";
 import ThemeToggle from "../ThemeToggle.js";
 
-export default function TopHeader() {
+export default function TopHeader({ onOpenNav }: { onOpenNav: () => void }) {
   const { user } = useAuth();
 
   return (
     <header className="top-header">
+      <button className="icon-button menu-button" aria-label="Open navigation" onClick={onOpenNav}>
+        <Menu size={18} />
+      </button>
       <div className="search-input" style={{ position: "relative" }}>
         <Search
           size={15}
