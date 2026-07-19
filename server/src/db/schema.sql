@@ -57,3 +57,27 @@ CREATE TABLE IF NOT EXISTS budgets (
   monthly_limit REAL NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- A debt/loan balance being paid down. Payoff time is computed client-side
+-- from balance/apr/minimum_payment via standard amortization math — not
+-- stored, since it's a projection that changes as balance changes.
+CREATE TABLE IF NOT EXISTS debts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  balance REAL NOT NULL,
+  apr REAL NOT NULL DEFAULT 0,       -- annual percentage rate, e.g. 19.99 for 19.99%
+  minimum_payment REAL NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- A savings goal with manually-tracked progress (not linked to a specific
+-- account balance, since a goal like "vacation fund" is often notional
+-- rather than a literal separate account).
+CREATE TABLE IF NOT EXISTS savings_goals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  target_amount REAL NOT NULL,
+  current_amount REAL NOT NULL DEFAULT 0,
+  target_date TEXT,                  -- nullable ISO date
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

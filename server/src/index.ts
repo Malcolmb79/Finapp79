@@ -7,7 +7,9 @@ import { accountsRouter } from "./routes/accounts.js";
 import { bankLinkRouter } from "./routes/bankLink.js";
 import { budgetsRouter } from "./routes/budgets.js";
 import { categoriesRouter } from "./routes/categories.js";
+import { debtsRouter } from "./routes/debts.js";
 import { importCsvRouter } from "./routes/importCsv.js";
+import { savingsRouter } from "./routes/savings.js";
 import { transactionsRouter } from "./routes/transactions.js";
 
 // `.env` lives at the monorepo root, not server/ — dotenv's default
@@ -25,6 +27,8 @@ app.use("/api/transactions", transactionsRouter);
 app.use("/api/accounts", accountsRouter);
 app.use("/api/categories", categoriesRouter);
 app.use("/api/budgets", budgetsRouter);
+app.use("/api/debts", debtsRouter);
+app.use("/api/savings", savingsRouter);
 app.use("/api/import/csv", importCsvRouter);
 app.use("/api/bank-link", bankLinkRouter);
 

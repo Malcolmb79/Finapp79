@@ -48,6 +48,22 @@ export interface Budget {
   spent: number;
 }
 
+export interface Debt {
+  id: number;
+  name: string;
+  balance: number;
+  apr: number;
+  minimum_payment: number;
+}
+
+export interface SavingsGoal {
+  id: number;
+  name: string;
+  target_amount: number;
+  current_amount: number;
+  target_date: string | null;
+}
+
 export const api = {
   listTransactions: (accountId?: string) =>
     request<Transaction[]>(`/transactions${accountId ? `?accountId=${accountId}` : ""}`),
@@ -69,6 +85,20 @@ export const api = {
   setBudget: (categoryId: number, monthlyLimit: number) =>
     request<Budget>("/budgets", { method: "POST", body: JSON.stringify({ category_id: categoryId, monthly_limit: monthlyLimit }) }),
   deleteBudget: (id: number) => request<void>(`/budgets/${id}`, { method: "DELETE" }),
+
+  listDebts: () => request<Debt[]>("/debts"),
+  createDebt: (debt: { name: string; balance: number; apr: number; minimum_payment: number }) =>
+    request<Debt>("/debts", { method: "POST", body: JSON.stringify(debt) }),
+  updateDebt: (id: number, patch: Partial<{ name: string; balance: number; apr: number; minimum_payment: number }>) =>
+    request<Debt>(`/debts/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  deleteDebt: (id: number) => request<void>(`/debts/${id}`, { method: "DELETE" }),
+
+  listSavingsGoals: () => request<SavingsGoal[]>("/savings"),
+  createSavingsGoal: (goal: { name: string; target_amount: number; target_date?: string | null }) =>
+    request<SavingsGoal>("/savings", { method: "POST", body: JSON.stringify(goal) }),
+  contributeSavingsGoal: (id: number, amount: number) =>
+    request<SavingsGoal>(`/savings/${id}/contribute`, { method: "POST", body: JSON.stringify({ amount }) }),
+  deleteSavingsGoal: (id: number) => request<void>(`/savings/${id}`, { method: "DELETE" }),
 
   importCsv: (accountId: string, rows: { date: string; amount: number; description?: string }[]) =>
     request<{ imported: number; skipped: number }>("/import/csv", {

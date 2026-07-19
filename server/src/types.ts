@@ -34,6 +34,24 @@ export interface Budget {
   created_at: string;
 }
 
+export interface Debt {
+  id: number;
+  name: string;
+  balance: number;
+  apr: number;
+  minimum_payment: number;
+  created_at: string;
+}
+
+export interface SavingsGoal {
+  id: number;
+  name: string;
+  target_amount: number;
+  current_amount: number;
+  target_date: string | null;
+  created_at: string;
+}
+
 export interface BankConnection {
   id: string;
   institution_id: string;
