@@ -5,7 +5,7 @@ import { cleanDescription } from "../utils/cleanDescription.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 
 const SOURCE_LABEL: Record<Transaction["source"], string> = {
-  enablebanking: "Synced from bank",
+  plaid: "Synced from bank",
   manual: "Manual entry",
   csv: "CSV import",
 };

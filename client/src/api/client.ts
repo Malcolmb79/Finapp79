@@ -19,25 +19,19 @@ export interface Transaction {
   currency: string;
   description: string | null;
   counterparty: string | null;
-  source: "enablebanking" | "manual" | "csv";
+  source: "plaid" | "manual" | "csv";
 }
 
 export interface Account {
   id: string;
   name: string;
   currency: string;
-  source: "enablebanking" | "manual";
+  source: "plaid" | "manual";
   institution_name?: string | null;
   logo?: string | null;
   balance?: number | null;
   available_balance?: number | null;
   balance_synced_at?: string | null;
-}
-
-export interface Aspsp {
-  name: string;
-  country: string;
-  logo?: string;
 }
 
 export interface Category {
@@ -149,16 +143,11 @@ export const api = {
       body: JSON.stringify({ account_id: accountId, rows }),
     }),
 
-  listInstitutions: (country: string) => request<Aspsp[]>(`/bank-link/institutions?country=${country}`),
-  startBankLink: (aspspName: string, country: string, logo?: string) =>
-    request<{ state: string; authorizationUrl: string }>("/bank-link/authorize", {
+  createLinkToken: () => request<{ linkToken: string }>("/bank-link/link-token", { method: "POST" }),
+  exchangePublicToken: (publicToken: string, institutionId: string) =>
+    request<{ linkedAccounts: string[] }>("/bank-link/exchange", {
       method: "POST",
-      body: JSON.stringify({ aspsp_name: aspspName, country, logo }),
-    }),
-  completeBankLink: (code: string, state: string) =>
-    request<{ linkedAccounts: string[] }>("/bank-link/sessions", {
-      method: "POST",
-      body: JSON.stringify({ code, state }),
+      body: JSON.stringify({ public_token: publicToken, institution_id: institutionId }),
     }),
   syncAccount: (accountId: string) =>
     request<{ synced: number; totalFetched: number }>(`/bank-link/accounts/${accountId}/sync`, { method: "POST" }),

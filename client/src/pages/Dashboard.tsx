@@ -118,7 +118,7 @@ export default function Dashboard() {
   }
 
   async function handleSyncAll() {
-    const linked = accounts.filter((a) => a.source === "enablebanking");
+    const linked = accounts.filter((a) => a.source === "plaid");
     if (linked.length === 0) return;
     setSyncingAll(true);
     try {
@@ -189,7 +189,7 @@ export default function Dashboard() {
     .sort((a, b) => b.booking_date.localeCompare(a.booking_date))
     .slice(0, 5);
 
-  const linkedAccountCount = accounts.filter((a) => a.source === "enablebanking").length;
+  const linkedAccountCount = accounts.filter((a) => a.source === "plaid").length;
 
   const totalDebt = debts.reduce((s, d) => s + d.balance, 0);
   const debtsByApr = [...debts].sort((a, b) => b.apr - a.apr).slice(0, 4);
@@ -216,7 +216,7 @@ export default function Dashboard() {
                   <div className="account-row__name">{a.name}</div>
                   <div className="account-row__meta">
                     <span className="status-dot" />
-                    {a.source === "enablebanking" ? "Linked" : "Manual"}
+                    {a.source === "plaid" ? "Linked" : "Manual"}
                   </div>
                 </div>
                 <span className="account-row__balance">{accountBalance(a, byAccount.get(a.id) ?? 0).toFixed(2)}</span>

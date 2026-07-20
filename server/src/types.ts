@@ -4,7 +4,7 @@ export interface Account {
   name: string;
   iban: string | null;
   currency: string;
-  source: "enablebanking" | "manual";
+  source: "plaid" | "manual";
   created_at: string;
 }
 
@@ -17,7 +17,7 @@ export interface Transaction {
   currency: string;
   description: string | null;
   counterparty: string | null;
-  source: "enablebanking" | "manual" | "csv";
+  source: "plaid" | "manual" | "csv";
   created_at: string;
 }
 

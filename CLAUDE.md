@@ -5,13 +5,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 A local personal expense tracker. Transactions arrive three ways: automatically
-via open banking (Enable Banking), manual entry through the UI, or CSV import
-for banks Enable Banking doesn't cover.
+via open banking (Plaid), manual entry through the UI, or CSV import for
+banks Plaid doesn't cover.
 
-Originally built against GoCardless Bank Account Data; switched to Enable
-Banking after GoCardless closed new signups (see
-`https://bankaccountdata.gocardless.com/new-signups-disabled`). If you see
-references to GoCardless anywhere outside this history note, they're stale.
+Originally built against GoCardless Bank Account Data, then switched to
+Enable Banking after GoCardless closed new signups, then switched again to
+Plaid for stronger UK Open Banking coverage — Enable Banking's UK
+entitlement never got approved for this app, and the one bank linked
+through it (AIB, Ireland) kept failing with intermittent bank-side
+`ASPSP_ERROR`s that were confirmed (via production logs) to happen before
+this app's own code ever ran. If you see references to GoCardless or Enable
+Banking anywhere outside this history note, they're stale.
 
 ## Commands
 
@@ -26,11 +30,11 @@ Run from the repo root (npm workspaces: `server`, `client`).
 - `npm run test` — run server tests (vitest)
   - Single test file: `npm run test --workspace server -- path/to/file.test.ts`
 
-Requires Node.js >=22.5 and a `.env` file (copy `.env.example`). Enable
-Banking needs `ENABLE_BANKING_APP_ID` and `ENABLE_BANKING_PRIVATE_KEY_PATH`
-(or `ENABLE_BANKING_PRIVATE_KEY` — see Deployment below) — see the comments
-in `.env.example` for the self-serve signup + certificate steps (no
-billing, free sandbox with a mock bank). Sign-in needs at least one of
+Requires Node.js >=22.5 and a `.env` file (copy `.env.example`). Plaid needs
+`PLAID_CLIENT_ID` and `PLAID_SECRET` (plus `PLAID_ENV` and, for OAuth banks,
+`PLAID_REDIRECT_URI`) — see the comments in `.env.example` for the
+self-serve signup steps (no billing, free Sandbox with test institutions).
+Sign-in needs at least one of
 `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, `FACEBOOK_CLIENT_ID`/
 `FACEBOOK_CLIENT_SECRET`, or nothing at all (email/password sign-up is
 always available), plus `SESSION_SECRET`. `POSTGRES_URL` is optional for
@@ -83,7 +87,7 @@ inside the callback instead of the outer `db.prepare(...)` (see
 Deliberately on Express 5, not 4: Express 4 doesn't catch rejected promises
 thrown inside `async (req, res) =>` route handlers, so an unhandled
 rejection there crashes the whole Node process — not just that request. All
-the Enable Banking routes are async and call an external API that can
+the bank-link routes are async and call an external API (Plaid) that can
 reject (e.g. missing/invalid credentials), so this isn't hypothetical.
 Express 5 forwards those rejections to the error-handling middleware in
 `src/app.ts` automatically, turning a process crash into a normal 500
@@ -110,7 +114,7 @@ query, or one user's data leaks into another's response.
   `passport-facebook` with an undefined `clientID` throws immediately,
   which would crash the whole server at boot rather than just leaving that
   login button inert — same "missing config degrades gracefully" principle
-  as Enable Banking). `configuredProviders` tracks which ones are live;
+  as Plaid). `configuredProviders` tracks which ones are live;
   `GET /api/auth/providers` exposes it so the client can gray out buttons
   for providers that aren't set up instead of offering a dead link.
 - `src/auth/sessionStore.ts` — a hand-rolled `express-session` Store backed
@@ -137,7 +141,7 @@ query, or one user's data leaks into another's response.
   `expires_at`/`used_at`, and marks it used atomically with the check.
 - `src/services/mailer.ts` / `src/auth/emailTemplates.ts` — transactional
   email (password reset, email verification) via Resend. Same
-  "missing config degrades gracefully" principle as Enable Banking/OAuth:
+  "missing config degrades gracefully" principle as Plaid/OAuth:
   without `RESEND_API_KEY`, `sendEmail()` logs the message to the console
   instead of throwing, so the full reset/verify flow works in local dev
   (grab the link from the server log) without a real Resend account.
@@ -161,42 +165,46 @@ query, or one user's data leaks into another's response.
   this schema started as, `user_id`/`password_hash`/every per-user unique
   index are just part of the table definitions from the start — there's no
   migration step, since this targets a database that starts empty.
-- `src/services/enableBanking.ts` — the only place that talks to the Enable
-  Banking API. Auth is a locally-signed short-lived RS256 JWT (`kid` =
-  `ENABLE_BANKING_APP_ID`) sent as a bearer token on every request — no
-  token endpoint/network round trip like OAuth client-credentials flows, so
-  nothing needs caching. The private key itself comes from
-  `ENABLE_BANKING_PRIVATE_KEY` (raw PEM content — the only option that
-  works on Vercel, since the gitignored `.pem` file never reaches the
-  deployment) if set, else `ENABLE_BANKING_PRIVATE_KEY_PATH` (a file path,
-  local-dev convenience).
-- `src/routes/bankLink.ts` — the open banking flow. Unlike a requisition
-  ID from a single "create link" call, Enable Banking identifies a bank by
-  a `(name, country)` pair and returns `code`/`state` directly in the
-  redirect query string, so the flow is simpler than the GoCardless one it
-  replaced:
-  1. `POST /api/bank-link/authorize` generates our own `state` UUID,
-     records a `pending` row in `bank_connections` keyed on it, and asks
-     Enable Banking for an authorization URL.
-  2. The user authorizes at their bank (or, in sandbox, at Mock ASPSP) and
-     is redirected to `ENABLE_BANKING_REDIRECT_URL` with `?code=&state=`
-     in the query string. The client's `BankLinkCallback.tsx` (mounted at
-     `/bank-link/callback`) reads those directly off the URL — no
-     localStorage relay needed, unlike the previous provider.
-  3. `POST /api/bank-link/sessions` exchanges the code for a session,
-     looks up the pending `bank_connections` row by `state`, and inserts
-     the linked accounts.
-  4. `POST /api/bank-link/accounts/:accountId/sync` pulls transactions
-     (paginated via `continuation_key`) and upserts them. Enable Banking
-     reports amount as unsigned + a `credit_debit_indicator`
-     (`CRDT`/`DBIT`); `signedAmount()` in `bankLink.ts` converts that to
-     this app's negative-is-outflow convention.
+- `src/services/plaid.ts` — the only place that talks to the Plaid API.
+  Auth is a `client_id`/`secret` pair sent as headers on every request (set
+  once via the SDK's `Configuration`), not a per-request signed token —
+  simpler than Enable Banking's JWT signing, but the secret is
+  environment-scoped: `PLAID_ENV` picks sandbox vs production via
+  `PlaidEnvironments`, and Plaid issues a different `secret` per
+  environment.
+- `src/routes/bankLink.ts` — the open banking flow. Unlike Enable Banking's
+  own country/bank picker UI backed by a full-page redirect, Plaid uses an
+  embedded widget ("Plaid Link", via `react-plaid-link` on the client) that
+  Plaid hosts and that does its own institution search internally:
+  1. `POST /api/bank-link/link-token` creates a short-lived `link_token`,
+     handed straight to the widget — there's no country/bank picker of our
+     own to drive here.
+  2. The user picks their bank and authenticates *inside* the widget. For
+     OAuth institutions (basically all UK/EU banks), the widget still
+     redirects out to the bank and back, but resumes the *same* Link
+     session via a `link_token` persisted in `sessionStorage` (read by
+     `BankLinkCallback.tsx`, mounted at `/bank-link/callback`) plus
+     `receivedRedirectUri` — not a code/state exchange of our own.
+  3. On success the widget calls back client-side with a `public_token`,
+     which `POST /api/bank-link/exchange` swaps for a long-lived
+     `access_token` (the actual credential, stored on `bank_connections`)
+     and uses to create the linked `accounts` rows.
+  4. `POST /api/bank-link/accounts/:accountId/sync` calls Plaid's
+     cursor-based `/transactions/sync` (the cursor lives on
+     `bank_connections.sync_cursor`, so re-syncing only pulls the delta,
+     not Enable Banking's fixed 90-day re-fetch) and upserts `added` +
+     `modified` transactions (`ON CONFLICT DO UPDATE`, unlike the
+     insert-only pattern elsewhere in this app — Plaid's sync model
+     explicitly distinguishes "modified" from "added", e.g. a pending
+     transaction's amount finalizing). Plaid reports `amount` as positive
+     for money *leaving* the account — the opposite of this app's
+     negative-is-outflow convention — so it's negated on the way in.
 - `src/routes/importCsv.ts` — CSV rows are content-hashed (`sha256` of
   account+date+amount+description) to derive the transaction `id`, so
   re-importing the same file is a no-op via `ON CONFLICT (id) DO NOTHING`
-  instead of creating duplicates. Enable Banking transactions dedupe the
-  same way, preferring the provider's `transaction_id`/`entry_reference`
-  and falling back to a content hash if neither is present.
+  instead of creating duplicates. Plaid transactions dedupe the same way,
+  using the provider's own `transaction_id` directly (always present,
+  unlike some other providers, so there's no hash fallback needed here).
 - Manual transactions (`source = 'manual'`) are the only ones that can be
   deleted (`DELETE /api/transactions/:id` filters on `source = 'manual'`) —
   synced and imported transactions are meant to stay in sync with their
@@ -234,7 +242,7 @@ the client for a while with nothing calling it), `Budgets`, `Analytics`
 (derived views only, no dedicated backend table), `DebtPlanner` (payoff
 time via `utils/payoff.ts`'s amortization math, computed client-side since
 it's a projection that changes with every payment), `Savings`, `BankLink`
-/ `BankLinkCallback` (see the Enable Banking flow above), `Login` (Google/
+/ `BankLinkCallback` (see the Plaid flow above), `Login` (Google/
 Facebook buttons; grayed out per `GET /api/auth/providers` if a provider
 isn't configured server-side, rather than offering a dead link).
 
@@ -245,15 +253,17 @@ individually noted per table — see the Authentication section above for
 why, and for the migration that added it retroactively.
 
 - `users` / `oauth_identities` / `sessions` — see Authentication above.
-- `bank_connections` — one row per Enable Banking authorization (keyed on
-  our own generated `state` UUID, since there's no single provider-issued
-  ID to key off before the user has even authorized).
-- `accounts` — either linked via `bank_connection_id` (source =
-  `enablebanking`) or created manually (source = `manual`). Account `id` is
-  the Enable Banking account `uid` when synced, otherwise a generated UUID.
+- `bank_connections` — one row per Plaid Item (roughly, one per bank
+  login), keyed on our own generated UUID; `item_id` is Plaid's own
+  identifier for the same connection, `access_token` is the actual
+  long-lived credential, and `sync_cursor` tracks `/transactions/sync`
+  progress so re-syncing only pulls the delta.
+- `accounts` — either linked via `bank_connection_id` (source = `plaid`) or
+  created manually (source = `manual`). Account `id` is Plaid's
+  `account_id` when synced, otherwise a generated UUID.
 - `transactions.amount` — negative is outflow, positive is inflow, no
   separate sign/type column.
-- `transactions.source` is one of `enablebanking` | `manual` | `csv` and
+- `transactions.source` is one of `plaid` | `manual` | `csv` and
   determines both the `id` derivation strategy and whether the row is
   user-deletable (see above).
 - `categories.name` and `budgets.category_id` are unique **per user**
@@ -283,10 +293,11 @@ One Vercel project serves both halves from this repo:
 - Required env vars (Vercel dashboard -> Settings -> Environment
   Variables): `SESSION_SECRET`, `CLIENT_URL` (your production URL),
   `POSTGRES_URL` (set automatically once you link the Postgres storage
-  integration — see `.env.example`), plus whichever of the OAuth/Enable
-  Banking vars you're using. `ENABLE_BANKING_PRIVATE_KEY` (raw PEM
-  content) is required there instead of the `_PATH` variant, since the key
-  file is gitignored and never reaches the deployment.
+  integration — see `.env.example`), plus whichever of the OAuth/Plaid
+  vars you're using. `PLAID_REDIRECT_URI` needs to point at your
+  production URL and be registered in the Plaid dashboard for OAuth
+  institutions (UK/EU banks) to work — a bare `localhost` value only works
+  in local dev.
 - OAuth redirect URIs need your production URL added alongside the
   localhost ones already registered (Google Cloud Console / Meta for
   Developers) — `https://your-app.vercel.app/api/auth/google/callback`
