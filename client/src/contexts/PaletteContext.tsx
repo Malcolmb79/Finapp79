@@ -1,29 +1,25 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { DEFAULT_PALETTE, PALETTES, paletteHues } from "../palettes.js";
+import { DEFAULT_THEME, THEMES } from "../palettes.js";
 
 const STORAGE_KEY = "palette";
 
-const PaletteContext = createContext<{ palette: string; setPalette: (name: string) => void } | null>(null);
+const PaletteContext = createContext<{ palette: string; setPalette: (id: string) => void } | null>(null);
 
 function getInitialPalette(): string {
   const stored = localStorage.getItem(STORAGE_KEY);
-  return stored && PALETTES.some((p) => p.name === stored) ? stored : DEFAULT_PALETTE;
+  return stored && THEMES.some((t) => t.id === stored) ? stored : DEFAULT_THEME;
 }
 
 export function PaletteProvider({ children }: { children: ReactNode }) {
   const [palette, setPalette] = useState<string>(getInitialPalette);
 
   useEffect(() => {
-    const preset = PALETTES.find((p) => p.name === palette) ?? PALETTES[0];
-    const [hue1, hue2, hue3, hue4] = paletteHues(preset.hue);
-    // Inline style on the root element beats any stylesheet rule (including
-    // :root[data-theme] and the prefers-color-scheme media query) regardless
-    // of specificity, so this is the one override point both themes read from.
-    document.documentElement.style.setProperty("--palette-hue", String(hue1));
-    document.documentElement.style.setProperty("--palette-hue-2", String(hue2));
-    document.documentElement.style.setProperty("--palette-hue-3", String(hue3));
-    document.documentElement.style.setProperty("--palette-hue-4", String(hue4));
-    document.documentElement.style.setProperty("--palette-sat", preset.sat);
+    // Mirrors ThemeContext's data-theme attribute — theme.css's
+    // :root[data-palette="…"] blocks (light) and
+    // :root[data-palette="…"][data-theme="dark"] blocks (dark) key off
+    // this to swap the full set of background/surface/text/accent colors,
+    // not just the accent hue the old inline-style approach touched.
+    document.documentElement.dataset.palette = palette;
     localStorage.setItem(STORAGE_KEY, palette);
   }, [palette]);
 

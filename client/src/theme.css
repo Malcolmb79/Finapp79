@@ -1,19 +1,24 @@
-/* Palette: emerald brand accent on near-black dark surfaces (light theme is
-   an adapted equivalent, since the toggle must still work both ways).
-   Sequential ramp reuses the brand hue — a single hue is the correct
-   encoding for magnitude comparisons (dataviz skill, "sequential is the
-   safe default"). Status colors (good/warning/critical) are fixed across
+/* Full themes: each data-palette value controls background/surface/text
+   colors AND the accent hue together (not just the accent, like the old
+   single-hue picker) — see palettes.ts for the curated list. Sequential
+   ramp reuses the theme's brand hue — a single hue is the correct encoding
+   for magnitude comparisons (dataviz skill, "sequential is the safe
+   default"). Status colors (good/warning/critical) are fixed across
    themes, reserved for budget/limit state and never reused as a series
    color. Categorical avatar hues are unrelated to the brand color; they're
-   decorative per-account identity, cycled from a fixed CVD-checked set. */
+   decorative per-account identity, cycled from a fixed CVD-checked set —
+   also fixed across themes, same reasoning.
+
+   Each theme block only sets its own hue/sat + surface/text/border colors;
+   the ramp/accent/status/avatar formulas are defined once per mode (light
+   below, dark further down) since the math is identical for every theme —
+   only the --palette-hue/-sat values (and --text-primary, which the accent
+   formulas don't touch) they read differ. */
 
 :root {
   color-scheme: light;
 
-  /* The palette picker (Settings) only ever overrides these two — every
-     ramp step below is computed from them, so a "palette" is just a
-     hue/saturation pair rather than 8 hand-authored hex values per theme.
-     Default is Emerald, matching the app's original hand-picked green. */
+  /* ---- Emerald (default) ---- */
   --palette-hue: 160;
   --palette-hue-2: 220;
   --palette-hue-3: 340;
@@ -31,6 +36,7 @@
   --baseline: #c7ccc8;
   --border: rgba(11, 15, 13, 0.1);
 
+  /* ---- shared light-mode formulas ---- */
   --seq-100: hsl(var(--palette-hue) var(--palette-sat) 90%);
   --seq-250: hsl(var(--palette-hue) var(--palette-sat) 76%);
   --seq-450: hsl(var(--palette-hue) var(--palette-sat) 38%);
@@ -63,8 +69,74 @@
   --sidebar-width: 264px;
 }
 
+/* ---- Bright & Vibrant ---- */
+:root[data-palette="bright"] {
+  color-scheme: light;
+  --palette-hue: 222;
+  --palette-hue-2: 12;
+  --palette-hue-3: 54;
+  --palette-hue-4: 160;
+  --palette-sat: 60%;
+
+  --sidebar-bg: #ffffff;
+  --page-plane: #f7f8fb;
+  --surface-1: #ffffff;
+  --surface-2: #eef1f7;
+  --text-primary: #1b2130;
+  --text-secondary: #545b6b;
+  --text-muted: #8890a0;
+  --gridline: #e3e6ee;
+  --baseline: #c5cad8;
+  --border: rgba(27, 33, 48, 0.1);
+}
+
+/* ---- Minimal & Monochromatic ---- */
+:root[data-palette="minimal"] {
+  color-scheme: light;
+  --palette-hue: 10;
+  --palette-hue-2: 25;
+  --palette-hue-3: 350;
+  --palette-hue-4: 18;
+  --palette-sat: 25%;
+
+  --sidebar-bg: #fbf9f8;
+  --page-plane: #f3f0ee;
+  --surface-1: #ffffff;
+  --surface-2: #ece7e4;
+  --text-primary: #241714;
+  --text-secondary: #6b615d;
+  --text-muted: #99908c;
+  --gridline: #e2dcd8;
+  --baseline: #c7bdb8;
+  --border: rgba(36, 23, 20, 0.1);
+}
+
+/* ---- Soft & Romantic ---- */
+:root[data-palette="soft"] {
+  color-scheme: light;
+  --palette-hue: 18;
+  --palette-hue-2: 140;
+  --palette-hue-3: 350;
+  --palette-hue-4: 32;
+  --palette-sat: 55%;
+
+  --sidebar-bg: #fffbfa;
+  --page-plane: #fdf4f2;
+  --surface-1: #ffffff;
+  --surface-2: #f7e9e6;
+  --text-primary: #3a3438;
+  --text-secondary: #746d72;
+  --text-muted: #a49da1;
+  --gridline: #f0dfdb;
+  --baseline: #d9c2bd;
+  --border: rgba(58, 52, 56, 0.1);
+}
+
 @media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme="light"])) {
+  /* System-dark fallback before ThemeContext/PaletteContext attach their
+     attributes on mount — assumes Emerald, same as the bare :root default
+     above, since data-palette isn't set yet either at this point. */
+  :root:where(:not([data-theme="light"])):not([data-palette]) {
     color-scheme: dark;
 
     --sidebar-bg: #0a0a0b;
@@ -106,6 +178,11 @@
   }
 }
 
+/* Explicit dark mode: shared formulas + Emerald's default dark surfaces.
+   Matches (and is overridden by, via higher selector specificity) each
+   non-Emerald theme's own dark surface block further below; --palette-hue
+   etc. still come from whichever :root[data-palette="X"] light block
+   matched above, since that selector doesn't test data-theme. */
 :root[data-theme="dark"] {
   color-scheme: dark;
 
@@ -145,6 +222,45 @@
   --avatar-8: #e66767;
 
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-palette="bright"][data-theme="dark"] {
+  --sidebar-bg: #14171f;
+  --page-plane: #10131a;
+  --surface-1: #1b2029;
+  --surface-2: #242a36;
+  --text-primary: #f2f3f7;
+  --text-secondary: #a7adbb;
+  --text-muted: #767c8c;
+  --gridline: #2c313e;
+  --baseline: #3d4353;
+  --border: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-palette="minimal"][data-theme="dark"] {
+  --sidebar-bg: #16100e;
+  --page-plane: #120d0b;
+  --surface-1: #1e1613;
+  --surface-2: #29201c;
+  --text-primary: #f2ece9;
+  --text-secondary: #a89e99;
+  --text-muted: #79706c;
+  --gridline: #2f2521;
+  --baseline: #453832;
+  --border: rgba(255, 255, 255, 0.07);
+}
+
+:root[data-palette="soft"][data-theme="dark"] {
+  --sidebar-bg: #211d20;
+  --page-plane: #1c191b;
+  --surface-1: #2a2528;
+  --surface-2: #352f33;
+  --text-primary: #f5eeec;
+  --text-secondary: #b3a8ac;
+  --text-muted: #85797d;
+  --gridline: #3c3438;
+  --baseline: #504649;
+  --border: rgba(255, 255, 255, 0.08);
 }
 
 * {

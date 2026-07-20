@@ -4,7 +4,7 @@ import { api, type AuthIdentities } from "../api/client.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { usePalette } from "../contexts/PaletteContext.js";
 import { useTheme } from "../contexts/ThemeContext.js";
-import { paletteHues, PALETTES } from "../palettes.js";
+import { THEMES } from "../palettes.js";
 import { initials } from "../utils/avatarColor.js";
 
 const PROVIDER_LABEL: Record<string, string> = { google: "Google", facebook: "Facebook" };
@@ -201,69 +201,94 @@ export default function Settings() {
             </button>
           </div>
 
-          <div style={{ fontWeight: 500, fontSize: "0.9rem", marginBottom: "0.2rem" }}>Color palette</div>
+          <div style={{ fontWeight: 500, fontSize: "0.9rem", marginBottom: "0.2rem" }}>Theme</div>
           <p className="page-header__subtitle" style={{ marginTop: 0, marginBottom: "0.8rem" }}>
-            Each palette is four complementary colors — the first drives the accent and every chart/progress hue, all four
-            show up as widget accents across the dashboard.
+            Each theme sets backgrounds, surfaces, text, and accent colors together — a full look, not just one color.
+            Works with light/dark mode above, whichever is selected.
           </p>
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(76px, 1fr))",
-              gap: "0.6rem",
+              gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+              gap: "0.7rem",
             }}
           >
-            {PALETTES.map((p) => {
-              const selected = p.name === palette;
-              const hues = paletteHues(p.hue);
+            {THEMES.map((t) => {
+              const selected = t.id === palette;
               return (
                 <button
-                  key={p.name}
-                  onClick={() => setPalette(p.name)}
+                  key={t.id}
+                  onClick={() => setPalette(t.id)}
                   aria-pressed={selected}
-                  title={p.name}
                   style={{
                     display: "flex",
                     flexDirection: "column",
-                    alignItems: "center",
-                    gap: "0.35rem",
-                    padding: "0.55rem 0.3rem",
+                    alignItems: "stretch",
+                    gap: "0.5rem",
+                    padding: "0.6rem",
+                    textAlign: "left",
                     background: selected ? "var(--surface-2)" : "transparent",
-                    border: selected ? "1px solid var(--accent)" : "1px solid transparent",
+                    border: selected ? "1px solid var(--accent)" : "1px solid var(--border)",
                   }}
                 >
                   <span
                     style={{
-                      width: 30,
-                      height: 30,
-                      borderRadius: "999px",
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gridTemplateRows: "1fr 1fr",
-                      overflow: "hidden",
-                      flexShrink: 0,
                       position: "relative",
+                      height: 44,
+                      borderRadius: 8,
+                      background: t.previewBg,
+                      border: "1px solid rgba(0,0,0,0.08)",
+                      overflow: "hidden",
                     }}
                   >
-                    {hues.map((h, i) => (
-                      <span key={i} style={{ background: `hsl(${h} ${p.sat} 45%)` }} />
-                    ))}
+                    <span
+                      style={{
+                        position: "absolute",
+                        left: 8,
+                        top: 8,
+                        right: 8,
+                        bottom: 16,
+                        borderRadius: 5,
+                        background: t.previewSurface,
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+                      }}
+                    />
+                    <span style={{ position: "absolute", left: 8, bottom: 5, display: "flex", gap: "0.25rem" }}>
+                      {[t.hue, t.hue2, t.hue3, t.hue4].map((h, i) => (
+                        <span
+                          key={i}
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: "999px",
+                            background: `hsl(${h} ${t.sat} 45%)`,
+                          }}
+                        />
+                      ))}
+                    </span>
                     {selected && (
-                      <Check
-                        size={14}
-                        color="#fff"
-                        strokeWidth={3}
+                      <span
                         style={{
                           position: "absolute",
-                          top: "50%",
-                          left: "50%",
-                          transform: "translate(-50%, -50%)",
-                          filter: "drop-shadow(0 0 2px rgba(0,0,0,0.6))",
+                          right: 6,
+                          top: 6,
+                          width: 18,
+                          height: 18,
+                          borderRadius: "999px",
+                          background: `hsl(${t.hue} ${t.sat} 42%)`,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
                         }}
-                      />
+                      >
+                        <Check size={11} color="#fff" strokeWidth={3} />
+                      </span>
                     )}
                   </span>
-                  <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>{p.name}</span>
+                  <span>
+                    <div style={{ fontSize: "0.85rem", fontWeight: 600 }}>{t.name}</div>
+                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.1rem" }}>{t.description}</div>
+                  </span>
                 </button>
               );
             })}

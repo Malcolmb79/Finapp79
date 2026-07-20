@@ -1,45 +1,79 @@
-export interface Palette {
+export interface ThemeOption {
+  id: string;
   name: string;
+  description: string;
+  // Hue/sat feed the same hsl()-based ramp formulas theme.css already uses
+  // for --accent/--seq-*/--accent-2/3/4 — only used here to render an
+  // accurate swatch preview in the picker, not to apply the theme itself
+  // (that's done by setting data-palette, which theme.css's per-theme
+  // blocks key off of).
   hue: number;
+  hue2: number;
+  hue3: number;
+  hue4: number;
   sat: string;
+  // Light-mode background hexes, straight out of theme.css's per-theme
+  // block, so the picker preview matches what selecting it actually looks
+  // like instead of just showing the accent color in isolation.
+  previewBg: string;
+  previewSurface: string;
 }
 
-// Each preset is just a hue + saturation pair — theme.css computes every
-// ramp step (light/dark, seq-100..600, accent) from these two values, so
-// adding a palette here is the only thing needed to make it selectable.
-export const PALETTES: Palette[] = [
-  { name: "Emerald", hue: 160, sat: "70%" },
-  { name: "Blue", hue: 217, sat: "80%" },
-  { name: "Indigo", hue: 243, sat: "75%" },
-  { name: "Violet", hue: 262, sat: "75%" },
-  { name: "Purple", hue: 280, sat: "65%" },
-  { name: "Fuchsia", hue: 292, sat: "75%" },
-  { name: "Pink", hue: 330, sat: "75%" },
-  { name: "Rose", hue: 350, sat: "75%" },
-  { name: "Red", hue: 0, sat: "72%" },
-  { name: "Orange", hue: 25, sat: "85%" },
-  { name: "Amber", hue: 38, sat: "90%" },
-  { name: "Yellow", hue: 48, sat: "90%" },
-  { name: "Lime", hue: 84, sat: "65%" },
-  { name: "Green", hue: 142, sat: "65%" },
-  { name: "Teal", hue: 175, sat: "65%" },
-  { name: "Cyan", hue: 190, sat: "75%" },
-  { name: "Sky", hue: 200, sat: "80%" },
-  { name: "Slate", hue: 215, sat: "20%" },
-  { name: "Stone", hue: 30, sat: "15%" },
-  { name: "Crimson", hue: 345, sat: "60%" },
+// A full theme controls background/surface/text colors AND the accent hue
+// (light + dark variants of each, defined in theme.css's per-theme
+// data-palette blocks) -- not just the accent color the old single-hue
+// picker used to touch. Deliberately a short curated list rather than the
+// old 20 hue presets: each one is hand-tuned as a cohesive "look", which a
+// mechanically-rotated hue can't guarantee.
+export const THEMES: ThemeOption[] = [
+  {
+    id: "emerald",
+    name: "Emerald",
+    description: "The original look — green accent on clean neutral surfaces.",
+    hue: 160,
+    hue2: 220,
+    hue3: 340,
+    hue4: 40,
+    sat: "70%",
+    previewBg: "#f4f5f4",
+    previewSurface: "#ffffff",
+  },
+  {
+    id: "bright",
+    name: "Bright & Vibrant",
+    description: "Vivid blue accent on crisp white; deep navy surfaces in dark mode.",
+    hue: 222,
+    hue2: 12,
+    hue3: 54,
+    hue4: 160,
+    sat: "60%",
+    previewBg: "#f7f8fb",
+    previewSurface: "#ffffff",
+  },
+  {
+    id: "minimal",
+    name: "Minimal & Monochromatic",
+    description: "Warm, low-contrast neutrals with a muted terracotta accent.",
+    hue: 10,
+    hue2: 25,
+    hue3: 350,
+    hue4: 18,
+    sat: "25%",
+    previewBg: "#f3f0ee",
+    previewSurface: "#ffffff",
+  },
+  {
+    id: "soft",
+    name: "Soft & Romantic",
+    description: "Pastel blush and sage tones with a soft peach accent.",
+    hue: 18,
+    hue2: 140,
+    hue3: 350,
+    hue4: 32,
+    sat: "55%",
+    previewBg: "#fdf4f2",
+    previewSurface: "#ffffff",
+  },
 ];
 
-export const DEFAULT_PALETTE = PALETTES[0].name;
-
-/**
- * Tetradic (rectangle) color scheme: [primary, +60°, +180°, +240°] — two
- * complementary pairs 60° apart, a standard four-color harmony. The primary
- * still drives every data-encoding surface (accent, sequential ramp) per
- * the dataviz skill's "one hue for magnitude" rule; hues 2-4 are only for
- * decorative/categorical use (widget icon badges, palette swatch preview),
- * never for a chart series that represents a single measured quantity.
- */
-export function paletteHues(hue: number): [number, number, number, number] {
-  return [hue, (hue + 60) % 360, (hue + 180) % 360, (hue + 240) % 360];
-}
+export const DEFAULT_THEME = THEMES[0].id;
