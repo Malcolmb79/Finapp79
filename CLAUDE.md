@@ -268,3 +268,23 @@ One Vercel project serves both halves from this repo:
 - Session cookies are `secure` only when `NODE_ENV === "production"`
   (Vercel sets this automatically); `app.set("trust proxy", 1)` in
   `app.ts` is required for that to work correctly behind Vercel's proxy.
+- **Project Settings -> General -> Root Directory must be blank** (the
+  actual repo root). Vercel's initial import flow can auto-suggest a
+  subfolder (e.g. `server`) as the root if it heuristically guesses that's
+  "the app" — if it's set wrong, every command (`npm install`, the build)
+  runs with that subfolder as cwd instead of the repo root. This produces
+  a confusing symptom: `npm run build --workspace client` *appears* to
+  work (npm's `--workspace` flag walks up to find the real monorepo root
+  regardless of cwd, so it still locates and builds the client), but
+  `npm install` only sees that one workspace's own dependencies, so
+  packages declared solely in the other workspace's `package.json` (e.g.
+  `react` when cwd is `server/`) never get installed — surfacing as
+  `tsc` "cannot find module 'react'" errors that look like a dependency
+  problem but aren't. Confirmed by a plain `npm run <script-that-only-
+  exists-at-repo-root>` failing with "workspace server@0.1.0 ... Missing
+  script" — that error only makes sense if cwd was `server/`, not root.
+  `installCommand: "npm install --include=dev"` in `vercel.json` stays as
+  a safety margin against a separate, real (but not what actually caused
+  this) npm behavior: `NODE_ENV=production` (which Vercel's build sets)
+  can make plain `npm install` skip `devDependencies` — and `typescript`/
+  `vite`/`@types/react` all live there in `client/package.json`.

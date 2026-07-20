@@ -1,7 +1,7 @@
 {
   "framework": null,
   "installCommand": "npm install --include=dev",
-  "buildCommand": "npm run vercel-build",
+  "buildCommand": "npm run build --workspace client",
   "outputDirectory": "client/dist",
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api" },
