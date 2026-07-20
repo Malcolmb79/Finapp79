@@ -20,6 +20,11 @@ export interface Transaction {
   description: string | null;
   counterparty: string | null;
   source: "enablebanking" | "manual" | "csv";
+  reviewed_at: string | null;
+}
+
+export interface PendingTransaction extends Transaction {
+  suggested_category_id: number | null;
 }
 
 export interface Account {
@@ -107,10 +112,15 @@ export const api = {
 
   listTransactions: (accountId?: string) =>
     request<Transaction[]>(`/transactions${accountId ? `?accountId=${accountId}` : ""}`),
+  listPendingTransactions: () => request<PendingTransaction[]>("/transactions?pending=true"),
   createTransaction: (tx: Partial<Transaction>) =>
     request<Transaction>("/transactions", { method: "POST", body: JSON.stringify(tx) }),
   updateTransaction: (id: string, patch: { category_id?: number | null; description?: string }) =>
     request<Transaction>(`/transactions/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  approveTransaction: (id: string, categoryId: number | null) =>
+    request<Transaction>(`/transactions/${id}/approve`, { method: "POST", body: JSON.stringify({ category_id: categoryId }) }),
+  bulkApproveTransactions: (items: { id: string; category_id: number | null }[]) =>
+    request<{ approved: number }>("/transactions/bulk-approve", { method: "POST", body: JSON.stringify({ items }) }),
   deleteTransaction: (id: string) => request<void>(`/transactions/${id}`, { method: "DELETE" }),
 
   listAccounts: () => request<Account[]>("/accounts"),

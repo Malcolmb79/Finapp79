@@ -6,8 +6,18 @@ import { Link } from "react-router-dom";
 import CashFlowCard, { type MonthFlow } from "../components/dashboard/CashFlowCard.js";
 import MagnitudeBarList from "../components/dashboard/MagnitudeBarList.js";
 import NetWorthCard, { type TrendPoint } from "../components/dashboard/NetWorthCard.js";
+import PendingReviewWidget from "../components/dashboard/PendingReviewWidget.js";
 import SortableCard, { type WidgetMode, type WidgetSize } from "../components/dashboard/SortableCard.js";
-import { api, type Account, type Budget, type Category, type Debt, type SavingsGoal, type Transaction } from "../api/client.js";
+import {
+  api,
+  type Account,
+  type Budget,
+  type Category,
+  type Debt,
+  type PendingTransaction,
+  type SavingsGoal,
+  type Transaction,
+} from "../api/client.js";
 import { WIDGET_IDS, WIDGET_META, widgetAccentVar, type WidgetId } from "../dashboardWidgets.js";
 import AccountAvatar from "../components/AccountAvatar.js";
 import { accountBalance } from "../utils/accountBalance.js";
@@ -64,6 +74,7 @@ function loadConfig(): DashboardConfig {
 
 export default function Dashboard() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -77,6 +88,7 @@ export default function Dashboard() {
 
   function refresh() {
     api.listTransactions().then(setTransactions);
+    api.listPendingTransactions().then(setPendingTransactions);
     api.listAccounts().then(setAccounts);
     api.listCategories().then(setCategories);
     api.listBudgets().then(setBudgets);
@@ -260,6 +272,9 @@ export default function Dashboard() {
     },
     cashflow: {
       body: <CashFlowCard income={income} expenses={expenses} months={monthFlows} mode={config.modes.cashflow} />,
+    },
+    pendingReview: {
+      body: <PendingReviewWidget transactions={pendingTransactions} categories={categories} onApproved={refresh} />,
     },
     transactions: {
       headerExtra: (

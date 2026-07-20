@@ -19,6 +19,7 @@ export interface Transaction {
   counterparty: string | null;
   source: "enablebanking" | "manual" | "csv";
   created_at: string;
+  reviewed_at: string | null;
 }
 
 export interface Category {

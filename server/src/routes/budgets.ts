@@ -21,7 +21,7 @@ budgetsRouter.get("/", async (req, res) => {
          COALESCE(SUM(CASE WHEN t.amount < 0 AND t.booking_date >= ? THEN -t.amount ELSE 0 END), 0) AS spent
        FROM budgets b
        JOIN categories c ON c.id = b.category_id
-       LEFT JOIN transactions t ON t.category_id = b.category_id AND t.user_id = b.user_id
+       LEFT JOIN transactions t ON t.category_id = b.category_id AND t.user_id = b.user_id AND t.reviewed_at IS NOT NULL
        WHERE b.user_id = ?
        GROUP BY b.id, c.name
        ORDER BY c.name`

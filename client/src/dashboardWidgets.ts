@@ -1,7 +1,18 @@
-import { ArrowLeftRight, CreditCard, Landmark, PieChart, PiggyBank, Receipt, Target, TrendingUp, Wallet, type LucideIcon } from "lucide-react";
+import { ArrowLeftRight, CreditCard, Inbox, Landmark, PieChart, PiggyBank, Receipt, Target, TrendingUp, Wallet, type LucideIcon } from "lucide-react";
 import type { WidgetMode, WidgetSize } from "./components/dashboard/SortableCard.js";
 
-export const WIDGET_IDS = ["netWorth", "accounts", "balances", "cashflow", "transactions", "category", "budgets", "debts", "savings"] as const;
+export const WIDGET_IDS = [
+  "netWorth",
+  "accounts",
+  "balances",
+  "cashflow",
+  "pendingReview",
+  "transactions",
+  "category",
+  "budgets",
+  "debts",
+  "savings",
+] as const;
 export type WidgetId = (typeof WIDGET_IDS)[number];
 
 export interface WidgetMeta {
@@ -18,6 +29,7 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
   accounts: { title: "Accounts", module: "Accounts", icon: Landmark, defaultEnabled: true, defaultSize: 1 },
   balances: { title: "Account balances", module: "Accounts", icon: Wallet, defaultEnabled: true, defaultSize: 1 },
   cashflow: { title: "Monthly cash flow", module: "Dashboard", icon: ArrowLeftRight, defaultEnabled: true, defaultSize: 2, defaultMode: "chart" },
+  pendingReview: { title: "New transactions", module: "Dashboard", icon: Inbox, defaultEnabled: true, defaultSize: 1 },
   transactions: { title: "Recent transactions", module: "Transactions", icon: Receipt, defaultEnabled: true, defaultSize: 1 },
   category: { title: "Spending by category", module: "Analytics", icon: PieChart, defaultEnabled: true, defaultSize: 1, defaultMode: "chart" },
   budgets: { title: "Budgets", module: "Budgets", icon: Target, defaultEnabled: true, defaultSize: 1 },

@@ -139,8 +139,23 @@ CREATE TABLE IF NOT EXISTS transactions (
   counterparty TEXT,
   source TEXT NOT NULL DEFAULT 'manual', -- enablebanking | manual | csv
   created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text,
+  reviewed_at TEXT,                 -- null = pending review; set when the user approves the transaction
   UNIQUE (account_id, id)
 );
+
+-- Same live-database problem as users.email_verified_at above, with a
+-- twist: existing rows must NOT suddenly become "pending" (that would
+-- empty every dashboard/budget/analytics total until manually re-reviewed).
+-- The volatile default backfills every pre-existing row as already-reviewed
+-- at ALTER time — but in Postgres, ADD COLUMN ... DEFAULT also leaves that
+-- default permanently attached to the column, so every *future* INSERT
+-- that omits reviewed_at (manual create, CSV import, Enable Banking sync —
+-- all three) would silently get "reviewed" instead of "pending". The
+-- DROP DEFAULT right after undoes that: the backfill above already ran
+-- once, and dropping a default that isn't there (fresh DBs, or subsequent
+-- boots) is a harmless no-op either way.
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reviewed_at TEXT DEFAULT (now() AT TIME ZONE 'utc')::text;
+ALTER TABLE transactions ALTER COLUMN reviewed_at DROP DEFAULT;
 
 CREATE INDEX IF NOT EXISTS idx_transactions_account_date
   ON transactions (account_id, booking_date);
@@ -149,6 +164,8 @@ CREATE INDEX IF NOT EXISTS idx_transactions_category
   ON transactions (category_id);
 
 CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_transactions_reviewed ON transactions (user_id, reviewed_at);
 
 -- One monthly spending limit per category. "Spent this month" is computed
 -- at query time from transactions, not stored — it always reflects the
