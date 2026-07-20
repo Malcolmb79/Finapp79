@@ -29,6 +29,9 @@ export interface Account {
   source: "enablebanking" | "manual";
   institution_name?: string | null;
   logo?: string | null;
+  balance?: number | null;
+  available_balance?: number | null;
+  balance_synced_at?: string | null;
 }
 
 export interface Aspsp {

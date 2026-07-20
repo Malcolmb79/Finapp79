@@ -10,6 +10,7 @@ import SortableCard, { type WidgetMode, type WidgetSize } from "../components/da
 import { api, type Account, type Budget, type Category, type Debt, type SavingsGoal, type Transaction } from "../api/client.js";
 import { WIDGET_IDS, WIDGET_META, widgetAccentVar, type WidgetId } from "../dashboardWidgets.js";
 import AccountAvatar from "../components/AccountAvatar.js";
+import { accountBalance } from "../utils/accountBalance.js";
 import { budgetStatus } from "../utils/budgetStatus.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { monthsToPayoff } from "../utils/payoff.js";
@@ -128,7 +129,15 @@ export default function Dashboard() {
     }
   }
 
-  const netWorth = transactions.reduce((sum, tx) => sum + tx.amount, 0);
+  const byAccount = new Map<string, number>();
+  for (const tx of transactions) {
+    byAccount.set(tx.account_id, (byAccount.get(tx.account_id) ?? 0) + tx.amount);
+  }
+
+  // Linked accounts contribute their real bank balance (not a sum of the
+  // 90-day synced transaction window); manual accounts have no other
+  // source of truth, so they still derive from their transaction history.
+  const netWorth = accounts.reduce((sum, a) => sum + accountBalance(a, byAccount.get(a.id) ?? 0), 0);
   const thisMonthKey = new Date().toISOString().slice(0, 7);
   const monthDelta = transactions
     .filter((tx) => tx.booking_date.startsWith(thisMonthKey))
@@ -169,15 +178,11 @@ export default function Dashboard() {
     .sort((a, b) => b[1] - a[1])
     .map(([label, value]) => ({ label, value }));
 
-  const byAccount = new Map<string, number>();
-  for (const tx of transactions) {
-    byAccount.set(tx.account_id, (byAccount.get(tx.account_id) ?? 0) + tx.amount);
-  }
   const accountNames = new Map(accounts.map((a) => [a.id, a.name]));
 
   const currencyTotals = new Map<string, number>();
   for (const a of accounts) {
-    currencyTotals.set(a.currency, (currencyTotals.get(a.currency) ?? 0) + (byAccount.get(a.id) ?? 0));
+    currencyTotals.set(a.currency, (currencyTotals.get(a.currency) ?? 0) + accountBalance(a, byAccount.get(a.id) ?? 0));
   }
 
   const recentTransactions = [...transactions]
@@ -214,7 +219,7 @@ export default function Dashboard() {
                     {a.source === "enablebanking" ? "Linked" : "Manual"}
                   </div>
                 </div>
-                <span className="account-row__balance">{(byAccount.get(a.id) ?? 0).toFixed(2)}</span>
+                <span className="account-row__balance">{accountBalance(a, byAccount.get(a.id) ?? 0).toFixed(2)}</span>
               </div>
             ))}
           </div>
@@ -237,7 +242,7 @@ export default function Dashboard() {
                 <div className="account-row__info">
                   <div className="account-row__name">{a.name}</div>
                 </div>
-                <span className="account-row__balance">{formatCurrency(byAccount.get(a.id) ?? 0, a.currency)}</span>
+                <span className="account-row__balance">{formatCurrency(accountBalance(a, byAccount.get(a.id) ?? 0), a.currency)}</span>
               </div>
             ))}
             <div style={{ borderTop: "1px solid var(--border)", marginTop: "0.4rem", paddingTop: "0.4rem" }}>

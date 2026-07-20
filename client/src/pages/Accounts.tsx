@@ -3,6 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Account, type Transaction } from "../api/client.js";
 import AccountAvatar from "../components/AccountAvatar.js";
+import { accountBalance } from "../utils/accountBalance.js";
+import { formatCurrency } from "../utils/formatCurrency.js";
 
 export default function Accounts() {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -157,7 +159,16 @@ export default function Accounts() {
                       <RefreshCw size={14} className={syncingId === a.id ? "spin" : undefined} />
                     </button>
                   )}
-                  <span className="account-row__balance">{(byAccount.get(a.id) ?? 0).toFixed(2)}</span>
+                  <div style={{ textAlign: "right" }}>
+                    <span className="account-row__balance" style={{ display: "block" }}>
+                      {formatCurrency(accountBalance(a, byAccount.get(a.id) ?? 0), a.currency)}
+                    </span>
+                    {a.source === "enablebanking" && a.available_balance != null && (
+                      <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                        {formatCurrency(a.available_balance, a.currency)} available
+                      </span>
+                    )}
+                  </div>
                 </div>
               );
             })}

@@ -112,6 +112,20 @@ export function startAuthorization(
   });
 }
 
+export interface AccountBalance {
+  balance_amount: { amount: string; currency: string };
+  balance_type: string; // Berlin Group/XS2A: closingBooked, interimAvailable, expected, openingBooked, etc.
+}
+
+// listAccountTransactions only pulls a 90-day window, so summing those
+// transactions is never a real balance for an account with any history
+// before that window -- this hits the bank's own current-balance figure
+// directly instead.
+export async function getAccountBalances(accountUid: string): Promise<AccountBalance[]> {
+  const { balances } = await ebFetch<{ balances: AccountBalance[] }>(`/accounts/${accountUid}/balances`);
+  return balances;
+}
+
 export interface SessionAccount {
   uid: string;
   account_id?: { iban?: string };

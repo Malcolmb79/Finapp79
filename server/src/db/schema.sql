@@ -98,8 +98,23 @@ CREATE TABLE IF NOT EXISTS accounts (
   iban TEXT,
   currency TEXT NOT NULL DEFAULT 'USD',
   source TEXT NOT NULL DEFAULT 'manual', -- enablebanking | manual
+  -- Linked accounts only: the bank's own current balance, captured via
+  -- Enable Banking's /accounts/:id/balances at sync time -- summing synced
+  -- transactions is never accurate since only a 90-day window gets synced.
+  -- Manual accounts have no such source of truth and stay derived from
+  -- their own transaction history instead (these columns stay null).
+  balance DOUBLE PRECISION,
+  available_balance DOUBLE PRECISION,
+  balance_synced_at TEXT,
   created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
 );
+
+-- This app already has a live database from before these columns existed —
+-- see users.email_verified_at above for why this can't just be part of the
+-- CREATE TABLE IF NOT EXISTS above.
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS balance DOUBLE PRECISION;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS available_balance DOUBLE PRECISION;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS balance_synced_at TEXT;
 
 -- Category names are unique per user, not globally — two different users
 -- both wanting a "Groceries" category must not collide.

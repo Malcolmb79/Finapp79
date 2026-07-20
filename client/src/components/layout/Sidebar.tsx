@@ -11,8 +11,9 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { api, type Transaction } from "../../api/client.js";
+import { api, type Account, type Transaction } from "../../api/client.js";
 import { useAuth } from "../../contexts/AuthContext.js";
+import { accountBalance } from "../../utils/accountBalance.js";
 
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -26,13 +27,21 @@ const NAV_ITEMS = [
 
 export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onCloseNav: () => void }) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const { user, logout } = useAuth();
 
   useEffect(() => {
     api.listTransactions().then(setTransactions);
+    api.listAccounts().then(setAccounts);
   }, []);
 
-  const netWorth = transactions.reduce((sum, tx) => sum + tx.amount, 0);
+  const byAccount = new Map<string, number>();
+  for (const tx of transactions) {
+    byAccount.set(tx.account_id, (byAccount.get(tx.account_id) ?? 0) + tx.amount);
+  }
+  // Linked accounts contribute their real bank balance rather than a sum
+  // of the 90-day synced transaction window — see accountBalance.ts.
+  const netWorth = accounts.reduce((sum, a) => sum + accountBalance(a, byAccount.get(a.id) ?? 0), 0);
   const thisMonth = new Date().toISOString().slice(0, 7);
   const monthDelta = transactions
     .filter((tx) => tx.booking_date.startsWith(thisMonth))

@@ -110,6 +110,20 @@ function transactionId(accountUid: string, tx: RemoteTransaction): string {
   return createHash("sha256").update(hashInput).digest("hex");
 }
 
+// Berlin Group/XS2A balance_type values, in preference order — different
+// banks populate different subsets, so this tries the most specific first
+// and falls back rather than requiring an exact match.
+const BOOKED_BALANCE_TYPES = ["closingBooked", "interimBooked", "openingBooked", "expected"];
+const AVAILABLE_BALANCE_TYPES = ["interimAvailable", "closingAvailable", "forwardAvailable", "expected"];
+
+function pickBalance(balances: enableBanking.AccountBalance[], types: string[]): number | null {
+  for (const type of types) {
+    const match = balances.find((b) => b.balance_type === type);
+    if (match) return Number(match.balance_amount.amount);
+  }
+  return null;
+}
+
 // Step 3: pull transactions for a linked account and upsert them.
 bankLinkRouter.post("/accounts/:accountId/sync", async (req, res) => {
   const { accountId } = req.params;
@@ -143,6 +157,22 @@ bankLinkRouter.post("/accounts/:accountId/sync", async (req, res) => {
       if (result.changes > 0) synced++;
     }
   });
+
+  // Best-effort: a bank not supporting balance retrieval shouldn't fail the
+  // whole sync, since the transactions above already succeeded.
+  try {
+    const balances = await enableBanking.getAccountBalances(accountId);
+    console.log(`Balances for account ${accountId}:`, JSON.stringify(balances)); // TEMP: remove after confirming real balance_type values
+    const booked = pickBalance(balances, BOOKED_BALANCE_TYPES);
+    const available = pickBalance(balances, AVAILABLE_BALANCE_TYPES);
+    if (booked !== null || available !== null) {
+      await db
+        .prepare("UPDATE accounts SET balance = ?, available_balance = ?, balance_synced_at = ? WHERE id = ?")
+        .run(booked, available, new Date().toISOString(), accountId);
+    }
+  } catch (err) {
+    console.error(`Failed to sync balance for account ${accountId}:`, err);
+  }
 
   res.json({ synced, totalFetched: transactions.length });
 });
