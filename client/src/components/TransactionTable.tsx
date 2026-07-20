@@ -21,7 +21,6 @@ export default function TransactionTable({
 }) {
   const [selected, setSelected] = useState<Transaction | null>(null);
 
-  const categoryNames = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
   const accountsById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
 
   const groups = useMemo(() => {
@@ -54,9 +53,6 @@ export default function TransactionTable({
               </div>
               <div className="tx-row__info">
                 <div className="tx-row__name">{tx.description || accountsById.get(tx.account_id)?.name || "Transaction"}</div>
-                <span className="category-chip">
-                  {tx.category_id != null ? (categoryNames.get(tx.category_id) ?? "Uncategorized") : "Uncategorized"}
-                </span>
               </div>
               <span className={`tx-row__amount${tx.amount >= 0 ? " tx-row__amount--positive" : ""}`}>
                 {tx.amount >= 0 ? "+" : ""}
