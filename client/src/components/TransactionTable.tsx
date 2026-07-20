@@ -1,6 +1,7 @@
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { Account, Category, Transaction } from "../api/client.js";
+import { cleanDescription } from "../utils/cleanDescription.js";
 import TransactionDetailModal from "./TransactionDetailModal.js";
 
 function formatDateHeader(dateStr: string): string {
@@ -52,7 +53,7 @@ export default function TransactionTable({
                 )}
               </div>
               <div className="tx-row__info">
-                <div className="tx-row__name">{tx.description || accountsById.get(tx.account_id)?.name || "Transaction"}</div>
+                <div className="tx-row__name">{cleanDescription(tx.description) || accountsById.get(tx.account_id)?.name || "Transaction"}</div>
               </div>
               <span className={`tx-row__amount${tx.amount >= 0 ? " tx-row__amount--positive" : ""}`}>
                 {tx.amount >= 0 ? "+" : ""}
@@ -65,6 +66,7 @@ export default function TransactionTable({
 
       {selected && (
         <TransactionDetailModal
+          key={selected.id}
           transaction={selected}
           account={accountsById.get(selected.account_id)}
           categories={categories}

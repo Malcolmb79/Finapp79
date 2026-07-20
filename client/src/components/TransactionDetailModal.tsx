@@ -1,6 +1,7 @@
 import { Calendar, Landmark, Tag, Trash2, User, X } from "lucide-react";
 import { useState } from "react";
 import { api, type Account, type Category, type Transaction } from "../api/client.js";
+import { cleanDescription } from "../utils/cleanDescription.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 
 const SOURCE_LABEL: Record<Transaction["source"], string> = {
@@ -22,12 +23,13 @@ export default function TransactionDetailModal({
   onClose: () => void;
   onChange: () => void;
 }) {
-  const [description, setDescription] = useState(transaction.description ?? "");
+  const initialDescription = cleanDescription(transaction.description);
+  const [description, setDescription] = useState(initialDescription);
   const [categoryId, setCategoryId] = useState(transaction.category_id != null ? String(transaction.category_id) : "");
   const [deleting, setDeleting] = useState(false);
 
   async function saveDescription() {
-    if (description === (transaction.description ?? "")) return;
+    if (description === initialDescription) return;
     await api.updateTransaction(transaction.id, { description });
     onChange();
   }

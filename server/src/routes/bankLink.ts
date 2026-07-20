@@ -87,6 +87,22 @@ function signedAmount(tx: RemoteTransaction): number {
   return tx.credit_debit_indicator === "DBIT" ? -magnitude : magnitude;
 }
 
+// Some banks (via Enable Banking's remittance_information) include a
+// structured metadata blob in curly braces alongside the real payee name
+// — e.g. a Barclays entry might come as two array elements, "ANTHROPIC"
+// and "{ TransactionSubType : Purchase, PaymentInitiationDateTime : ... }".
+// Drop any element that's just that blob, then strip inline brace content
+// too in case a bank concatenates it onto the same element instead.
+function cleanRemittanceInfo(parts: string[] | undefined): string | null {
+  const cleaned = (parts ?? [])
+    .filter((p) => !p.trim().startsWith("{"))
+    .join(" ")
+    .replace(/\{[^{}]*\}/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return cleaned || null;
+}
+
 function transactionId(accountUid: string, tx: RemoteTransaction): string {
   if (tx.transaction_id) return tx.transaction_id;
   if (tx.entry_reference) return `${accountUid}:${tx.entry_reference}`;
@@ -121,7 +137,7 @@ bankLinkRouter.post("/accounts/:accountId/sync", async (req, res) => {
         t.booking_date,
         signedAmount(t),
         t.transaction_amount.currency,
-        (t.remittance_information ?? []).join(" ") || null,
+        cleanRemittanceInfo(t.remittance_information),
         t.creditor?.name ?? t.debtor?.name ?? null
       );
       if (result.changes > 0) synced++;
