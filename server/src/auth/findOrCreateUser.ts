@@ -6,10 +6,11 @@ export interface AppUser {
   email: string | null;
   name: string | null;
   avatar_url: string | null;
+  email_verified_at: string | null;
 }
 
 async function getUser(id: string): Promise<AppUser> {
-  return (await db.prepare("SELECT id, email, name, avatar_url FROM users WHERE id = ?").get(id)) as AppUser;
+  return (await db.prepare("SELECT id, email, name, avatar_url, email_verified_at FROM users WHERE id = ?").get(id)) as AppUser;
 }
 
 /**
@@ -45,6 +46,14 @@ export async function findOrCreateUser(
   await db
     .prepare("INSERT INTO oauth_identities (user_id, provider, provider_user_id) VALUES (?, ?, ?)")
     .run(userId, provider, providerUserId);
+
+  // Arriving here at all means the OAuth provider vouched for this email —
+  // that's just as good a proof of ownership as clicking a verification
+  // link, so mark it verified now (COALESCE so an earlier verification
+  // timestamp, e.g. from local signup, is never overwritten).
+  await db
+    .prepare("UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?")
+    .run(new Date().toISOString(), userId);
 
   return getUser(userId);
 }

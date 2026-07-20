@@ -14,8 +14,15 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT,
   avatar_url TEXT,
   password_hash TEXT,                -- nullable: OAuth-only users never set one
+  email_verified_at TEXT,            -- nullable: set on verify-email, or immediately for OAuth signups (the provider already proved ownership)
   created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
 );
+
+-- This app already has a live database from before this column existed —
+-- unlike every other table here, this can't just be "part of the table
+-- definition from the start" via CREATE TABLE IF NOT EXISTS, since that's
+-- a no-op against a table that already exists without it.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TEXT;
 
 -- One row per (provider, provider_user_id) a user has signed in with.
 -- Separate from `users` so the same person can link both Google and
@@ -28,6 +35,29 @@ CREATE TABLE IF NOT EXISTS oauth_identities (
   created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text,
   UNIQUE (provider, provider_user_id)
 );
+
+-- Single-use tokens for password reset and email verification links. The
+-- token itself is never stored — only its SHA-256 hash — so a database
+-- leak can't be turned into working reset/verify links (same reasoning as
+-- never storing plaintext passwords). expires_at/used_at follow the same
+-- app-computed-ISO-string convention as `sessions.expires_at`.
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  token_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  expires_at TEXT NOT NULL,
+  used_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user ON password_reset_tokens (user_id);
+
+CREATE TABLE IF NOT EXISTS email_verification_tokens (
+  token_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  expires_at TEXT NOT NULL,
+  used_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_user ON email_verification_tokens (user_id);
 
 -- Backing store for express-session (see auth/sessionStore.ts). `sid` is
 -- the opaque token in the session cookie; `data` is the session's JSON

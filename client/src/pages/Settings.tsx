@@ -47,6 +47,22 @@ export default function Settings() {
   const [passwordStatus, setPasswordStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [savingPassword, setSavingPassword] = useState(false);
 
+  const [resendStatus, setResendStatus] = useState<string | null>(null);
+  const [sendingVerification, setSendingVerification] = useState(false);
+
+  async function handleResendVerification() {
+    setSendingVerification(true);
+    setResendStatus(null);
+    try {
+      await api.resendVerification();
+      setResendStatus("Verification email sent — check your inbox.");
+    } catch (err) {
+      setResendStatus(extractErrorMessage(err, "Couldn't send the verification email."));
+    } finally {
+      setSendingVerification(false);
+    }
+  }
+
   useEffect(() => {
     api.getIdentities().then(setIdentities);
   }, []);
@@ -121,6 +137,26 @@ export default function Settings() {
               </div>
             </div>
           </div>
+
+          {user?.email && !user.email_verified_at && (
+            <div className="budget-alert" style={{ alignItems: "center", justifyContent: "space-between" }}>
+              <span>Your email address isn't verified yet.</span>
+              <button
+                type="button"
+                onClick={handleResendVerification}
+                className="btn-accent"
+                style={{ padding: "0.3rem 0.7rem", fontSize: "0.8rem" }}
+                disabled={sendingVerification}
+              >
+                {sendingVerification ? "Sending…" : "Resend email"}
+              </button>
+            </div>
+          )}
+          {resendStatus && (
+            <p className="page-header__subtitle" style={{ marginTop: "-0.5rem", marginBottom: "1rem" }}>
+              {resendStatus}
+            </p>
+          )}
 
           <form onSubmit={handleSaveName} style={{ display: "flex", gap: "0.5rem", alignItems: "flex-start" }}>
             <div style={{ flex: 1 }}>

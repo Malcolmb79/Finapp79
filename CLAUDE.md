@@ -128,6 +128,32 @@ query, or one user's data leaks into another's response.
   `(provider, provider_user_id)` identity returns that user; otherwise an
   existing user is matched by email (so the same person can add a second
   sign-in method) or a new one is created.
+- `src/auth/tokens.ts` — single-use tokens for password reset and email
+  verification links. `createToken()` persists only the SHA-256 hash of a
+  random token and returns the raw value (the only time it's ever
+  available in plaintext) — same "never store the recoverable secret"
+  reasoning as password hashing, so a database leak can't be turned into
+  working reset/verify links. `consumeToken()` looks up by hash, checks
+  `expires_at`/`used_at`, and marks it used atomically with the check.
+- `src/services/mailer.ts` / `src/auth/emailTemplates.ts` — transactional
+  email (password reset, email verification) via Resend. Same
+  "missing config degrades gracefully" principle as Enable Banking/OAuth:
+  without `RESEND_API_KEY`, `sendEmail()` logs the message to the console
+  instead of throwing, so the full reset/verify flow works in local dev
+  (grab the link from the server log) without a real Resend account.
+- `src/middleware/authRateLimit.ts` — `loginRateLimit`/`signupRateLimit`/
+  `emailActionRateLimit`, all keyed by IP (express-rate-limit's default),
+  applied to `/signup`, `/login`, `/forgot-password`, and
+  `/resend-verification`. `POST /auth/forgot-password` always responds 204
+  regardless of whether the email is registered — an enumeration-safe
+  design, so don't add a branch that reveals account existence there.
+- `app.ts` throws at boot if `SESSION_SECRET` is unset **and**
+  `NODE_ENV === "production"` (local dev still gets a warning + insecure
+  fallback, so it keeps working without a `.env`); `helmet()` is mounted
+  for standard security headers (`contentSecurityPolicy: false`, since
+  this API never serves HTML); the error-handling middleware returns the
+  real `err.message` in dev but a generic "Internal server error" in
+  production, so stack traces/internals never reach a client response.
 - `src/db/schema.sql` — table definitions, applied automatically on startup
   by `src/db/client.ts`'s `initDb()` (top-level `await` in `app.ts`; all
   DDL uses `CREATE TABLE`/`INDEX IF NOT EXISTS`, so it's safe to re-run —

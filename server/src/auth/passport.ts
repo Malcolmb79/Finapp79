@@ -89,7 +89,13 @@ passport.use(
         done(null, false, { message: "Incorrect email or password." });
         return;
       }
-      const appUser: AppUser = { id: user.id, email: user.email, name: user.name, avatar_url: user.avatar_url };
+      const appUser: AppUser = {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatar_url: user.avatar_url,
+        email_verified_at: user.email_verified_at,
+      };
       done(null, appUser);
     } catch (err) {
       done(err as Error);
@@ -103,7 +109,7 @@ passport.serializeUser((user, done) => {
 
 passport.deserializeUser(async (id: string, done) => {
   try {
-    const user = await db.prepare("SELECT id, email, name, avatar_url FROM users WHERE id = ?").get<AppUser>(id);
+    const user = await db.prepare("SELECT id, email, name, avatar_url, email_verified_at FROM users WHERE id = ?").get<AppUser>(id);
     done(null, user ?? false);
   } catch (err) {
     done(err);

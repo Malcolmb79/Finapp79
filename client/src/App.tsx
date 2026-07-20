@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Outlet, Route, Routes, useLocation } from "react-router-dom";
+import { Outlet, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
 import RequireAuth from "./components/RequireAuth.js";
 import Sidebar from "./components/layout/Sidebar.js";
 import TopHeader from "./components/layout/TopHeader.js";
@@ -10,10 +10,42 @@ import BankLinkCallback from "./pages/BankLinkCallback.js";
 import Budgets from "./pages/Budgets.js";
 import Dashboard from "./pages/Dashboard.js";
 import DebtPlanner from "./pages/DebtPlanner.js";
+import ForgotPassword from "./pages/ForgotPassword.js";
 import Login from "./pages/Login.js";
+import ResetPassword from "./pages/ResetPassword.js";
 import Savings from "./pages/Savings.js";
 import Settings from "./pages/Settings.js";
 import Transactions from "./pages/Transactions.js";
+
+function EmailVerifiedBanner() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const emailVerified = searchParams.get("emailVerified");
+  if (!emailVerified) return null;
+
+  const ok = emailVerified === "1";
+  return (
+    <div
+      className="budget-alert"
+      style={
+        ok
+          ? { background: "color-mix(in srgb, var(--good) 15%, transparent)", color: "var(--good)", borderColor: "color-mix(in srgb, var(--good) 30%, transparent)" }
+          : undefined
+      }
+    >
+      {ok ? "Your email has been verified." : "That verification link is invalid or has expired."}
+      <button
+        type="button"
+        onClick={() => {
+          searchParams.delete("emailVerified");
+          setSearchParams(searchParams, { replace: true });
+        }}
+        style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", marginLeft: "0.6rem", textDecoration: "underline" }}
+      >
+        Dismiss
+      </button>
+    </div>
+  );
+}
 
 function AppShell() {
   const [navOpen, setNavOpen] = useState(false);
@@ -37,6 +69,7 @@ function AppShell() {
         <div className="main">
           <TopHeader onOpenNav={() => setNavOpen(true)} />
           <div className="page-content">
+            <EmailVerifiedBanner />
             <Outlet />
           </div>
         </div>
@@ -49,6 +82,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route element={<AppShell />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/accounts" element={<Accounts />} />

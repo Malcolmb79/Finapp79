@@ -3,19 +3,37 @@ import { db } from "../db/client.js";
 import passport, { configuredProviders } from "../auth/passport.js";
 import { createLocalUser, getUserByEmail } from "../auth/findOrCreateUser.js";
 import { requireAuth } from "../middleware/requireAuth.js";
+import { loginRateLimit, signupRateLimit, emailActionRateLimit } from "../middleware/authRateLimit.js";
 import { hashPassword, verifyPassword } from "../auth/password.js";
+import { createToken, consumeToken } from "../auth/tokens.js";
+import { sendEmail } from "../services/mailer.js";
+import { passwordResetEmail, oauthOnlyAccountEmail, verifyEmailEmail } from "../auth/emailTemplates.js";
 
 export const authRouter = Router();
 
+const ONE_HOUR_MS = 1000 * 60 * 60;
+const ONE_DAY_MS = ONE_HOUR_MS * 24;
+
+const PROVIDER_LABEL: Record<string, string> = { google: "Google", facebook: "Facebook" };
+
 function clientUrl(): string {
   return process.env.CLIENT_URL ?? "http://localhost:5173";
+}
+
+async function sendVerificationEmail(userId: string, email: string): Promise<void> {
+  const token = await createToken("email_verification_tokens", userId, ONE_DAY_MS);
+  // Verification link points at the API (not a client route) since it just
+  // needs to consume the token and redirect — no client-side page needed.
+  // `/api` is same-origin in production and proxied to the API by Vite in
+  // dev (see vite.config.ts), so clientUrl() is correct in both cases.
+  await sendEmail({ to: email, ...verifyEmailEmail(`${clientUrl()}/api/auth/verify-email?token=${token}`) });
 }
 
 authRouter.get("/providers", (_req, res) => {
   res.json(configuredProviders);
 });
 
-authRouter.post("/signup", async (req, res, next) => {
+authRouter.post("/signup", signupRateLimit, async (req, res, next) => {
   const { email, password, name } = req.body as { email?: unknown; password?: unknown; name?: unknown };
 
   if (typeof email !== "string" || !/^\S+@\S+\.\S+$/.test(email)) {
@@ -34,6 +52,11 @@ authRouter.post("/signup", async (req, res, next) => {
   try {
     const passwordHash = await hashPassword(password);
     const user = await createLocalUser(email, typeof name === "string" && name.trim() ? name.trim() : null, passwordHash);
+
+    // Best-effort: a broken mail provider shouldn't block account creation,
+    // since the user can always ask for the verification email again later.
+    sendVerificationEmail(user.id, email).catch((err) => console.error("Failed to send verification email:", err));
+
     req.login(user, (err) => {
       if (err) {
         next(err);
@@ -46,7 +69,7 @@ authRouter.post("/signup", async (req, res, next) => {
   }
 });
 
-authRouter.post("/login", (req, res, next) => {
+authRouter.post("/login", loginRateLimit, (req, res, next) => {
   passport.authenticate("local", (err: Error | null, user: Express.User | false, info: { message?: string } | undefined) => {
     if (err) {
       next(err);
@@ -81,7 +104,7 @@ authRouter.patch("/me", requireAuth, async (req, res) => {
     return;
   }
   await db.prepare("UPDATE users SET name = ? WHERE id = ?").run(name.trim(), req.user!.id);
-  const updated = await db.prepare("SELECT id, email, name, avatar_url FROM users WHERE id = ?").get(req.user!.id);
+  const updated = await db.prepare("SELECT id, email, name, avatar_url, email_verified_at FROM users WHERE id = ?").get(req.user!.id);
   res.json(updated);
 });
 
@@ -121,6 +144,96 @@ authRouter.get("/identities", requireAuth, async (req, res) => {
     (await db.prepare("SELECT password_hash FROM users WHERE id = ?").get(req.user!.id)) as { password_hash: string | null }
   ).password_hash;
   res.json({ providers, hasPassword });
+});
+
+// Deliberately always responds the same way regardless of whether the email
+// belongs to an account — a different response would let an attacker use
+// this endpoint to enumerate registered emails.
+authRouter.post("/forgot-password", emailActionRateLimit, async (req, res, next) => {
+  const { email } = req.body as { email?: unknown };
+  if (typeof email !== "string" || !email) {
+    res.status(400).json({ error: "Enter a valid email address." });
+    return;
+  }
+
+  try {
+    const user = await getUserByEmail(email);
+    if (user) {
+      if (user.password_hash) {
+        const token = await createToken("password_reset_tokens", user.id, ONE_HOUR_MS);
+        await sendEmail({ to: email, ...passwordResetEmail(`${clientUrl()}/reset-password?token=${token}`) });
+      } else {
+        const providers = (
+          (await db.prepare("SELECT provider FROM oauth_identities WHERE user_id = ?").all(user.id)) as { provider: string }[]
+        ).map((row) => PROVIDER_LABEL[row.provider] ?? row.provider);
+        await sendEmail({ to: email, ...oauthOnlyAccountEmail(providers.join(" or ") || "a connected account") });
+      }
+    }
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
+authRouter.post("/reset-password", async (req, res, next) => {
+  const { token, newPassword } = req.body as { token?: unknown; newPassword?: unknown };
+
+  if (typeof token !== "string" || !token) {
+    res.status(400).json({ error: "Missing reset token." });
+    return;
+  }
+  if (typeof newPassword !== "string" || newPassword.length < 8) {
+    res.status(400).json({ error: "Password must be at least 8 characters." });
+    return;
+  }
+
+  try {
+    const userId = await consumeToken("password_reset_tokens", token);
+    if (!userId) {
+      res.status(400).json({ error: "This reset link is invalid or has expired." });
+      return;
+    }
+    const newHash = await hashPassword(newPassword);
+    await db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(newHash, userId);
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Reached by clicking the link in the verification email — a GET request
+// with no client-side page of its own, so it redirects back into the app
+// with a query param the client reads to show a confirmation.
+authRouter.get("/verify-email", async (req, res, next) => {
+  const token = req.query.token;
+  try {
+    const userId = typeof token === "string" ? await consumeToken("email_verification_tokens", token) : null;
+    if (userId) {
+      await db
+        .prepare("UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?")
+        .run(new Date().toISOString(), userId);
+    }
+    res.redirect(`${clientUrl()}/?emailVerified=${userId ? "1" : "0"}`);
+  } catch (err) {
+    next(err);
+  }
+});
+
+authRouter.post("/resend-verification", requireAuth, emailActionRateLimit, async (req, res, next) => {
+  try {
+    const user = (await db.prepare("SELECT email, email_verified_at FROM users WHERE id = ?").get(req.user!.id)) as {
+      email: string | null;
+      email_verified_at: string | null;
+    };
+    if (!user.email || user.email_verified_at) {
+      res.status(204).send();
+      return;
+    }
+    await sendVerificationEmail(req.user!.id, user.email);
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
 });
 
 authRouter.post("/logout", (req, res, next) => {

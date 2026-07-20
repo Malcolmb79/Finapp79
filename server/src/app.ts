@@ -1,6 +1,7 @@
 import cors from "cors";
 import express from "express";
 import session from "express-session";
+import helmet from "helmet";
 import passport from "./auth/passport.js";
 import { SqliteSessionStore } from "./auth/sessionStore.js";
 import { initDb } from "./db/client.js";
@@ -20,14 +21,22 @@ import { transactionsRouter } from "./routes/transactions.js";
 // module finishes evaluating, so no request can ever race table creation.
 await initDb();
 
+const isProduction = process.env.NODE_ENV === "production";
+
 if (!process.env.SESSION_SECRET) {
+  // A missing secret falling back to a hardcoded value would let anyone
+  // forge a valid session cookie for any user — silently running with that
+  // in production is a real vulnerability, not just a footgun, so refuse to
+  // boot instead of degrading gracefully the way missing OAuth/Enable
+  // Banking config does elsewhere in this app.
+  if (isProduction) {
+    throw new Error("SESSION_SECRET must be set in production — refusing to start with an insecure fallback secret.");
+  }
   console.warn(
     "SESSION_SECRET is not set — using an insecure fallback. Everyone gets logged out on every restart, " +
       "and sessions aren't safe beyond localhost dev. Set SESSION_SECRET in .env before deploying anywhere."
   );
 }
-
-const isProduction = process.env.NODE_ENV === "production";
 
 const app = express();
 
@@ -36,6 +45,10 @@ const app = express();
 // which would make `cookie.secure` below silently drop the session cookie.
 app.set("trust proxy", 1);
 
+// contentSecurityPolicy off: this API never serves HTML for the client to
+// render (the SPA is a separate static deployment), so a CSP header here
+// would have nothing to protect and could only interfere with responses.
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: process.env.CLIENT_URL ?? "http://localhost:5173", credentials: true }));
 app.use(express.json());
 
@@ -70,7 +83,10 @@ app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);
-  res.status(500).json({ error: err.message });
+  // err.message can contain internal details (a driver's raw SQL error, a
+  // stack fragment, a third-party API's response body) that are fine in a
+  // local dev console but shouldn't reach an untrusted client in production.
+  res.status(500).json({ error: isProduction ? "Internal server error" : err.message });
 });
 
 export default app;

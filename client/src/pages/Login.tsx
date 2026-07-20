@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, type AuthProviders } from "../api/client.js";
 import { useAuth } from "../contexts/AuthContext.js";
 
@@ -170,6 +170,14 @@ export default function Login() {
             {submitting ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
           </button>
         </form>
+
+        {mode === "signin" && (
+          <p className="page-header__subtitle" style={{ marginTop: "0.7rem" }}>
+            <Link to="/forgot-password" style={{ color: "var(--accent)" }}>
+              Forgot password?
+            </Link>
+          </p>
+        )}
 
         <p className="page-header__subtitle" style={{ marginTop: "1rem" }}>
           {mode === "signup" ? "Already have an account?" : "Need an account?"}{" "}

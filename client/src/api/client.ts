@@ -69,6 +69,7 @@ export interface AppUser {
   email: string | null;
   name: string | null;
   avatar_url: string | null;
+  email_verified_at: string | null;
 }
 
 export interface AuthProviders {
@@ -93,6 +94,10 @@ export const api = {
   updateProfile: (name: string) => request<AppUser>("/auth/me", { method: "PATCH", body: JSON.stringify({ name }) }),
   setPassword: (newPassword: string, currentPassword?: string) =>
     request<void>("/auth/password", { method: "POST", body: JSON.stringify({ newPassword, currentPassword }) }),
+  forgotPassword: (email: string) => request<void>("/auth/forgot-password", { method: "POST", body: JSON.stringify({ email }) }),
+  resetPassword: (token: string, newPassword: string) =>
+    request<void>("/auth/reset-password", { method: "POST", body: JSON.stringify({ token, newPassword }) }),
+  resendVerification: () => request<void>("/auth/resend-verification", { method: "POST" }),
 
   listTransactions: (accountId?: string) =>
     request<Transaction[]>(`/transactions${accountId ? `?accountId=${accountId}` : ""}`),
