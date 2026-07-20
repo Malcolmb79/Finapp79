@@ -118,6 +118,7 @@ export const api = {
     request<Account>("/accounts", { method: "POST", body: JSON.stringify({ name, currency }) }),
   renameAccount: (id: string, name: string) =>
     request<Account>(`/accounts/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+  deleteAccount: (id: string) => request<void>(`/accounts/${id}`, { method: "DELETE" }),
 
   listCategories: () => request<Category[]>("/categories"),
   createCategory: (name: string, parentId?: number | null) =>

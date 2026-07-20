@@ -1,4 +1,4 @@
-import { Check, Pencil, RefreshCw, X } from "lucide-react";
+import { Check, Pencil, RefreshCw, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Account, type Transaction } from "../api/client.js";
@@ -15,6 +15,8 @@ export default function Accounts() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [savingRename, setSavingRename] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const refresh = useCallback(() => {
     api.listAccounts().then(setAccounts);
@@ -65,6 +67,17 @@ export default function Accounts() {
       refresh();
     } finally {
       setSavingRename(false);
+    }
+  }
+
+  async function handleRemove(id: string) {
+    setDeleting(true);
+    try {
+      await api.deleteAccount(id);
+      setRemovingId(null);
+      refresh();
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -157,6 +170,33 @@ export default function Accounts() {
                   {a.source === "enablebanking" && (
                     <button onClick={() => handleSync(a.id)} disabled={syncingId === a.id} title="Sync transactions" aria-label="Sync">
                       <RefreshCw size={14} className={syncingId === a.id ? "spin" : undefined} />
+                    </button>
+                  )}
+                  {removingId === a.id ? (
+                    <div style={{ display: "flex", gap: "0.3rem", alignItems: "center" }}>
+                      <span style={{ fontSize: "0.78rem", color: "var(--critical)", whiteSpace: "nowrap" }}>Remove?</span>
+                      <button
+                        onClick={() => handleRemove(a.id)}
+                        disabled={deleting}
+                        aria-label="Confirm remove account"
+                        title="Confirm remove"
+                        style={{ padding: "0.3rem", display: "flex", color: "var(--critical)" }}
+                      >
+                        <Check size={14} />
+                      </button>
+                      <button
+                        onClick={() => setRemovingId(null)}
+                        disabled={deleting}
+                        aria-label="Cancel remove"
+                        title="Cancel"
+                        style={{ padding: "0.3rem", display: "flex" }}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setRemovingId(a.id)} aria-label="Remove account" title="Remove account">
+                      <Trash2 size={14} color="var(--text-muted)" />
                     </button>
                   )}
                   <div style={{ textAlign: "right" }}>
