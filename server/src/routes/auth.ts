@@ -1,4 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
 import { Router } from "express";
 import { db } from "../db/client.js";
 import passport, { configuredProviders } from "../auth/passport.js";
@@ -235,33 +234,6 @@ authRouter.post("/resend-verification", requireAuth, emailActionRateLimit, async
   } catch (err) {
     next(err);
   }
-});
-
-// TEMPORARY — one-off cleanup endpoint for a test account created while
-// diagnosing the production deploy. Gated on SESSION_SECRET so it's not a
-// public delete-any-user endpoint; remove this route once used.
-authRouter.post("/_admin/delete-user", async (req, res) => {
-  const provided = Buffer.from(req.header("x-cleanup-secret") ?? "");
-  const expected = Buffer.from(process.env.SESSION_SECRET ?? "");
-  if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
-    res.status(404).end();
-    return;
-  }
-  const { email } = req.body as { email?: unknown };
-  if (typeof email !== "string") {
-    res.status(400).json({ error: "email required" });
-    return;
-  }
-  const user = await db.prepare("SELECT id FROM users WHERE email = ?").get<{ id: string }>(email);
-  if (!user) {
-    res.status(404).json({ error: "not found" });
-    return;
-  }
-  await db.prepare("DELETE FROM email_verification_tokens WHERE user_id = ?").run(user.id);
-  await db.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").run(user.id);
-  await db.prepare("DELETE FROM oauth_identities WHERE user_id = ?").run(user.id);
-  await db.prepare("DELETE FROM users WHERE id = ?").run(user.id);
-  res.status(204).send();
 });
 
 authRouter.post("/logout", (req, res, next) => {
