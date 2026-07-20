@@ -79,6 +79,7 @@ async function ebFetch<T>(path: string, init?: RequestInit): Promise<T> {
 export interface Aspsp {
   name: string;
   country: string;
+  logo?: string;
 }
 
 export async function listAspsps(country: string): Promise<Aspsp[]> {

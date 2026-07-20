@@ -32,9 +32,7 @@ export default function ForgotPassword() {
       }}
     >
       <div className="card" style={{ width: 360, textAlign: "center" }}>
-        <div className="sidebar__brand-icon" style={{ margin: "0 auto 1rem" }}>
-          💰
-        </div>
+        <img src="/logo.png" alt="" style={{ width: 56, height: 56, borderRadius: "50%", margin: "0 auto 1rem", display: "block" }} />
         <h1 style={{ marginBottom: "0.3rem" }}>Reset your password</h1>
         <p className="page-header__subtitle" style={{ marginBottom: "1.5rem" }}>
           {sent ? "Check your inbox for a reset link." : "Enter your email and we'll send you a reset link."}

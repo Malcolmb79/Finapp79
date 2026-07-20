@@ -1,8 +1,8 @@
-import { RefreshCw } from "lucide-react";
+import { Check, Pencil, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Account, type Transaction } from "../api/client.js";
-import { avatarColorVar, initials } from "../utils/avatarColor.js";
+import AccountAvatar from "../components/AccountAvatar.js";
 
 export default function Accounts() {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -10,6 +10,9 @@ export default function Accounts() {
   const [name, setName] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const [savingRename, setSavingRename] = useState(false);
 
   const refresh = useCallback(() => {
     api.listAccounts().then(setAccounts);
@@ -38,6 +41,28 @@ export default function Accounts() {
       refresh();
     } finally {
       setSyncingId(null);
+    }
+  }
+
+  function startEditing(a: Account) {
+    setEditingId(a.id);
+    setEditingName(a.name);
+  }
+
+  function cancelEditing() {
+    setEditingId(null);
+    setEditingName("");
+  }
+
+  async function saveRename(id: string) {
+    if (!editingName.trim()) return;
+    setSavingRename(true);
+    try {
+      await api.renameAccount(id, editingName.trim());
+      setEditingId(null);
+      refresh();
+    } finally {
+      setSavingRename(false);
     }
   }
 
@@ -78,26 +103,64 @@ export default function Accounts() {
           <p className="empty-state">No accounts yet — add one manually above or link a bank.</p>
         ) : (
           <div>
-            {accounts.map((a) => (
-              <div className="account-row" key={a.id}>
-                <div className="avatar-chip" style={{ background: avatarColorVar(a.name) }}>
-                  {initials(a.name)}
-                </div>
-                <div className="account-row__info">
-                  <div className="account-row__name">{a.name}</div>
-                  <div className="account-row__meta">
-                    <span className="status-dot" />
-                    {a.source === "enablebanking" ? "Linked via Enable Banking" : "Manual"} · {a.currency}
+            {accounts.map((a) => {
+              const isEditing = editingId === a.id;
+              return (
+                <div className="account-row" key={a.id}>
+                  <AccountAvatar name={a.name} logo={a.logo} />
+                  <div className="account-row__info">
+                    {isEditing ? (
+                      <div style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
+                        <input
+                          autoFocus
+                          value={editingName}
+                          onChange={(e) => setEditingName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") saveRename(a.id);
+                            if (e.key === "Escape") cancelEditing();
+                          }}
+                          style={{ fontSize: "0.9rem", padding: "0.25rem 0.5rem" }}
+                        />
+                        <button
+                          onClick={() => saveRename(a.id)}
+                          disabled={savingRename || !editingName.trim()}
+                          aria-label="Save name"
+                          title="Save"
+                          style={{ padding: "0.3rem", display: "flex" }}
+                        >
+                          <Check size={14} />
+                        </button>
+                        <button onClick={cancelEditing} aria-label="Cancel" title="Cancel" style={{ padding: "0.3rem", display: "flex" }}>
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="account-row__name" style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                        {a.name}
+                        <button
+                          onClick={() => startEditing(a)}
+                          aria-label="Rename account"
+                          title="Rename"
+                          style={{ padding: "0.15rem", display: "flex", background: "transparent", border: "none" }}
+                        >
+                          <Pencil size={12} color="var(--text-muted)" />
+                        </button>
+                      </div>
+                    )}
+                    <div className="account-row__meta">
+                      <span className="status-dot" />
+                      {a.source === "enablebanking" ? a.institution_name ?? "Linked via Enable Banking" : "Manual"} · {a.currency}
+                    </div>
                   </div>
+                  {a.source === "enablebanking" && (
+                    <button onClick={() => handleSync(a.id)} disabled={syncingId === a.id} title="Sync transactions" aria-label="Sync">
+                      <RefreshCw size={14} className={syncingId === a.id ? "spin" : undefined} />
+                    </button>
+                  )}
+                  <span className="account-row__balance">{(byAccount.get(a.id) ?? 0).toFixed(2)}</span>
                 </div>
-                {a.source === "enablebanking" && (
-                  <button onClick={() => handleSync(a.id)} disabled={syncingId === a.id} title="Sync transactions" aria-label="Sync">
-                    <RefreshCw size={14} className={syncingId === a.id ? "spin" : undefined} />
-                  </button>
-                )}
-                <span className="account-row__balance">{(byAccount.get(a.id) ?? 0).toFixed(2)}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

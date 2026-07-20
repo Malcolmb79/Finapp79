@@ -19,7 +19,7 @@ bankLinkRouter.get("/institutions", async (req, res) => {
 // We generate our own `state` up front so we have somewhere to record the
 // pending connection before the user ever leaves our site.
 bankLinkRouter.post("/authorize", async (req, res) => {
-  const { aspsp_name, country } = req.body;
+  const { aspsp_name, country, logo } = req.body;
   if (!aspsp_name || !country) {
     res.status(400).json({ error: "aspsp_name and country are required" });
     return;
@@ -28,10 +28,10 @@ bankLinkRouter.post("/authorize", async (req, res) => {
   const state = randomUUID();
   await db
     .prepare(
-      `INSERT INTO bank_connections (id, user_id, institution_id, institution_name, country, status)
-       VALUES (?, ?, ?, ?, ?, 'pending')`
+      `INSERT INTO bank_connections (id, user_id, institution_id, institution_name, logo, country, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending')`
     )
-    .run(state, req.user!.id, aspsp_name, aspsp_name, country);
+    .run(state, req.user!.id, aspsp_name, aspsp_name, logo ?? null, country);
 
   const authorization = await enableBanking.startAuthorization(
     { name: aspsp_name, country },

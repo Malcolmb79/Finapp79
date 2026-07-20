@@ -78,10 +78,16 @@ CREATE TABLE IF NOT EXISTS bank_connections (
   user_id TEXT REFERENCES users(id),
   institution_id TEXT NOT NULL,     -- ASPSP name
   institution_name TEXT NOT NULL,
+  logo TEXT,                        -- ASPSP logo URL from Enable Banking's /aspsps response, captured at /authorize time
   country TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending', -- pending | linked | expired | error
   created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
 );
+
+-- This app already has a live database from before this column existed —
+-- see the identical users.email_verified_at case above for why this can't
+-- just be part of the CREATE TABLE IF NOT EXISTS above.
+ALTER TABLE bank_connections ADD COLUMN IF NOT EXISTS logo TEXT;
 
 -- Bank accounts, either synced from Enable Banking or created manually.
 CREATE TABLE IF NOT EXISTS accounts (

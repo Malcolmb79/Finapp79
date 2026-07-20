@@ -45,9 +45,7 @@ export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onC
       {navOpen && <div className="sidebar-backdrop" onClick={onCloseNav} />}
       <aside className={`sidebar${navOpen ? " sidebar--open" : ""}`}>
         <div className="sidebar__brand">
-          <div className="sidebar__brand-icon">
-            <Wallet size={18} />
-          </div>
+          <img src="/logo.png" alt="" style={{ width: 34, height: 34, borderRadius: "50%", flexShrink: 0 }} />
           <div>
             <div className="sidebar__brand-name">Personal Finance</div>
             <div className="sidebar__brand-sub">Your money, at a glance</div>

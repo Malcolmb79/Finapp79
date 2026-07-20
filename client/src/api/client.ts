@@ -27,11 +27,14 @@ export interface Account {
   name: string;
   currency: string;
   source: "enablebanking" | "manual";
+  institution_name?: string | null;
+  logo?: string | null;
 }
 
 export interface Aspsp {
   name: string;
   country: string;
+  logo?: string;
 }
 
 export interface Category {
@@ -110,6 +113,8 @@ export const api = {
   listAccounts: () => request<Account[]>("/accounts"),
   createAccount: (name: string, currency = "USD") =>
     request<Account>("/accounts", { method: "POST", body: JSON.stringify({ name, currency }) }),
+  renameAccount: (id: string, name: string) =>
+    request<Account>(`/accounts/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
 
   listCategories: () => request<Category[]>("/categories"),
   createCategory: (name: string, parentId?: number | null) =>
@@ -141,10 +146,10 @@ export const api = {
     }),
 
   listInstitutions: (country: string) => request<Aspsp[]>(`/bank-link/institutions?country=${country}`),
-  startBankLink: (aspspName: string, country: string) =>
+  startBankLink: (aspspName: string, country: string, logo?: string) =>
     request<{ state: string; authorizationUrl: string }>("/bank-link/authorize", {
       method: "POST",
-      body: JSON.stringify({ aspsp_name: aspspName, country }),
+      body: JSON.stringify({ aspsp_name: aspspName, country, logo }),
     }),
   completeBankLink: (code: string, state: string) =>
     request<{ linkedAccounts: string[] }>("/bank-link/sessions", {

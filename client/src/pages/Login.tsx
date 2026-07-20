@@ -76,9 +76,7 @@ export default function Login() {
       }}
     >
       <div className="card" style={{ width: 360, textAlign: "center" }}>
-        <div className="sidebar__brand-icon" style={{ margin: "0 auto 1rem" }}>
-          💰
-        </div>
+        <img src="/logo.png" alt="" style={{ width: 56, height: 56, borderRadius: "50%", margin: "0 auto 1rem", display: "block" }} />
         <h1 style={{ marginBottom: "0.3rem" }}>Personal Finance</h1>
         <p className="page-header__subtitle" style={{ marginBottom: "1.5rem" }}>
           {mode === "signup" ? "Create an account to continue" : "Sign in to continue"}

@@ -58,7 +58,7 @@ export default function Transactions() {
         <div className="card__header">
           <h2 className="card__title">All transactions</h2>
         </div>
-        <TransactionTable transactions={transactions} categories={categories} onChange={refresh} />
+        <TransactionTable transactions={transactions} categories={categories} accounts={accounts} onChange={refresh} />
       </div>
     </div>
   );

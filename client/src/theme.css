@@ -1009,6 +1009,120 @@ th {
   color: var(--good);
 }
 
+/* Grouped transaction list (Transactions page) */
+
+.date-group-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1rem 0 0.5rem;
+}
+
+.date-group-header:first-child {
+  padding-top: 0;
+}
+
+.tx-row--clickable {
+  cursor: pointer;
+  margin: 0 -0.5rem;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+  border-radius: 8px;
+}
+
+.tx-row--clickable:hover {
+  background: var(--surface-2);
+}
+
+.category-chip {
+  display: inline-block;
+  margin-top: 0.25rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+}
+
+/* Transaction detail modal */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal {
+  background: var(--surface-1);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  width: 100%;
+  max-width: 420px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+.modal__amount {
+  text-align: center;
+  font-size: 2.2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin: 0.5rem 0 0.3rem;
+}
+
+.modal__type-badge {
+  display: block;
+  margin: 0 auto 1.4rem;
+  width: fit-content;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.modal__field {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--gridline);
+}
+
+.modal__field:last-of-type {
+  border-bottom: none;
+}
+
+.modal__field-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  display: flex;
+}
+
+.modal__field-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.modal__field-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 0.15rem;
+}
+
+.modal__field-value {
+  font-size: 0.92rem;
+}
+
 .empty-state {
   color: var(--text-muted);
   font-size: 0.9rem;

@@ -9,7 +9,7 @@ import NetWorthCard, { type TrendPoint } from "../components/dashboard/NetWorthC
 import SortableCard, { type WidgetMode, type WidgetSize } from "../components/dashboard/SortableCard.js";
 import { api, type Account, type Budget, type Category, type Debt, type SavingsGoal, type Transaction } from "../api/client.js";
 import { WIDGET_IDS, WIDGET_META, widgetAccentVar, type WidgetId } from "../dashboardWidgets.js";
-import { avatarColorVar, initials } from "../utils/avatarColor.js";
+import AccountAvatar from "../components/AccountAvatar.js";
 import { budgetStatus } from "../utils/budgetStatus.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { monthsToPayoff } from "../utils/payoff.js";
@@ -206,9 +206,7 @@ export default function Dashboard() {
           <div>
             {accounts.map((a) => (
               <div className="account-row" key={a.id}>
-                <div className="avatar-chip" style={{ background: avatarColorVar(a.name) }}>
-                  {initials(a.name)}
-                </div>
+                <AccountAvatar name={a.name} logo={a.logo} />
                 <div className="account-row__info">
                   <div className="account-row__name">{a.name}</div>
                   <div className="account-row__meta">
@@ -235,9 +233,7 @@ export default function Dashboard() {
           <div>
             {accounts.map((a) => (
               <div className="account-row" key={a.id}>
-                <div className="avatar-chip" style={{ background: avatarColorVar(a.name) }}>
-                  {initials(a.name)}
-                </div>
+                <AccountAvatar name={a.name} logo={a.logo} />
                 <div className="account-row__info">
                   <div className="account-row__name">{a.name}</div>
                 </div>

@@ -1,57 +1,87 @@
-import { api, type Category, type Transaction } from "../api/client.js";
+import { ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { useMemo, useState } from "react";
+import type { Account, Category, Transaction } from "../api/client.js";
+import TransactionDetailModal from "./TransactionDetailModal.js";
+
+function formatDateHeader(dateStr: string): string {
+  const date = new Date(`${dateStr}T00:00:00`);
+  return date.toLocaleDateString(undefined, { weekday: undefined, year: "numeric", month: "long", day: "numeric" });
+}
 
 export default function TransactionTable({
   transactions,
   categories,
+  accounts,
   onChange,
 }: {
   transactions: Transaction[];
   categories: Category[];
+  accounts: Account[];
   onChange: () => void;
 }) {
-  async function handleDelete(id: string) {
-    await api.deleteTransaction(id);
-    onChange();
-  }
+  const [selected, setSelected] = useState<Transaction | null>(null);
 
-  async function handleCategoryChange(id: string, value: string) {
-    await api.updateTransaction(id, { category_id: value ? Number(value) : null });
-    onChange();
+  const categoryNames = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
+  const accountsById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
+
+  const groups = useMemo(() => {
+    const byDate = new Map<string, Transaction[]>();
+    for (const tx of transactions) {
+      const list = byDate.get(tx.booking_date) ?? [];
+      list.push(tx);
+      byDate.set(tx.booking_date, list);
+    }
+    return [...byDate.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [transactions]);
+
+  if (transactions.length === 0) {
+    return <p className="empty-state">No transactions yet.</p>;
   }
 
   return (
-    <table style={{ width: "100%", borderCollapse: "collapse" }}>
-      <thead>
-        <tr>
-          <th align="left">Date</th>
-          <th align="left">Description</th>
-          <th align="right">Amount</th>
-          <th align="left">Category</th>
-          <th align="left">Source</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {transactions.map((tx) => (
-          <tr key={tx.id}>
-            <td>{tx.booking_date}</td>
-            <td>{tx.description}</td>
-            <td align="right">{tx.amount.toFixed(2)}</td>
-            <td>
-              <select value={tx.category_id ?? ""} onChange={(e) => handleCategoryChange(tx.id, e.target.value)}>
-                <option value="">Uncategorized</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </td>
-            <td>{tx.source}</td>
-            <td>{tx.source === "manual" && <button onClick={() => handleDelete(tx.id)}>Delete</button>}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div>
+      {groups.map(([date, txs]) => (
+        <div key={date}>
+          <div className="date-group-header">{formatDateHeader(date)}</div>
+          {txs.map((tx) => (
+            <div className="tx-row tx-row--clickable" key={tx.id} onClick={() => setSelected(tx)}>
+              <div className="tx-row__icon">
+                {tx.amount >= 0 ? (
+                  <ArrowDownRight size={15} color="var(--good)" />
+                ) : (
+                  <ArrowUpRight size={15} color="var(--text-muted)" />
+                )}
+              </div>
+              <div className="tx-row__info">
+                <div className="tx-row__name">{tx.description || accountsById.get(tx.account_id)?.name || "Transaction"}</div>
+                <span className="category-chip">
+                  {tx.category_id != null ? (categoryNames.get(tx.category_id) ?? "Uncategorized") : "Uncategorized"}
+                </span>
+              </div>
+              <span className={`tx-row__amount${tx.amount >= 0 ? " tx-row__amount--positive" : ""}`}>
+                {tx.amount >= 0 ? "+" : ""}
+                {tx.amount.toFixed(2)}
+              </span>
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {selected && (
+        <TransactionDetailModal
+          transaction={selected}
+          account={accountsById.get(selected.account_id)}
+          categories={categories}
+          onClose={() => setSelected(null)}
+          onChange={() => {
+            onChange();
+            // Keep the modal's own view of the transaction fresh (e.g. after
+            // changing its category) without needing the parent's refreshed
+            // `transactions` prop to have landed yet.
+            setSelected((prev) => (prev ? transactions.find((t) => t.id === prev.id) || prev : prev));
+          }}
+        />
+      )}
+    </div>
   );
 }
