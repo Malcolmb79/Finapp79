@@ -1,5 +1,6 @@
 {
   "framework": null,
+  "installCommand": "npm install --include=dev",
   "buildCommand": "npm run build --workspace client",
   "outputDirectory": "client/dist",
   "rewrites": [
