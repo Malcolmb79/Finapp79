@@ -1,135 +1,178 @@
 import { Router } from "express";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { db, withTransaction } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
-import * as plaid from "../services/plaid.js";
+import * as enableBanking from "../services/enableBanking.js";
+import type { RemoteTransaction } from "../services/enableBanking.js";
 
 export const bankLinkRouter = Router();
 
 bankLinkRouter.use(requireAuth);
 
-// Step 1: create a Link token. The client hands this straight to Plaid's
-// own hosted widget (react-plaid-link) — unlike Enable Banking, there's no
-// country/bank picker of our own to drive here, Plaid Link does its own
-// institution search internally.
-bankLinkRouter.post("/link-token", async (req, res) => {
-  const linkToken = await plaid.createLinkToken(req.user!.id, process.env.PLAID_REDIRECT_URI || undefined);
-  res.json({ linkToken });
+bankLinkRouter.get("/institutions", async (req, res) => {
+  const country = (req.query.country as string) ?? "GB";
+  const aspsps = await enableBanking.listAspsps(country);
+  res.json(aspsps);
 });
 
-// Step 2: after the widget's onSuccess fires client-side with a
-// public_token (+ which institution the user picked), exchange it for a
-// long-lived access_token and create the bank_connection + accounts rows.
-bankLinkRouter.post("/exchange", async (req, res) => {
-  const { public_token, institution_id } = req.body;
-  if (!public_token || !institution_id) {
-    res.status(400).json({ error: "public_token and institution_id are required" });
+// Step 1: start a bank link. Returns the URL to redirect the user to.
+// We generate our own `state` up front so we have somewhere to record the
+// pending connection before the user ever leaves our site.
+bankLinkRouter.post("/authorize", async (req, res) => {
+  const { aspsp_name, country, logo } = req.body;
+  if (!aspsp_name || !country) {
+    res.status(400).json({ error: "aspsp_name and country are required" });
     return;
   }
 
-  const { accessToken, itemId } = await plaid.exchangePublicToken(public_token);
-  const institution = await plaid.getInstitution(institution_id);
-  const balances = await plaid.getAccountBalances(accessToken);
-
-  const connectionId = randomUUID();
+  const state = randomUUID();
   await db
     .prepare(
-      `INSERT INTO bank_connections (id, user_id, institution_id, institution_name, logo, country, status, access_token, item_id)
-       VALUES (?, ?, ?, ?, ?, ?, 'linked', ?, ?)`
+      `INSERT INTO bank_connections (id, user_id, institution_id, institution_name, logo, country, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending')`
     )
-    .run(connectionId, req.user!.id, institution_id, institution.name, institution.logo, institution.country, accessToken, itemId);
+    .run(state, req.user!.id, aspsp_name, aspsp_name, logo ?? null, country);
 
-  const insertAccount = db.prepare(
-    `INSERT INTO accounts (id, user_id, bank_connection_id, name, currency, source, balance, available_balance, balance_synced_at)
-     VALUES (?, ?, ?, ?, ?, 'plaid', ?, ?, ?)
-     ON CONFLICT (id) DO NOTHING`
+  const authorization = await enableBanking.startAuthorization(
+    { name: aspsp_name, country },
+    state,
+    process.env.ENABLE_BANKING_REDIRECT_URL ?? ""
   );
-  const now = new Date().toISOString();
-  for (const b of balances) {
-    await insertAccount.run(b.accountId, req.user!.id, connectionId, b.name, b.currency ?? "USD", b.current, b.available, now);
-  }
 
-  res.json({ linkedAccounts: balances.map((b) => b.accountId) });
+  res.json({ state, authorizationUrl: authorization.url });
 });
 
-// Step 3: pull transactions for a linked account and upsert them. Plaid's
-// cursor-based /transactions/sync covers every account on the same Item in
-// one call (not just the account_id in the URL), so syncing any one
-// account naturally keeps its siblings (e.g. checking + savings from the
-// same bank) up to date too.
+// Step 2: after the user authorizes at their bank, Enable Banking redirects
+// back with ?code=&state=. Exchange the code for a session and store the
+// linked accounts.
+bankLinkRouter.post("/sessions", async (req, res) => {
+  const { code, state } = req.body;
+  if (!code || !state) {
+    res.status(400).json({ error: "code and state are required" });
+    return;
+  }
+
+  const connection = await db.prepare("SELECT * FROM bank_connections WHERE id = ? AND user_id = ?").get(state, req.user!.id);
+  if (!connection) {
+    res.status(404).json({ error: "no pending bank connection for this state" });
+    return;
+  }
+
+  const session = await enableBanking.exchangeCode(code);
+
+  await db.prepare("UPDATE bank_connections SET status = 'linked' WHERE id = ?").run(state);
+
+  const insertAccount = db.prepare(
+    `INSERT INTO accounts (id, user_id, bank_connection_id, name, iban, currency, source)
+     VALUES (?, ?, ?, ?, ?, ?, 'enablebanking')
+     ON CONFLICT (id) DO NOTHING`
+  );
+
+  for (const account of session.accounts) {
+    await insertAccount.run(
+      account.uid,
+      req.user!.id,
+      state,
+      account.name ?? "Linked account",
+      account.account_id?.iban ?? null,
+      account.currency
+    );
+  }
+
+  res.json({ linkedAccounts: session.accounts.map((a) => a.uid) });
+});
+
+function signedAmount(tx: RemoteTransaction): number {
+  const magnitude = Math.abs(Number(tx.transaction_amount.amount));
+  return tx.credit_debit_indicator === "DBIT" ? -magnitude : magnitude;
+}
+
+// Some banks (via Enable Banking's remittance_information) include a
+// structured metadata blob in curly braces alongside the real payee name
+// — e.g. a Barclays entry might come as two array elements, "ANTHROPIC"
+// and "{ TransactionSubType : Purchase, PaymentInitiationDateTime : ... }".
+// Drop any element that's just that blob, then strip inline brace content
+// too in case a bank concatenates it onto the same element instead.
+function cleanRemittanceInfo(parts: string[] | undefined): string | null {
+  const cleaned = (parts ?? [])
+    .filter((p) => !p.trim().startsWith("{"))
+    .join(" ")
+    .replace(/\{[^{}]*\}/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return cleaned || null;
+}
+
+function transactionId(accountUid: string, tx: RemoteTransaction): string {
+  if (tx.transaction_id) return tx.transaction_id;
+  if (tx.entry_reference) return `${accountUid}:${tx.entry_reference}`;
+  const hashInput = `${accountUid}:${tx.booking_date}:${tx.transaction_amount.amount}:${(tx.remittance_information ?? []).join(" ")}`;
+  return createHash("sha256").update(hashInput).digest("hex");
+}
+
+// Berlin Group/XS2A balance_type values, in preference order — different
+// banks populate different subsets, so this tries the most specific first
+// and falls back rather than requiring an exact match.
+const BOOKED_BALANCE_TYPES = ["closingBooked", "interimBooked", "openingBooked", "expected"];
+const AVAILABLE_BALANCE_TYPES = ["interimAvailable", "closingAvailable", "forwardAvailable", "expected"];
+
+function pickBalance(balances: enableBanking.AccountBalance[], types: string[]): number | null {
+  for (const type of types) {
+    const match = balances.find((b) => b.balance_type === type);
+    if (match) return Number(match.balance_amount.amount);
+  }
+  return null;
+}
+
+// Step 3: pull transactions for a linked account and upsert them.
 bankLinkRouter.post("/accounts/:accountId/sync", async (req, res) => {
   const { accountId } = req.params;
 
-  const account = await db
-    .prepare("SELECT bank_connection_id FROM accounts WHERE id = ? AND user_id = ?")
-    .get<{ bank_connection_id: string | null }>(accountId, req.user!.id);
-  if (!account || !account.bank_connection_id) {
+  const account = await db.prepare("SELECT 1 FROM accounts WHERE id = ? AND user_id = ?").get(accountId, req.user!.id);
+  if (!account) {
     res.status(404).json({ error: "account not found" });
     return;
   }
 
-  const connection = await db
-    .prepare("SELECT access_token, sync_cursor FROM bank_connections WHERE id = ? AND user_id = ?")
-    .get<{ access_token: string; sync_cursor: string | null }>(account.bank_connection_id, req.user!.id);
-  if (!connection) {
-    res.status(404).json({ error: "bank connection not found" });
-    return;
-  }
-
-  const { added, modified, removed, nextCursor } = await plaid.syncTransactions(connection.access_token, connection.sync_cursor);
+  const transactions = await enableBanking.listAccountTransactions(accountId);
 
   let synced = 0;
   await withTransaction(async (tx) => {
-    // Plaid's sync model explicitly distinguishes "modified" from "added"
-    // (e.g. a pending transaction's amount finalizing) — unlike the
-    // add-only sources elsewhere in this app, upsert on conflict instead of
-    // leaving stale data in place.
     const insert = tx.prepare(
       `INSERT INTO transactions (id, user_id, account_id, booking_date, amount, currency, description, counterparty, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'plaid')
-       ON CONFLICT (id) DO UPDATE SET
-         booking_date = excluded.booking_date,
-         amount = excluded.amount,
-         currency = excluded.currency,
-         description = excluded.description,
-         counterparty = excluded.counterparty`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'enablebanking')
+       ON CONFLICT (id) DO NOTHING`
     );
-    for (const t of [...added, ...modified]) {
-      // Plaid's amount is positive for money leaving the account, negative
-      // for money coming in — opposite of this app's negative-is-outflow
-      // convention, so negate on the way in.
+    for (const t of transactions) {
       const result = await insert.run(
-        t.transaction_id,
+        transactionId(accountId, t),
         req.user!.id,
-        t.account_id,
-        t.date,
-        -t.amount,
-        t.iso_currency_code ?? "USD",
-        t.merchant_name ?? t.name,
-        t.merchant_name ?? null
+        accountId,
+        t.booking_date,
+        signedAmount(t),
+        t.transaction_amount.currency,
+        cleanRemittanceInfo(t.remittance_information),
+        t.creditor?.name ?? t.debtor?.name ?? null
       );
       if (result.changes > 0) synced++;
     }
-    for (const id of removed) {
-      await tx.prepare("DELETE FROM transactions WHERE id = ? AND user_id = ?").run(id, req.user!.id);
-    }
   });
 
-  await db.prepare("UPDATE bank_connections SET sync_cursor = ? WHERE id = ?").run(nextCursor, account.bank_connection_id);
-
-  // Best-effort: a balance refresh failure shouldn't fail the whole sync,
-  // since the transactions above already succeeded.
+  // Best-effort: a bank not supporting balance retrieval shouldn't fail the
+  // whole sync, since the transactions above already succeeded.
   try {
-    const balances = await plaid.getAccountBalances(connection.access_token);
-    const now = new Date().toISOString();
-    for (const b of balances) {
+    const balances = await enableBanking.getAccountBalances(accountId);
+    console.log(`Balances for account ${accountId}:`, JSON.stringify(balances)); // TEMP: remove after confirming real balance_type values
+    const booked = pickBalance(balances, BOOKED_BALANCE_TYPES);
+    const available = pickBalance(balances, AVAILABLE_BALANCE_TYPES);
+    if (booked !== null || available !== null) {
       await db
-        .prepare("UPDATE accounts SET balance = ?, available_balance = ?, balance_synced_at = ? WHERE id = ? AND user_id = ?")
-        .run(b.current, b.available, now, b.accountId, req.user!.id);
+        .prepare("UPDATE accounts SET balance = ?, available_balance = ?, balance_synced_at = ? WHERE id = ?")
+        .run(booked, available, new Date().toISOString(), accountId);
     }
   } catch (err) {
-    console.error(`Failed to sync balances for connection ${account.bank_connection_id}:`, err);
+    console.error(`Failed to sync balance for account ${accountId}:`, err);
   }
 
-  res.json({ synced, totalFetched: added.length + modified.length });
+  res.json({ synced, totalFetched: transactions.length });
 });

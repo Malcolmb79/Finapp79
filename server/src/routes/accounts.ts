@@ -39,7 +39,7 @@ accountsRouter.post("/", async (req, res) => {
 });
 
 // Renaming works for every account regardless of source (manual or
-// plaid-linked) — a display name isn't something that needs to
+// enablebanking-linked) — a display name isn't something that needs to
 // stay in sync with the bank, so unlike transactions.source (where only
 // 'manual' rows are deletable), there's no reason to restrict this.
 accountsRouter.patch("/:id", async (req, res) => {

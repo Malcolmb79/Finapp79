@@ -1,92 +1,153 @@
 import { Landmark, Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { usePlaidLink, type PlaidLinkOnSuccess } from "react-plaid-link";
-import { api } from "../api/client.js";
+import { useState } from "react";
+import { api, type Aspsp } from "../api/client.js";
 
-// The link_token has to survive a full-page redirect out to the bank and
-// back for OAuth institutions (basically all UK/EU banks) — sessionStorage
-// is what BankLinkCallback.tsx reads to resume the same Link session.
-const LINK_TOKEN_KEY = "plaid_link_token";
+// Curated list of countries Enable Banking's pan-EU/UK open banking coverage
+// generally includes — there's no "list supported countries" endpoint to
+// query this from, so this is a starting point for search, not a live
+// per-account entitlement check (a given app registration can still come
+// back empty for a country, the way GB did during initial setup here).
+const COUNTRIES: { code: string; name: string; flag: string }[] = [
+  { code: "IE", name: "Ireland", flag: "🇮🇪" },
+  { code: "GB", name: "United Kingdom", flag: "🇬🇧" },
+  { code: "DE", name: "Germany", flag: "🇩🇪" },
+  { code: "FR", name: "France", flag: "🇫🇷" },
+  { code: "ES", name: "Spain", flag: "🇪🇸" },
+  { code: "IT", name: "Italy", flag: "🇮🇹" },
+  { code: "NL", name: "Netherlands", flag: "🇳🇱" },
+  { code: "BE", name: "Belgium", flag: "🇧🇪" },
+  { code: "PT", name: "Portugal", flag: "🇵🇹" },
+  { code: "AT", name: "Austria", flag: "🇦🇹" },
+  { code: "SE", name: "Sweden", flag: "🇸🇪" },
+  { code: "FI", name: "Finland", flag: "🇫🇮" },
+  { code: "DK", name: "Denmark", flag: "🇩🇰" },
+  { code: "NO", name: "Norway", flag: "🇳🇴" },
+  { code: "PL", name: "Poland", flag: "🇵🇱" },
+  { code: "LU", name: "Luxembourg", flag: "🇱🇺" },
+];
 
 export default function BankLink() {
-  const navigate = useNavigate();
-  const [linkToken, setLinkToken] = useState<string | null>(null);
-  const [linking, setLinking] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [country, setCountry] = useState<{ code: string; name: string; flag: string } | null>(null);
+  const [institutions, setInstitutions] = useState<Aspsp[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [linkingName, setLinkingName] = useState<string | null>(null);
 
-  useEffect(() => {
-    api
-      .createLinkToken()
-      .then(({ linkToken }) => {
-        setLinkToken(linkToken);
-        sessionStorage.setItem(LINK_TOKEN_KEY, linkToken);
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
-  }, []);
-
-  const onSuccess: PlaidLinkOnSuccess = async (publicToken, metadata) => {
-    if (!metadata.institution) {
-      setError("Couldn't determine which bank was selected — try again.");
-      return;
-    }
-    setLinking(true);
-    setError(null);
+  async function handlePickCountry(c: { code: string; name: string; flag: string }) {
+    setCountry(c);
+    setLoading(true);
+    setInstitutions(null);
     try {
-      const { linkedAccounts } = await api.exchangePublicToken(publicToken, metadata.institution.institution_id);
-      for (const accountId of linkedAccounts) {
-        await api.syncAccount(accountId);
-      }
-      sessionStorage.removeItem(LINK_TOKEN_KEY);
-      navigate("/accounts");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setInstitutions(await api.listInstitutions(c.code));
     } finally {
-      setLinking(false);
+      setLoading(false);
     }
-  };
+  }
 
-  const { open, ready } = usePlaidLink({
-    token: linkToken,
-    onSuccess,
-  });
+  async function handleLink(aspsp: Aspsp) {
+    setLinkingName(aspsp.name);
+    try {
+      const { authorizationUrl } = await api.startBankLink(aspsp.name, aspsp.country, aspsp.logo);
+      window.location.href = authorizationUrl;
+    } finally {
+      setLinkingName(null);
+    }
+  }
 
   return (
     <div>
       <div className="page-header">
         <div>
           <h1>Link a bank</h1>
-          <p className="page-header__subtitle">Powered by Plaid.</p>
+          <p className="page-header__subtitle">Powered by Enable Banking (open banking, pan-EU/UK).</p>
         </div>
       </div>
 
-      <div className="card" style={{ textAlign: "center", padding: "2.5rem 1.5rem" }}>
-        <div
-          className="avatar-chip"
-          style={{ width: 56, height: 56, margin: "0 auto 1rem", background: "var(--accent)", color: "var(--accent-ink)" }}
-        >
-          <Landmark size={26} />
-        </div>
-        <p style={{ fontWeight: 500, marginBottom: "0.3rem" }}>Connect your bank account</p>
-        <p className="page-header__subtitle" style={{ marginTop: 0, marginBottom: "1.25rem" }}>
-          You'll search for your bank and sign in securely through Plaid — we never see your bank credentials.
-        </p>
+      <div className="card">
+        {!country ? (
+          <>
+            <p style={{ fontWeight: 500, marginBottom: "0.3rem" }}>Choose a country</p>
+            <p className="page-header__subtitle" style={{ marginTop: 0, marginBottom: "1rem" }}>
+              Testing? Pick Sweden, Finland, or Germany and look for <strong>Mock ASPSP</strong> — Enable Banking's
+              sandbox bank, no real credentials needed.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: "0.6rem" }}>
+              {COUNTRIES.map((c) => (
+                <button
+                  key={c.code}
+                  onClick={() => handlePickCountry(c)}
+                  style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.7rem 0.8rem", justifyContent: "flex-start" }}
+                >
+                  <span style={{ fontSize: "1.4rem", lineHeight: 1 }}>{c.flag}</span>
+                  <span style={{ fontSize: "0.88rem" }}>{c.name}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
+              <p style={{ fontWeight: 500, margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span style={{ fontSize: "1.3rem", lineHeight: 1 }}>{country.flag}</span>
+                Banks in {country.name}
+              </p>
+              <button
+                onClick={() => {
+                  setCountry(null);
+                  setInstitutions(null);
+                }}
+              >
+                ← Choose a different country
+              </button>
+            </div>
 
-        {error && (
-          <div className="budget-alert" style={{ textAlign: "left", marginBottom: "1rem" }}>
-            {error}
-          </div>
+            {loading ? (
+              <p className="empty-state" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <Loader2 size={14} className="spin" /> Loading banks…
+              </p>
+            ) : institutions && institutions.length === 0 ? (
+              <p className="empty-state">No banks available for {country.name} yet.</p>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: "0.7rem" }}>
+                {institutions?.map((inst) => {
+                  const isLinking = linkingName === inst.name;
+                  return (
+                    <button
+                      key={`${inst.name}-${inst.country}`}
+                      onClick={() => handleLink(inst)}
+                      disabled={linkingName !== null}
+                      style={{ display: "flex", alignItems: "center", gap: "0.7rem", padding: "0.7rem 0.8rem", justifyContent: "flex-start" }}
+                    >
+                      {inst.logo ? (
+                        <img
+                          src={inst.logo}
+                          alt=""
+                          style={{ width: 30, height: 30, borderRadius: 7, objectFit: "contain", flexShrink: 0, background: "#fff" }}
+                        />
+                      ) : (
+                        <span
+                          style={{
+                            width: 30,
+                            height: 30,
+                            borderRadius: 7,
+                            background: "var(--surface-2)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Landmark size={15} />
+                        </span>
+                      )}
+                      <span style={{ fontSize: "0.88rem", textAlign: "left", flex: 1, minWidth: 0 }}>{inst.name}</span>
+                      {isLinking && <Loader2 size={14} className="spin" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
-
-        <button
-          className="btn-accent"
-          onClick={() => open()}
-          disabled={!ready || linking}
-          style={{ padding: "0.6rem 1.4rem", display: "inline-flex", alignItems: "center", gap: "0.5rem" }}
-        >
-          {linking && <Loader2 size={15} className="spin" />}
-          {linking ? "Finishing up…" : "Connect a bank"}
-        </button>
       </div>
     </div>
   );

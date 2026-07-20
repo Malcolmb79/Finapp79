@@ -164,10 +164,10 @@ export default function Accounts() {
                     )}
                     <div className="account-row__meta">
                       <span className="status-dot" />
-                      {a.source === "plaid" ? a.institution_name ?? "Linked via Plaid" : "Manual"} · {a.currency}
+                      {a.source === "enablebanking" ? a.institution_name ?? "Linked via Enable Banking" : "Manual"} · {a.currency}
                     </div>
                   </div>
-                  {a.source === "plaid" && (
+                  {a.source === "enablebanking" && (
                     <button onClick={() => handleSync(a.id)} disabled={syncingId === a.id} title="Sync transactions" aria-label="Sync">
                       <RefreshCw size={14} className={syncingId === a.id ? "spin" : undefined} />
                     </button>
@@ -203,7 +203,7 @@ export default function Accounts() {
                     <span className="account-row__balance" style={{ display: "block" }}>
                       {formatCurrency(accountBalance(a, byAccount.get(a.id) ?? 0), a.currency)}
                     </span>
-                    {a.source === "plaid" && a.available_balance != null && (
+                    {a.source === "enablebanking" && a.available_balance != null && (
                       <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
                         {formatCurrency(a.available_balance, a.currency)} available
                       </span>

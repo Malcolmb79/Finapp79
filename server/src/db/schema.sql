@@ -70,45 +70,37 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at TEXT NOT NULL
 );
 
--- Bank connections established via Plaid (one per linked institution/Item).
--- id is our own generated uuid; item_id is Plaid's own identifier for the
--- same connection, kept alongside it since some Plaid APIs address a
--- connection by item_id specifically.
+-- Bank connections established via Enable Banking (one per linked institution).
+-- id is our own generated `state` uuid, since Enable Banking identifies an
+-- ASPSP by a (name, country) pair rather than a single opaque id.
 CREATE TABLE IF NOT EXISTS bank_connections (
   id TEXT PRIMARY KEY,
   user_id TEXT REFERENCES users(id),
-  institution_id TEXT NOT NULL,
+  institution_id TEXT NOT NULL,     -- ASPSP name
   institution_name TEXT NOT NULL,
-  logo TEXT,                        -- data: URI (base64 PNG) from Plaid's /institutions/get_by_id
+  logo TEXT,                        -- ASPSP logo URL from Enable Banking's /aspsps response, captured at /authorize time
   country TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending', -- pending | linked | expired | error
-  access_token TEXT,                -- Plaid's long-lived credential for this Item -- the thing that actually grants ongoing access
-  item_id TEXT,
-  sync_cursor TEXT,                 -- /transactions/sync cursor, so re-syncing only pulls the delta instead of full history each time
   created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
 );
 
--- This app already has a live database from before these columns existed —
+-- This app already has a live database from before this column existed —
 -- see the identical users.email_verified_at case above for why this can't
 -- just be part of the CREATE TABLE IF NOT EXISTS above.
 ALTER TABLE bank_connections ADD COLUMN IF NOT EXISTS logo TEXT;
-ALTER TABLE bank_connections ADD COLUMN IF NOT EXISTS access_token TEXT;
-ALTER TABLE bank_connections ADD COLUMN IF NOT EXISTS item_id TEXT;
-ALTER TABLE bank_connections ADD COLUMN IF NOT EXISTS sync_cursor TEXT;
 
--- Bank accounts, either synced from Plaid or created manually.
+-- Bank accounts, either synced from Enable Banking or created manually.
 CREATE TABLE IF NOT EXISTS accounts (
-  id TEXT PRIMARY KEY,              -- Plaid account_id, or a generated uuid for manual accounts
+  id TEXT PRIMARY KEY,              -- Enable Banking account uid, or a generated uuid for manual accounts
   user_id TEXT REFERENCES users(id),
   bank_connection_id TEXT REFERENCES bank_connections(id),
   name TEXT NOT NULL,
   iban TEXT,
   currency TEXT NOT NULL DEFAULT 'USD',
-  source TEXT NOT NULL DEFAULT 'manual', -- plaid | manual
+  source TEXT NOT NULL DEFAULT 'manual', -- enablebanking | manual
   -- Linked accounts only: the bank's own current balance, captured via
-  -- Plaid's /accounts/balance/get at sync time -- summing synced
-  -- transactions is never accurate for an account with any history before
-  -- the sync cursor's starting point.
+  -- Enable Banking's /accounts/:id/balances at sync time -- summing synced
+  -- transactions is never accurate since only a 90-day window gets synced.
   -- Manual accounts have no such source of truth and stay derived from
   -- their own transaction history instead (these columns stay null).
   balance DOUBLE PRECISION,
@@ -136,7 +128,7 @@ CREATE TABLE IF NOT EXISTS categories (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_user_name ON categories (user_id, name);
 
 CREATE TABLE IF NOT EXISTS transactions (
-  id TEXT PRIMARY KEY,              -- Plaid transaction_id, csv-import-derived hash, or generated uuid
+  id TEXT PRIMARY KEY,              -- Enable Banking transaction_id/entry_reference, csv-import-derived hash, or generated uuid
   user_id TEXT REFERENCES users(id),
   account_id TEXT NOT NULL REFERENCES accounts(id),
   category_id INTEGER REFERENCES categories(id),
@@ -145,7 +137,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   currency TEXT NOT NULL DEFAULT 'USD',
   description TEXT,
   counterparty TEXT,
-  source TEXT NOT NULL DEFAULT 'manual', -- plaid | manual | csv
+  source TEXT NOT NULL DEFAULT 'manual', -- enablebanking | manual | csv
   created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text,
   UNIQUE (account_id, id)
 );
