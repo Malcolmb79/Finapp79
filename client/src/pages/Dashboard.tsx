@@ -11,6 +11,7 @@ import { api, type Account, type Budget, type Category, type Debt, type SavingsG
 import { WIDGET_IDS, WIDGET_META, widgetAccentVar, type WidgetId } from "../dashboardWidgets.js";
 import { avatarColorVar, initials } from "../utils/avatarColor.js";
 import { budgetStatus } from "../utils/budgetStatus.js";
+import { formatCurrency } from "../utils/formatCurrency.js";
 import { monthsToPayoff } from "../utils/payoff.js";
 
 interface DashboardConfig {
@@ -174,6 +175,11 @@ export default function Dashboard() {
   }
   const accountNames = new Map(accounts.map((a) => [a.id, a.name]));
 
+  const currencyTotals = new Map<string, number>();
+  for (const a of accounts) {
+    currencyTotals.set(a.currency, (currencyTotals.get(a.currency) ?? 0) + (byAccount.get(a.id) ?? 0));
+  }
+
   const recentTransactions = [...transactions]
     .sort((a, b) => b.booking_date.localeCompare(a.booking_date))
     .slice(0, 5);
@@ -213,6 +219,41 @@ export default function Dashboard() {
                 <span className="account-row__balance">{(byAccount.get(a.id) ?? 0).toFixed(2)}</span>
               </div>
             ))}
+          </div>
+        ),
+    },
+    balances: {
+      headerExtra: (
+        <Link to="/accounts" className="card__link">
+          Manage ›
+        </Link>
+      ),
+      body:
+        accounts.length === 0 ? (
+          <p className="empty-state">No accounts yet.</p>
+        ) : (
+          <div>
+            {accounts.map((a) => (
+              <div className="account-row" key={a.id}>
+                <div className="avatar-chip" style={{ background: avatarColorVar(a.name) }}>
+                  {initials(a.name)}
+                </div>
+                <div className="account-row__info">
+                  <div className="account-row__name">{a.name}</div>
+                </div>
+                <span className="account-row__balance">{formatCurrency(byAccount.get(a.id) ?? 0, a.currency)}</span>
+              </div>
+            ))}
+            <div style={{ borderTop: "1px solid var(--border)", marginTop: "0.4rem", paddingTop: "0.4rem" }}>
+              {[...currencyTotals.entries()].map(([currency, total]) => (
+                <div className="account-row" key={currency} style={{ fontWeight: 600 }}>
+                  <div className="account-row__info">
+                    <div className="account-row__name">Total ({currency})</div>
+                  </div>
+                  <span className="account-row__balance">{formatCurrency(total, currency)}</span>
+                </div>
+              ))}
+            </div>
           </div>
         ),
     },
