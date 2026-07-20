@@ -13,7 +13,9 @@
     "build": "npm run build --workspace server && npm run build --workspace client",
     "lint": "npm run lint --workspace server && npm run lint --workspace client",
     "test": "npm run test --workspace server",
-    "typecheck": "npm run typecheck --workspace server && npm run typecheck --workspace client"
+    "typecheck": "npm run typecheck --workspace server && npm run typecheck --workspace client",
+    "diagnose": "node -v && npm -v && echo COUNT: && ls node_modules | wc -l && echo REACT: && ls node_modules/react ; echo CLIENT_COUNT: && ls client/node_modules | wc -l",
+    "vercel-build": "npm run diagnose ; npm run build --workspace client"
   },
   "allowScripts": {
     "esbuild@0.28.1": true
