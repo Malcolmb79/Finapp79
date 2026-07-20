@@ -1,7 +1,7 @@
 {
   "framework": null,
   "installCommand": "npm install --include=dev",
-  "buildCommand": "npm run build --workspace client",
+  "buildCommand": "node -v && npm -v && echo '--- root node_modules count ---' && ls node_modules | wc -l && echo '--- react present? ---' && ls -la node_modules/react 2>&1 && echo '--- client node_modules count ---' && ls client/node_modules 2>&1 | wc -l && echo '--- npm ls react ---' && npm ls react --workspace client 2>&1 && npm run build --workspace client",
   "outputDirectory": "client/dist",
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api" },
