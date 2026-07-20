@@ -10,3 +10,6 @@ server/data/
 *_private_key*
 .DS_Store
 .claude/settings.local.json
+
+.vercel
+.env*
