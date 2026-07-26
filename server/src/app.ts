@@ -12,6 +12,7 @@ import { budgetsRouter } from "./routes/budgets.js";
 import { categoriesRouter } from "./routes/categories.js";
 import { debtsRouter } from "./routes/debts.js";
 import { importCsvRouter } from "./routes/importCsv.js";
+import { importStatementRouter } from "./routes/importStatement.js";
 import { savingsRouter } from "./routes/savings.js";
 import { transactionsRouter } from "./routes/transactions.js";
 
@@ -50,7 +51,12 @@ app.set("trust proxy", 1);
 // would have nothing to protect and could only interfere with responses.
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: process.env.CLIENT_URL ?? "http://localhost:5173", credentials: true }));
-app.use(express.json());
+// Express defaults to a 100kb JSON body, which a statement upload
+// (/api/import/statement posts the whole file as a string) would exceed on
+// anything past a couple of hundred rows — and the rejection surfaces as an
+// opaque error rather than anything about size. The route enforces its own
+// 8MB ceiling with a clear message.
+app.use(express.json({ limit: "10mb" }));
 
 app.use(
   session({
@@ -77,6 +83,7 @@ app.use("/api/budgets", budgetsRouter);
 app.use("/api/debts", debtsRouter);
 app.use("/api/savings", savingsRouter);
 app.use("/api/import/csv", importCsvRouter);
+app.use("/api/import/statement", importStatementRouter);
 app.use("/api/bank-link", bankLinkRouter);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));

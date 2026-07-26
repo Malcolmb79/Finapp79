@@ -42,6 +42,37 @@ export interface Account {
   balance_synced_at?: string | null;
 }
 
+// How a statement file's columns map onto this app's transaction shape. The
+// server infers it, the user confirms or corrects it, and it comes back on
+// the import request so what gets written is what they approved.
+export interface StatementMapping {
+  hasHeader: boolean;
+  dateColumn: number;
+  dateFormat: "iso" | "dmy" | "mdy";
+  amountColumn: number | null;
+  debitColumn: number | null;
+  creditColumn: number | null;
+  debitIsPositive: boolean;
+  descriptionColumn: number | null;
+  counterpartyColumn: number | null;
+  decimalSeparator: "." | ",";
+  source: "ai" | "heuristic";
+  bankName: string | null;
+  bankCountry: string | null;
+}
+
+export interface StatementPreview {
+  mapping: StatementMapping;
+  columns: { index: number; label: string }[];
+  sample: { date: string; amount: number; description: string | null; counterparty: string | null }[];
+  parsed: number;
+  ignored: number;
+  currency: string;
+  // The bank matched from the statement against Enable Banking's directory,
+  // offered so the account can carry its real logo.
+  detectedBank: { name: string; logo: string | null; country: string } | null;
+}
+
 export interface Aspsp {
   name: string;
   country: string;
@@ -155,6 +186,23 @@ export const api = {
   contributeSavingsGoal: (id: number, amount: number) =>
     request<SavingsGoal>(`/savings/${id}/contribute`, { method: "POST", body: JSON.stringify({ amount }) }),
   deleteSavingsGoal: (id: number) => request<void>(`/savings/${id}`, { method: "DELETE" }),
+
+  // Two-step statement import: preview works out (or re-applies) the layout
+  // and shows what it produces without writing anything; importStatement then
+  // commits using the mapping the user approved. Passing a mapping to preview
+  // skips inference, so editing the mapping re-previews without another model
+  // call.
+  previewStatement: (accountId: string, content: string, mapping?: StatementMapping) =>
+    request<StatementPreview>("/import/statement/preview", {
+      method: "POST",
+      body: JSON.stringify({ account_id: accountId, content, mapping }),
+    }),
+
+  importStatement: (accountId: string, content: string, mapping: StatementMapping, applyBankLogo = false) =>
+    request<{ imported: number; duplicates: number; parsed: number; brandedAs: string | null }>("/import/statement", {
+      method: "POST",
+      body: JSON.stringify({ account_id: accountId, content, mapping, apply_bank_logo: applyBankLogo }),
+    }),
 
   importCsv: (accountId: string, rows: { date: string; amount: number; description?: string }[]) =>
     request<{ imported: number; skipped: number }>("/import/csv", {

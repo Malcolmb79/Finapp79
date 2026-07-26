@@ -1,10 +1,18 @@
-import { Check, Pencil, RefreshCw, Trash2, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Check, Pencil, RefreshCw, Trash2, Upload, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Account, type Transaction } from "../api/client.js";
 import AccountAvatar from "../components/AccountAvatar.js";
+import StatementImportModal from "../components/StatementImportModal.js";
 import { accountBalance } from "../utils/accountBalance.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
+
+interface PendingUpload {
+  accountId: string;
+  accountName: string;
+  filename: string;
+  content: string;
+}
 
 export default function Accounts() {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -17,6 +25,12 @@ export default function Accounts() {
   const [savingRename, setSavingRename] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [upload, setUpload] = useState<PendingUpload | null>(null);
+  const [importNotice, setImportNotice] = useState<string | null>(null);
+  // One hidden input reused by every row's upload button — the account it
+  // belongs to is stashed here when the button is clicked.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadTargetRef = useRef<Account | null>(null);
 
   const refresh = useCallback(() => {
     api.listAccounts().then(setAccounts);
@@ -36,6 +50,23 @@ export default function Accounts() {
     await api.createAccount(name.trim(), currency);
     setName("");
     refresh();
+  }
+
+  function startUpload(account: Account) {
+    uploadTargetRef.current = account;
+    setImportNotice(null);
+    fileInputRef.current?.click();
+  }
+
+  async function handleFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    const account = uploadTargetRef.current;
+    // Reset immediately so re-picking the same file still fires a change event.
+    e.target.value = "";
+    if (!file || !account) return;
+
+    const content = await file.text();
+    setUpload({ accountId: account.id, accountName: account.name, filename: file.name, content });
   }
 
   async function handleSync(accountId: string) {
@@ -167,6 +198,9 @@ export default function Accounts() {
                       {a.source === "enablebanking" ? a.institution_name ?? "Linked via Enable Banking" : "Manual"} · {a.currency}
                     </div>
                   </div>
+                  <button onClick={() => startUpload(a)} title="Upload statement" aria-label={`Upload statement for ${a.name}`}>
+                    <Upload size={14} color="var(--text-muted)" />
+                  </button>
                   {a.source === "enablebanking" && (
                     <button onClick={() => handleSync(a.id)} disabled={syncingId === a.id} title="Sync transactions" aria-label="Sync">
                       <RefreshCw size={14} className={syncingId === a.id ? "spin" : undefined} />
@@ -215,6 +249,40 @@ export default function Accounts() {
           </div>
         )}
       </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,.tsv,.txt,text/csv,text/plain"
+        onChange={handleFileChosen}
+        style={{ display: "none" }}
+      />
+
+      {importNotice && (
+        <p role="status" style={{ marginTop: "0.75rem", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+          {importNotice}
+        </p>
+      )}
+
+      {upload && (
+        <StatementImportModal
+          accountId={upload.accountId}
+          accountName={upload.accountName}
+          filename={upload.filename}
+          content={upload.content}
+          onClose={() => setUpload(null)}
+          onImported={({ imported, duplicates, brandedAs }) => {
+            setUpload(null);
+            setImportNotice(
+              `Imported ${imported} transaction${imported === 1 ? "" : "s"}` +
+                (duplicates > 0 ? `, skipped ${duplicates} already imported` : "") +
+                (brandedAs ? `, matched to ${brandedAs}` : "") +
+                ". They're waiting in New transactions for review."
+            );
+            refresh();
+          }}
+        />
+      )}
     </div>
   );
 }
