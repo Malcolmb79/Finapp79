@@ -281,17 +281,33 @@ export default function StatementImportModal({
               </div>
             )}
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "1rem" }}>
-              <button onClick={onClose} disabled={importing}>
-                Cancel
-              </button>
-              <button className="btn-accent" onClick={confirm} disabled={importing || preview.parsed === 0}>
-                {importing ? <Loader2 size={14} className="spin" /> : null}
-                Import {preview.parsed} transaction{preview.parsed === 1 ? "" : "s"}
-              </button>
-            </div>
           </>
         )}
+
+        {/* Outside the loaded-preview branch on purpose: while the preview is
+            still resolving, or if it failed, there must still be a way out of
+            the dialog and a visible primary action. */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: "0.5rem",
+            marginTop: "1rem",
+            paddingTop: "0.75rem",
+            borderTop: "1px solid var(--border)",
+            position: "sticky",
+            bottom: 0,
+            background: "var(--surface-1)",
+          }}
+        >
+          <button onClick={onClose} disabled={importing}>
+            Cancel
+          </button>
+          <button className="btn-accent" onClick={confirm} disabled={importing || !preview || preview.parsed === 0}>
+            {importing ? <Loader2 size={14} className="spin" /> : null}
+            {preview ? `Import ${preview.parsed} transaction${preview.parsed === 1 ? "" : "s"}` : "Import"}
+          </button>
+        </div>
       </div>
     </>
   );
