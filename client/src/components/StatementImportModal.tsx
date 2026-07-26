@@ -1,4 +1,4 @@
-import { Loader2, Sparkles } from "lucide-react";
+import { AlertTriangle, Loader2, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, type StatementMapping, type StatementPreview } from "../api/client.js";
 
@@ -252,6 +252,47 @@ export default function StatementImportModal({
                 )}
                 Use <strong>{preview.detectedBank.name}</strong>'s logo for this account
               </label>
+            )}
+
+            {preview.parsed > 1 && (preview.direction.inflow === 0 || preview.direction.outflow === 0) && (
+              <div
+                role="alert"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.6rem",
+                  flexWrap: "wrap",
+                  margin: "0.75rem 0",
+                  padding: "0.6rem 0.75rem",
+                  borderRadius: "var(--radius)",
+                  // Everything-is-income is the one that quietly wrecks a
+                  // ledger, so it gets the louder treatment; an all-spending
+                  // statement is perfectly normal for a card export.
+                  border: `1px solid ${preview.direction.outflow === 0 ? "var(--critical)" : "var(--border)"}`,
+                  background:
+                    preview.direction.outflow === 0
+                      ? "color-mix(in srgb, var(--critical) 12%, transparent)"
+                      : "var(--surface-2)",
+                }}
+              >
+                <AlertTriangle size={15} color={preview.direction.outflow === 0 ? "var(--critical)" : "var(--text-muted)"} />
+                <span style={{ flex: 1, minWidth: 220, fontSize: "0.85rem" }}>
+                  {preview.direction.outflow === 0 ? (
+                    <>
+                      All <strong>{preview.parsed}</strong> transactions are <strong>money in</strong>. If this is a spending
+                      statement, its amounts are unsigned and they should all be money out.
+                    </>
+                  ) : (
+                    <>
+                      All <strong>{preview.parsed}</strong> transactions are <strong>money out</strong>. Normal for a card
+                      statement — flip them if that's wrong.
+                    </>
+                  )}
+                </span>
+                <button onClick={() => update({ invertAmounts: !mapping.invertAmounts })}>
+                  {mapping.invertAmounts ? "Undo flip" : `Flip all to money ${preview.direction.outflow === 0 ? "out" : "in"}`}
+                </button>
+              </div>
             )}
 
             <h3 style={{ marginBottom: "0.4rem", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-secondary)" }}>

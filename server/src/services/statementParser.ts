@@ -42,6 +42,14 @@ export interface StatementMapping {
   descriptionColumn: number | null;
   counterpartyColumn: number | null;
   decimalSeparator: "." | ",";
+  /**
+   * Flips every amount's sign. Not inferred — it's the user's correction for
+   * a statement whose amounts are unsigned, where money-out is implied by
+   * convention rather than written. Nothing in the numbers themselves can
+   * distinguish that from a genuine run of income, so it can only be a
+   * decision made in the confirmation step.
+   */
+  invertAmounts: boolean;
   /** How the mapping was arrived at — surfaced to the user after an import. */
   source: "ai" | "heuristic";
   /**
@@ -419,6 +427,7 @@ function heuristicMapping(rows: string[][]): StatementMapping {
     descriptionColumn,
     counterpartyColumn: hinted.counterpartyColumn ?? null,
     decimalSeparator,
+    invertAmounts: false,
     source: "heuristic",
     // Identifying the bank means reading prose around the table, which is the
     // model's job — the heuristic path deliberately doesn't guess.
@@ -477,12 +486,14 @@ export async function inferMapping(rows: string[][], preamble: string[][] = []):
     const text = response.content.find((block) => block.type === "text");
     if (!text || text.type !== "text") return fallback;
 
-    const parsed = JSON.parse(text.text) as Omit<StatementMapping, "source">;
+    // invertAmounts is a user decision, not something the model reports, so
+    // it isn't in the response schema and always starts off.
+    const parsed = JSON.parse(text.text) as Omit<StatementMapping, "source" | "invertAmounts">;
     // A mapping with no usable amount column is worse than the heuristic —
     // every row would be dropped.
     if (parsed.amountColumn == null && parsed.debitColumn == null && parsed.creditColumn == null) return fallback;
 
-    return { ...parsed, source: "ai" };
+    return { ...parsed, invertAmounts: false, source: "ai" };
   } catch (err) {
     console.error("Statement mapping inference failed, falling back to header matching:", err);
     return fallback;
@@ -521,7 +532,7 @@ export function applyMapping(rows: string[][], mapping: StatementMapping): Parse
     const description = cell(row, mapping.descriptionColumn).trim() || null;
     const counterparty = cell(row, mapping.counterpartyColumn).trim() || null;
 
-    parsed.push({ date, amount, description, counterparty });
+    parsed.push({ date, amount: mapping.invertAmounts ? -amount : amount, description, counterparty });
   }
 
   return parsed;

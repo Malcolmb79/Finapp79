@@ -46,7 +46,9 @@ export default function CsvImport({ accounts, onImported }: { accounts: Account[
         <Upload size={14} />
         Import statement
       </button>
-      <input ref={fileInputRef} type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" onChange={handleFile} style={{ display: "none" }} />
+      {/* Unfiltered on purpose — see the note in Accounts.tsx: bank exports
+          frequently arrive with no extension, and an accept list hides them. */}
+      <input ref={fileInputRef} type="file" onChange={handleFile} style={{ display: "none" }} />
       {status && <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>{status}</span>}
 
       {pending && account && (

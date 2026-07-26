@@ -251,13 +251,12 @@ export default function Accounts() {
         )}
       </div>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".csv,.tsv,.txt,text/csv,text/plain"
-        onChange={handleFileChosen}
-        style={{ display: "none" }}
-      />
+      {/* Deliberately unfiltered: bank exports are often delivered with no
+          extension at all, and an accept list hides them in the picker. The
+          parser reads the content rather than trusting the name, and a file
+          that isn't delimited text comes back as a clear "nothing readable
+          here" rather than importing anything. */}
+      <input ref={fileInputRef} type="file" onChange={handleFileChosen} style={{ display: "none" }} />
 
       {importNotice && (
         <p role="status" style={{ marginTop: "0.75rem", fontSize: "0.85rem", color: "var(--text-secondary)" }}>

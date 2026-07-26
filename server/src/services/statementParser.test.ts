@@ -84,6 +84,17 @@ describe("statement layouts", () => {
     ]);
   });
 
+  // The correction for an unsigned statement, where money-out is implied by
+  // convention rather than written — nothing in the numbers can distinguish
+  // that from genuine income, so it's a decision made in the dialog.
+  it("flips every amount when invertAmounts is set", async () => {
+    const grid = parseDelimited(["Date,Description,Amount", "01/03/2027,COFFEE,3.50", "02/03/2027,BOOKS,24.00"].join("\n"));
+    const { table } = splitPreamble(grid);
+    const mapping = await inferMapping(table);
+    expect(applyMapping(table, mapping).map((r) => r.amount)).toEqual([3.5, 24]);
+    expect(applyMapping(table, { ...mapping, invertAmounts: true }).map((r) => r.amount)).toEqual([-3.5, -24]);
+  });
+
   it("skips subtotal rows whose amount cannot be read", async () => {
     const rows = await parse(
       ["Date,Description,Amount", "01/03/2027,COFFEE,-3.50", "01/03/2027,CLOSING BALANCE,"].join("\n")

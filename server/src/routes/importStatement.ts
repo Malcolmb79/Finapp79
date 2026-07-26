@@ -82,6 +82,16 @@ importStatementRouter.post("/preview", async (req, res) => {
     // column or format is wrong, so it's worth showing rather than hiding.
     ignored: Math.max(0, (mapping.hasHeader ? grid.length - 1 : grid.length) - rows.length),
     currency: account.currency,
+    // Counted over every row, not just the sample: a statement whose amounts
+    // are all one direction is the signature of an unsigned amount column,
+    // where money-out is implied by convention rather than written. The
+    // numbers can't distinguish that from genuine income, so the dialog has
+    // to raise it — a whole statement silently imported as income is the
+    // failure this is here to prevent.
+    direction: {
+      inflow: rows.filter((r) => r.amount > 0).length,
+      outflow: rows.filter((r) => r.amount < 0).length,
+    },
     // Offered rather than applied: the user sees which bank was matched, with
     // its logo, and decides. A wrong logo is worse than no logo.
     detectedBank: await resolveBank(mapping.bankName, mapping.bankCountry),

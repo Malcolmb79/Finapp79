@@ -56,6 +56,9 @@ export interface StatementMapping {
   descriptionColumn: number | null;
   counterpartyColumn: number | null;
   decimalSeparator: "." | ",";
+  // Flips every amount's sign — the user's correction for a statement whose
+  // amounts are unsigned and money-out is implied rather than written.
+  invertAmounts: boolean;
   source: "ai" | "heuristic";
   bankName: string | null;
   bankCountry: string | null;
@@ -68,6 +71,9 @@ export interface StatementPreview {
   parsed: number;
   ignored: number;
   currency: string;
+  // Counted across every parsed row, so the dialog can catch a statement that
+  // came out all one direction.
+  direction: { inflow: number; outflow: number };
   // The bank matched from the statement against Enable Banking's directory,
   // offered so the account can carry its real logo.
   detectedBank: { name: string; logo: string | null; country: string } | null;
