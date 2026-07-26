@@ -134,6 +134,7 @@ export default function Accounts() {
             <option value="USD">USD</option>
             <option value="EUR">EUR</option>
             <option value="GBP">GBP</option>
+            <option value="ZAR">ZAR</option>
           </select>
           <button type="submit" className="btn-accent">
             Add account

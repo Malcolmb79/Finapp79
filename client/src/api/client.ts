@@ -204,12 +204,6 @@ export const api = {
       body: JSON.stringify({ account_id: accountId, content, mapping, apply_bank_logo: applyBankLogo }),
     }),
 
-  importCsv: (accountId: string, rows: { date: string; amount: number; description?: string }[]) =>
-    request<{ imported: number; skipped: number }>("/import/csv", {
-      method: "POST",
-      body: JSON.stringify({ account_id: accountId, rows }),
-    }),
-
   listInstitutions: (country: string) => request<Aspsp[]>(`/bank-link/institutions?country=${country}`),
   startBankLink: (aspspName: string, country: string, logo?: string) =>
     request<{ state: string; authorizationUrl: string }>("/bank-link/authorize", {

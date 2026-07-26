@@ -64,6 +64,26 @@ describe("statement layouts", () => {
     expect(rows.map((r) => r.amount)).toEqual([-800, 1500]);
   });
 
+  // Real exports open with a title line and an account number before the
+  // table. Left in, the first of those looks like the header row and every
+  // column index lands on the wrong field.
+  it("ignores preamble lines above the header row", async () => {
+    const rows = await parse(
+      [
+        "AIB Personal Current Account Statement",
+        "IBAN,IE29AIBK93115212345678",
+        "",
+        "Posted Date,Description,Debit Amount,Credit Amount,Balance",
+        "27/07/2026,TESCO STORES 3288,42.15,,1210.55",
+        "25/07/2026,SALARY BARSKE LTD,,3200.00,4410.55",
+      ].join("\n")
+    );
+    expect(rows).toEqual([
+      { date: "2026-07-27", amount: -42.15, description: "TESCO STORES 3288", counterparty: null },
+      { date: "2026-07-25", amount: 3200, description: "SALARY BARSKE LTD", counterparty: null },
+    ]);
+  });
+
   it("skips subtotal rows whose amount cannot be read", async () => {
     const rows = await parse(
       ["Date,Description,Amount", "01/03/2027,COFFEE,-3.50", "01/03/2027,CLOSING BALANCE,"].join("\n")
@@ -85,6 +105,18 @@ describe("normaliseAmount", () => {
 
   it("returns null for a blank cell", () => {
     expect(normaliseAmount("", ".")).toBeNull();
+  });
+
+  // Merchant names routinely carry digits. Treating one as a number books a
+  // shop's branch code as money, and makes the description column look like
+  // the amount column.
+  it.each(["TESCO STORES 3288", "SPOTIFY P0F4A9B2C", "CARD 1234", "N/A"])("rejects %s as an amount", (input) => {
+    expect(normaliseAmount(input, ".")).toBeNull();
+  });
+
+  it("still accepts an amount carrying a currency code", () => {
+    expect(normaliseAmount("EUR 42.15", ".")).toBe(42.15);
+    expect(normaliseAmount("42.15 EUR", ".")).toBe(42.15);
   });
 });
 

@@ -11,7 +11,6 @@ import { bankLinkRouter } from "./routes/bankLink.js";
 import { budgetsRouter } from "./routes/budgets.js";
 import { categoriesRouter } from "./routes/categories.js";
 import { debtsRouter } from "./routes/debts.js";
-import { importCsvRouter } from "./routes/importCsv.js";
 import { importStatementRouter } from "./routes/importStatement.js";
 import { savingsRouter } from "./routes/savings.js";
 import { transactionsRouter } from "./routes/transactions.js";
@@ -82,7 +81,6 @@ app.use("/api/categories", categoriesRouter);
 app.use("/api/budgets", budgetsRouter);
 app.use("/api/debts", debtsRouter);
 app.use("/api/savings", savingsRouter);
-app.use("/api/import/csv", importCsvRouter);
 app.use("/api/import/statement", importStatementRouter);
 app.use("/api/bank-link", bankLinkRouter);
 

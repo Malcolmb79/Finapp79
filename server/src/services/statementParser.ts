@@ -124,7 +124,33 @@ export function parseDelimited(text: string): string[][] {
   row.push(field.trim());
   if (row.some((cell) => cell !== "")) rows.push(row);
 
-  return rows;
+  return stripPreamble(rows);
+}
+
+// Real statements open with a title line, an account number, an address block
+// — none of which are part of the table. Those rows have fewer columns than
+// the table does, and leaving them in makes the first one look like the header
+// row, which throws off every column index after it.
+function stripPreamble(rows: string[][]): string[][] {
+  if (rows.length < 2) return rows;
+
+  const counts = new Map<number, number>();
+  for (const row of rows) counts.set(row.length, (counts.get(row.length) ?? 0) + 1);
+
+  let tableWidth = 0;
+  let commonest = 0;
+  for (const [width, count] of counts) {
+    // Ties go to the wider row: a two-column "IBAN,..." line shouldn't win
+    // over the actual table on a very short statement.
+    if (count > commonest || (count === commonest && width > tableWidth)) {
+      tableWidth = width;
+      commonest = count;
+    }
+  }
+  if (tableWidth < 2) return rows;
+
+  const firstTableRow = rows.findIndex((row) => row.length >= tableWidth);
+  return firstTableRow > 0 ? rows.slice(firstTableRow) : rows;
 }
 
 // --- field normalisation ----------------------------------------------------
@@ -178,13 +204,27 @@ export function normaliseAmount(raw: string, decimalSeparator: "." | ","): numbe
   }
   value = value.replace(/\s*(CR|C)$/i, "");
 
-  // Strip currency symbols, codes and spaces (including non-breaking).
-  value = value.replace(/[^\d.,+-]/g, "");
+  // Remove the furniture a money cell is allowed to carry: currency symbols,
+  // a 3-letter ISO code at either end, thousands spaces.
+  value = value
+    .replace(/^[A-Z]{3}\b/i, "")
+    .replace(/\b[A-Z]{3}$/i, "")
+    .replace(/[$€£¥R]/gi, "")
+    // \u00a0 and \u202f are the non-breaking and narrow no-break spaces some
+    // exports use as a thousands separator; \u2019 is the Swiss apostrophe.
+    .replace(/[\s\u00a0\u202f\u2019']/g, "");
 
-  // Without this, a text cell strips to "" and Number("") is 0 — so any
-  // description would read as a valid 0.00 amount, which both misleads the
-  // column detection below and would import text rows as zero transactions.
+  // Anything still holding a letter is not an amount — it's a description
+  // that happens to contain digits ("TESCO STORES 3288"). Stripping
+  // non-numerics first and checking only for a digit would turn that into a
+  // valid amount of 3288, which is how a merchant name ends up booked as
+  // money, and how the column detector picks a description column as the
+  // amount column.
+  if (/[a-z]/i.test(value)) return null;
   if (!/\d/.test(value)) return null;
+  // Reject anything that isn't digits with optional grouping/decimal marks,
+  // so stray punctuation can't parse either.
+  if (!/^[\d.,]+$/.test(value.replace(/^[+-]/, ""))) return null;
 
   if (decimalSeparator === ",") {
     value = value.replace(/\./g, "").replace(",", ".");
