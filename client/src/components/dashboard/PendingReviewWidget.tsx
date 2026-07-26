@@ -59,7 +59,24 @@ export default function PendingReviewWidget({
         <div className="tx-row" key={t.id}>
           <div className="tx-row__info">
             <div className="tx-row__name">{t.description || t.counterparty || "Transaction"}</div>
-            <div className="tx-row__meta">{t.booking_date}</div>
+            <div className="tx-row__meta">
+              {t.booking_date}
+              {t.suggestion_source === "ai" && !(t.id in selections) && (
+                <span
+                  title="Suggested by AI — check before approving"
+                  style={{
+                    marginLeft: "0.4rem",
+                    padding: "0.05rem 0.3rem",
+                    borderRadius: 4,
+                    fontSize: "0.7rem",
+                    background: "color-mix(in srgb, var(--accent) 18%, transparent)",
+                    color: "var(--accent)",
+                  }}
+                >
+                  AI
+                </span>
+              )}
+            </div>
           </div>
           <select
             value={selectedCategory(t) ?? ""}

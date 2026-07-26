@@ -2,6 +2,7 @@ import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { db } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
+import { suggestCategoriesWithAi, type MerchantSample } from "../services/aiCategorySuggestion.js";
 import { suggestCategoryId } from "../services/categorySuggestion.js";
 import type { Transaction } from "../types.js";
 
@@ -45,13 +46,46 @@ transactionsRouter.get("/", async (req, res) => {
     return;
   }
 
-  const withSuggestions = await Promise.all(
-    rows.map(async (t) => ({
-      ...t,
-      suggested_category_id: await suggestCategoryId(req.user!.id, t.counterparty ?? t.description),
-    }))
+  // The user's own reviewed history is the first and best source — a category
+  // they actually chose for this merchant beats any model guess, so the AI
+  // categoriser below never gets a chance to override one.
+  const historySuggestions = await Promise.all(
+    rows.map((t) => suggestCategoryId(req.user!.id, t.counterparty ?? t.description))
   );
-  res.json(withSuggestions);
+
+  // Only merchants history can't place go to the model, deduped by match key
+  // so twelve Tesco transactions cost one entry in the batch rather than
+  // twelve.
+  const unplaced = new Map<string, MerchantSample>();
+  rows.forEach((t, i) => {
+    if (historySuggestions[i] != null) return;
+    const label = t.counterparty ?? t.description;
+    if (!label) return;
+    const matchKey = label.toLowerCase();
+    if (!unplaced.has(matchKey)) unplaced.set(matchKey, { matchKey, label, sampleAmount: t.amount });
+  });
+
+  const categories = (await db
+    .prepare("SELECT id, name FROM categories WHERE user_id = ?")
+    .all(req.user!.id)) as unknown as { id: number; name: string }[];
+
+  const aiSuggestions = await suggestCategoriesWithAi(req.user!.id, [...unplaced.values()], categories);
+
+  res.json(
+    rows.map((t, i) => {
+      const label = t.counterparty ?? t.description;
+      const aiSuggestion = label ? aiSuggestions.get(label.toLowerCase()) ?? null : null;
+      const suggested = historySuggestions[i] ?? aiSuggestion;
+      return {
+        ...t,
+        suggested_category_id: suggested,
+        // Lets the review UI distinguish "you've filed this merchant here
+        // before" from "this is a guess" — the user approves either way, but
+        // a guess is the one worth actually reading before clicking through.
+        suggestion_source: suggested == null ? null : historySuggestions[i] != null ? "history" : "ai",
+      };
+    })
+  );
 });
 
 transactionsRouter.post("/", async (req, res) => {

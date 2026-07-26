@@ -167,6 +167,21 @@ CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions (user_id);
 
 CREATE INDEX IF NOT EXISTS idx_transactions_reviewed ON transactions (user_id, reviewed_at);
 
+-- Merchant -> category guesses from the AI categoriser (see
+-- services/aiCategorySuggestion.ts), cached so an unfamiliar merchant costs
+-- one model call ever rather than one per pending-list fetch. match_key is
+-- the same lowercased counterparty/description that categorySuggestion.ts
+-- matches on, so both sources agree on what counts as "the same merchant".
+-- A NULL category_id is a cached miss — a merchant the model couldn't place,
+-- recorded so it isn't re-sent on every refresh.
+CREATE TABLE IF NOT EXISTS ai_category_cache (
+  user_id TEXT NOT NULL REFERENCES users(id),
+  match_key TEXT NOT NULL,
+  category_id INTEGER REFERENCES categories(id),
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text,
+  PRIMARY KEY (user_id, match_key)
+);
+
 -- One monthly spending limit per category. "Spent this month" is computed
 -- at query time from transactions, not stored — it always reflects the
 -- current calendar month, matching how the rest of the app treats "this

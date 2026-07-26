@@ -25,6 +25,9 @@ export interface Transaction {
 
 export interface PendingTransaction extends Transaction {
   suggested_category_id: number | null;
+  // "history" = the user has filed this merchant before; "ai" = a guess from
+  // the categoriser that's worth a look before approving.
+  suggestion_source: "history" | "ai" | null;
 }
 
 export interface Account {
