@@ -27,6 +27,7 @@ import {
   type WidgetId,
 } from "../dashboardWidgets.js";
 import { computeCanvasHeight, type CanvasRect } from "../utils/useCanvasItem.js";
+import { useMeasuredWidth } from "../utils/useMeasuredWidth.js";
 import AccountAvatar from "../components/AccountAvatar.js";
 import { accountBalance } from "../utils/accountBalance.js";
 import { budgetStatus } from "../utils/budgetStatus.js";
@@ -135,6 +136,7 @@ export default function Dashboard() {
   const [config, setConfig] = useState<DashboardConfig>(loadConfig);
   const [syncingAll, setSyncingAll] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [canvasRef, canvasWidth] = useMeasuredWidth(WIDE_WIDTH);
 
   function refresh() {
     api.listTransactions().then(setTransactions);
@@ -523,8 +525,11 @@ export default function Dashboard() {
         </div>
       </div>
       {/* Absolutely-positioned children don't contribute to their parent's
-          height, so the canvas is sized explicitly to fit the lowest widget. */}
+          height, so the canvas is sized explicitly to fit the lowest widget.
+          Its measured width is passed to each card, which clamps itself to
+          fit rather than hanging off the edge on a narrow window. */}
       <div
+        ref={canvasRef}
         className="dashboard-canvas"
         style={{ position: "relative", height: computeCanvasHeight(Object.values(config.rects).filter(Boolean) as CanvasRect[]) }}
       >
@@ -542,6 +547,7 @@ export default function Dashboard() {
               rect={rect}
               minWidth={MIN_WIDGET_WIDTH}
               minHeight={MIN_WIDGET_HEIGHT}
+              availableWidth={canvasWidth}
               onMove={(x, y) => moveWidget(id, x, y)}
               onResize={(width, height) => resizeWidget(id, width, height)}
               mode={meta.defaultMode ? (config.modes[id] ?? meta.defaultMode) : undefined}

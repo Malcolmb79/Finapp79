@@ -17,6 +17,8 @@ interface CanvasCardProps {
   rect: CanvasRect;
   minWidth: number;
   minHeight: number;
+  /** Width of the canvas this card sits on — see the clamp in the body. */
+  availableWidth: number;
   onMove: (x: number, y: number) => void;
   onResize: (width: number, height: number) => void;
   onDraggingChange?: (dragging: boolean) => void;
@@ -34,6 +36,7 @@ export default function CanvasCard({
   rect: storedRect,
   minWidth,
   minHeight,
+  availableWidth,
   onMove,
   onResize,
   onDraggingChange,
@@ -55,12 +58,20 @@ export default function CanvasCard({
   // Edit chrome stays hidden until the widget is held - see useLongPressSelect.
   const { ref, selected, pressHandlers } = useLongPressSelect<HTMLDivElement>();
 
+  // A widget sized on a wide screen would otherwise hang off the right edge
+  // of a narrower one and get clipped. Clamping only what's rendered — never
+  // the stored rect — means a narrow window shows the widget squeezed to fit
+  // rather than cut off, and widening the window restores the size the user
+  // actually chose instead of having silently overwritten it.
+  const renderedWidth = Math.max(minWidth, Math.min(rect.width, availableWidth));
+  const renderedX = Math.max(0, Math.min(rect.x, availableWidth - renderedWidth));
+
   return (
     <div
       ref={ref}
       className="canvas-card"
       data-selected={selected || undefined}
-      style={{ position: "absolute", left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
+      style={{ position: "absolute", left: renderedX, top: rect.y, width: renderedWidth, height: rect.height }}
       {...pressHandlers}
     >
       <div className="canvas-card__header">
