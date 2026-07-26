@@ -1,6 +1,23 @@
-import { Landmark, Loader2 } from "lucide-react";
+import { AlertCircle, Landmark, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { api, type Aspsp } from "../api/client.js";
+
+// api/client.ts throws `${status}: ${body}`, where body is usually this
+// server's own `{ error }` envelope. Unwrap it so the user sees the message
+// rather than a status code glued to raw JSON.
+function describeError(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  const match = raw.match(/^\d+:\s*([\s\S]*)$/);
+  if (match) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      if (typeof parsed?.error === "string") return parsed.error;
+    } catch {
+      // Not JSON (a proxy error page, say) — fall through to the raw text.
+    }
+  }
+  return raw;
+}
 
 // Curated list of countries Enable Banking's pan-EU/UK open banking coverage
 // generally includes — there's no "list supported countries" endpoint to
@@ -31,13 +48,17 @@ export default function BankLink() {
   const [institutions, setInstitutions] = useState<Aspsp[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [linkingName, setLinkingName] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   async function handlePickCountry(c: { code: string; name: string; flag: string }) {
     setCountry(c);
     setLoading(true);
     setInstitutions(null);
+    setError(null);
     try {
       setInstitutions(await api.listInstitutions(c.code));
+    } catch (e) {
+      setError(`Couldn't load banks for ${c.name}: ${describeError(e)}`);
     } finally {
       setLoading(false);
     }
@@ -45,9 +66,12 @@ export default function BankLink() {
 
   async function handleLink(aspsp: Aspsp) {
     setLinkingName(aspsp.name);
+    setError(null);
     try {
       const { authorizationUrl } = await api.startBankLink(aspsp.name, aspsp.country, aspsp.logo);
       window.location.href = authorizationUrl;
+    } catch (e) {
+      setError(`Couldn't start the link with ${aspsp.name}: ${describeError(e)}`);
     } finally {
       setLinkingName(null);
     }
@@ -63,6 +87,26 @@ export default function BankLink() {
       </div>
 
       <div className="card">
+        {error && (
+          <p
+            role="alert"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              background: "color-mix(in srgb, var(--warning) 15%, transparent)",
+              color: "var(--warning)",
+              border: "1px solid color-mix(in srgb, var(--warning) 30%, transparent)",
+              borderRadius: "8px",
+              padding: "0.6rem 0.75rem",
+              margin: "0 0 1rem",
+              fontSize: "0.88rem",
+            }}
+          >
+            <AlertCircle size={15} style={{ flexShrink: 0 }} />
+            {error}
+          </p>
+        )}
         {!country ? (
           <>
             <p style={{ fontWeight: 500, marginBottom: "0.3rem" }}>Choose a country</p>
