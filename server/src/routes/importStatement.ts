@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { db, withTransaction } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { resolveBank } from "../services/bankLogo.js";
-import { applyMapping, inferMapping, parseDelimited, type StatementMapping } from "../services/statementParser.js";
+import { applyMapping, inferMapping, parseDelimited, splitPreamble, type StatementMapping } from "../services/statementParser.js";
 
 export const importStatementRouter = Router();
 
@@ -65,9 +65,9 @@ importStatementRouter.post("/preview", async (req, res) => {
     return;
   }
 
-  const grid = parseDelimited(parsedBody.content);
+  const { preamble, table: grid } = splitPreamble(parseDelimited(parsedBody.content));
   const supplied = (req.body as StatementBody).mapping;
-  const mapping = supplied ?? (await inferMapping(grid));
+  const mapping = supplied ?? (await inferMapping(grid, preamble));
   const rows = applyMapping(grid, mapping);
 
   res.json({
@@ -101,9 +101,9 @@ importStatementRouter.post("/", async (req, res) => {
     return;
   }
 
-  const grid = parseDelimited(parsedBody.content);
+  const { preamble, table: grid } = splitPreamble(parseDelimited(parsedBody.content));
   const supplied = (req.body as StatementBody).mapping;
-  const mapping = supplied ?? (await inferMapping(grid));
+  const mapping = supplied ?? (await inferMapping(grid, preamble));
   const rows = applyMapping(grid, mapping);
 
   if (rows.length === 0) {

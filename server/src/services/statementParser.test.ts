@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { applyMapping, inferMapping, normaliseAmount, normaliseDate, parseDelimited } from "./statementParser.js";
+import { applyMapping, inferMapping, normaliseAmount, normaliseDate, parseDelimited, splitPreamble } from "./statementParser.js";
 
 // These run without ANTHROPIC_API_KEY, so they exercise the heuristic
 // fallback — the path that has to work on its own when no key is configured,
 // and the floor the model's answer is checked against.
 async function parse(text: string) {
-  const grid = parseDelimited(text);
-  return applyMapping(grid, await inferMapping(grid));
+  const { preamble, table } = splitPreamble(parseDelimited(text));
+  return applyMapping(table, await inferMapping(table, preamble));
 }
 
 describe("statement layouts", () => {

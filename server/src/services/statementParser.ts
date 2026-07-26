@@ -124,13 +124,22 @@ export function parseDelimited(text: string): string[][] {
   row.push(field.trim());
   if (row.some((cell) => cell !== "")) rows.push(row);
 
-  return stripPreamble(rows);
+  return rows;
 }
 
 // Real statements open with a title line, an account number, an address block
 // — none of which are part of the table. Those rows have fewer columns than
 // the table does, and leaving them in makes the first one look like the header
 // row, which throws off every column index after it.
+//
+// They are split off rather than discarded: the table is what the column
+// mapping is derived from, but the preamble is exactly where the bank names
+// itself, so it's still worth showing the model.
+export function splitPreamble(rows: string[][]): { preamble: string[][]; table: string[][] } {
+  const table = stripPreamble(rows);
+  return { preamble: rows.slice(0, rows.length - table.length), table };
+}
+
 function stripPreamble(rows: string[][]): string[][] {
   if (rows.length < 2) return rows;
 
@@ -418,13 +427,22 @@ function heuristicMapping(rows: string[][]): StatementMapping {
   };
 }
 
-export async function inferMapping(rows: string[][]): Promise<StatementMapping> {
+export async function inferMapping(rows: string[][], preamble: string[][] = []): Promise<StatementMapping> {
   const fallback = heuristicMapping(rows);
   if (!process.env.ANTHROPIC_API_KEY) return fallback;
 
   const sample = rows
     .slice(0, SAMPLE_ROWS)
     .map((row, i) => `${i}: ${row.map((cell, c) => `[${c}] ${cell}`).join("  |  ")}`)
+    .join("\n");
+
+  // The lines above the table are where a statement names its bank and shows
+  // an IBAN — the only place bankName can come from. They're shown separately
+  // so they can't be mistaken for table rows and skew the column indices.
+  const header = preamble
+    .slice(0, SAMPLE_ROWS)
+    .map((row) => row.join(" "))
+    .filter((line) => line.trim() !== "")
     .join("\n");
 
   try {
@@ -441,6 +459,8 @@ export async function inferMapping(rows: string[][]): Promise<StatementMapping> 
           content: [
             "Identify this statement's layout.",
             "",
+            ...(header ? ["Lines above the table (not part of it):", header, ""] : []),
+            "Table rows:",
             sample,
             "",
             "Set amountColumn when there is a single signed amount column, or debitColumn/creditColumn when outflows and inflows are in separate columns — not both.",
@@ -508,8 +528,8 @@ export function applyMapping(rows: string[][], mapping: StatementMapping): Parse
 }
 
 export async function parseStatement(text: string): Promise<{ mapping: StatementMapping; rows: ParsedRow[] }> {
-  const rows = parseDelimited(text);
-  if (rows.length === 0) return { mapping: heuristicMapping(rows), rows: [] };
-  const mapping = await inferMapping(rows);
-  return { mapping, rows: applyMapping(rows, mapping) };
+  const { preamble, table } = splitPreamble(parseDelimited(text));
+  if (table.length === 0) return { mapping: heuristicMapping(table), rows: [] };
+  const mapping = await inferMapping(table, preamble);
+  return { mapping, rows: applyMapping(table, mapping) };
 }
