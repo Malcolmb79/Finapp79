@@ -326,25 +326,36 @@ function heuristicMapping(rows: string[][]): StatementMapping {
     });
   }
 
-  const body = rows.slice(looksLikeHeader ? 1 : 0);
   const columnCount = Math.max(0, ...rows.map((r) => r.length));
-  const columnCells = (index: number) => body.map((row) => (row[index] ?? "").trim()).filter((cell) => cell !== "");
   const share = (cells: string[], predicate: (cell: string) => boolean) =>
     cells.length === 0 ? 0 : cells.filter(predicate).length / cells.length;
+  const isDate = (cell: string) => normaliseDate(cell, "dmy") !== null;
 
-  // Date column: the leftmost column that mostly parses as a date. Structure
-  // beats the header hint — a "Value Date" column can sit beside the booking
-  // date, and either works, but a column that doesn't parse never does.
-  let dateColumn = hinted.dateColumn ?? -1;
-  if (dateColumn < 0 || share(columnCells(dateColumn), (c) => normaliseDate(c, "dmy") !== null) < 0.6) {
-    dateColumn = 0;
-    for (let i = 0; i < columnCount; i++) {
-      if (share(columnCells(i), (c) => normaliseDate(c, "dmy") !== null) >= 0.6) {
-        dateColumn = i;
-        break;
-      }
+  // Date column: whichever column parses as a date on the most rows. A count,
+  // not a ratio, because the grid still contains a title line, a header row
+  // and possibly an address — a ratio over all rows is diluted by those, while
+  // the real date column still wins on absolute count.
+  let dateColumn = 0;
+  let bestDateCount = 0;
+  for (let i = 0; i < columnCount; i++) {
+    const count = rows.filter((row) => isDate((row[i] ?? "").trim())).length;
+    if (count > bestDateCount) {
+      bestDateCount = count;
+      dateColumn = i;
     }
   }
+  if (hinted.dateColumn !== undefined && rows.filter((row) => isDate((row[hinted.dateColumn!] ?? "").trim())).length > 0) {
+    dateColumn = hinted.dateColumn;
+  }
+
+  // Everything below is measured over data rows only — rows that actually
+  // carry a date. Including the header and any preamble skews every column
+  // statistic: on a five-column statement, two junk rows are enough to push a
+  // real amount column below the numeric threshold and let a running-balance
+  // column win instead, which imports the balance as the transaction.
+  const dataRows = rows.filter((row) => isDate((row[dateColumn] ?? "").trim()));
+  const body = dataRows.length > 0 ? dataRows : rows.slice(looksLikeHeader ? 1 : 0);
+  const columnCells = (index: number) => body.map((row) => (row[index] ?? "").trim()).filter((cell) => cell !== "");
 
   // Decimal separator, judged only on non-date columns: "31.10.2026" would
   // otherwise read as a dot decimal and force every European amount to parse

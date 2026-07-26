@@ -15,14 +15,15 @@ export default function StatementImportModal({
   accountId,
   accountName,
   filename,
-  content,
+  contentBase64,
   onClose,
   onImported,
 }: {
   accountId: string;
   accountName: string;
   filename: string;
-  content: string;
+  /** The uploaded file's raw bytes, base64-encoded — CSV or PDF alike. */
+  contentBase64: string;
   onClose: () => void;
   onImported: (result: { imported: number; duplicates: number; brandedAs: string | null }) => void;
 }) {
@@ -41,7 +42,7 @@ export default function StatementImportModal({
   useEffect(() => {
     let cancelled = false;
     api
-      .previewStatement(accountId, content)
+      .previewStatement(accountId, contentBase64)
       .then((result) => {
         if (cancelled) return;
         setPreview(result);
@@ -51,7 +52,7 @@ export default function StatementImportModal({
     return () => {
       cancelled = true;
     };
-  }, [accountId, content]);
+  }, [accountId, contentBase64]);
 
   // Re-preview whenever the user edits the mapping. The supplied mapping means
   // the server skips inference, so this is a cheap parse, not another model call.
@@ -61,7 +62,7 @@ export default function StatementImportModal({
     setMapping(next);
     const id = ++requestId.current;
     api
-      .previewStatement(accountId, content, next)
+      .previewStatement(accountId, contentBase64, next)
       .then((result) => {
         if (id === requestId.current) setPreview(result);
       })
@@ -73,7 +74,7 @@ export default function StatementImportModal({
     setImporting(true);
     setError(null);
     try {
-      const result = await api.importStatement(accountId, content, mapping, applyLogo && !!preview?.detectedBank);
+      const result = await api.importStatement(accountId, contentBase64, mapping, applyLogo && !!preview?.detectedBank);
       onImported(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

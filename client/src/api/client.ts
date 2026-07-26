@@ -198,16 +198,19 @@ export const api = {
   // commits using the mapping the user approved. Passing a mapping to preview
   // skips inference, so editing the mapping re-previews without another model
   // call.
-  previewStatement: (accountId: string, content: string, mapping?: StatementMapping) =>
+  // The file goes up as base64 bytes rather than text so PDFs survive the
+  // trip intact — the server decides CSV vs PDF from the content, since bank
+  // exports are routinely delivered with the wrong extension or none at all.
+  previewStatement: (accountId: string, contentBase64: string, mapping?: StatementMapping) =>
     request<StatementPreview>("/import/statement/preview", {
       method: "POST",
-      body: JSON.stringify({ account_id: accountId, content, mapping }),
+      body: JSON.stringify({ account_id: accountId, content_base64: contentBase64, mapping }),
     }),
 
-  importStatement: (accountId: string, content: string, mapping: StatementMapping, applyBankLogo = false) =>
+  importStatement: (accountId: string, contentBase64: string, mapping: StatementMapping, applyBankLogo = false) =>
     request<{ imported: number; duplicates: number; parsed: number; brandedAs: string | null }>("/import/statement", {
       method: "POST",
-      body: JSON.stringify({ account_id: accountId, content, mapping, apply_bank_logo: applyBankLogo }),
+      body: JSON.stringify({ account_id: accountId, content_base64: contentBase64, mapping, apply_bank_logo: applyBankLogo }),
     }),
 
   listInstitutions: (country: string) => request<Aspsp[]>(`/bank-link/institutions?country=${country}`),

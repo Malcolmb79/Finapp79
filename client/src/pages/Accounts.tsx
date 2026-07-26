@@ -5,13 +5,14 @@ import { api, type Account, type Transaction } from "../api/client.js";
 import AccountAvatar from "../components/AccountAvatar.js";
 import StatementImportModal from "../components/StatementImportModal.js";
 import { accountBalance } from "../utils/accountBalance.js";
+import { fileToBase64 } from "../utils/fileBytes.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 
 interface PendingUpload {
   accountId: string;
   accountName: string;
   filename: string;
-  content: string;
+  contentBase64: string;
 }
 
 export default function Accounts() {
@@ -65,8 +66,10 @@ export default function Accounts() {
     e.target.value = "";
     if (!file || !account) return;
 
-    const content = await file.text();
-    setUpload({ accountId: account.id, accountName: account.name, filename: file.name, content });
+    // Bytes rather than text: a PDF read as text is mojibake, and the server
+    // decides the format from the content anyway.
+    const contentBase64 = await fileToBase64(file);
+    setUpload({ accountId: account.id, accountName: account.name, filename: file.name, contentBase64 });
   }
 
   async function handleSync(accountId: string) {
@@ -269,7 +272,7 @@ export default function Accounts() {
           accountId={upload.accountId}
           accountName={upload.accountName}
           filename={upload.filename}
-          content={upload.content}
+          contentBase64={upload.contentBase64}
           onClose={() => setUpload(null)}
           onImported={({ imported, duplicates, brandedAs }) => {
             setUpload(null);

@@ -2,6 +2,7 @@ import { Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import type { Account } from "../api/client.js";
 import StatementImportModal from "./StatementImportModal.js";
+import { fileToBase64 } from "../utils/fileBytes.js";
 
 /**
  * Statement import from the Transactions page, for when you're not already
@@ -16,7 +17,7 @@ import StatementImportModal from "./StatementImportModal.js";
  */
 export default function CsvImport({ accounts, onImported }: { accounts: Account[]; onImported: () => void }) {
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
-  const [pending, setPending] = useState<{ filename: string; content: string } | null>(null);
+  const [pending, setPending] = useState<{ filename: string; contentBase64: string } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -28,7 +29,7 @@ export default function CsvImport({ accounts, onImported }: { accounts: Account[
     e.target.value = "";
     if (!file || !account) return;
     setStatus(null);
-    setPending({ filename: file.name, content: await file.text() });
+    setPending({ filename: file.name, contentBase64: await fileToBase64(file) });
   }
 
   if (accounts.length === 0) return null;
@@ -56,7 +57,7 @@ export default function CsvImport({ accounts, onImported }: { accounts: Account[
           accountId={account.id}
           accountName={account.name}
           filename={pending.filename}
-          content={pending.content}
+          contentBase64={pending.contentBase64}
           onClose={() => setPending(null)}
           onImported={({ imported, duplicates, brandedAs }) => {
             setPending(null);
