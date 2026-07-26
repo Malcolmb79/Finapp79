@@ -27,6 +27,18 @@ export interface ThemeOption {
 // mechanically-rotated hue can't guarantee.
 export const THEMES: ThemeOption[] = [
   {
+    id: "ultracyclist",
+    name: "Ultracyclist",
+    description: "Hot orange-red accent over near-black surfaces — the ultracyclist dashboard look.",
+    hue: 9,
+    hue2: 162,
+    hue3: 40,
+    hue4: 200,
+    sat: "90%",
+    previewBg: "#f3f4f6",
+    previewSurface: "#ffffff",
+  },
+  {
     id: "emerald",
     name: "Emerald",
     description: "The original look — green accent on clean neutral surfaces.",
@@ -76,4 +88,7 @@ export const THEMES: ThemeOption[] = [
   },
 ];
 
+// THEMES[0] is Ultracyclist — the dashboard now ships with that look by
+// default. Every other theme is still selectable in Settings, and a user who
+// has already chosen one keeps it (the stored value wins over this default).
 export const DEFAULT_THEME = THEMES[0].id;

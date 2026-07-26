@@ -90,6 +90,35 @@
   --border: rgba(27, 33, 48, 0.1);
 }
 
+/* ---- Ultracyclist ----
+   Ported from theultracyclist's dashboard so the two apps read as the same
+   product: near-black elevated surfaces in dark mode, a hot orange-red
+   accent (#ff4d2e) with a mint secondary (#2ee6a6), and a slightly tighter
+   10px corner radius than this app's default 14px. The accent is expressed
+   through the shared hue/sat formulas rather than as fixed hexes, so the
+   sequential ramp, status colours and chart series all stay consistent with
+   every other theme here. */
+:root[data-palette="ultracyclist"] {
+  color-scheme: light;
+  --palette-hue: 9;
+  --palette-hue-2: 162;
+  --palette-hue-3: 40;
+  --palette-hue-4: 200;
+  --palette-sat: 90%;
+
+  --sidebar-bg: #ffffff;
+  --page-plane: #f3f4f6;
+  --surface-1: #ffffff;
+  --surface-2: #e9ebee;
+  --text-primary: #14181d;
+  --text-secondary: #565f68;
+  --text-muted: #8a939c;
+  --gridline: #e3e5e9;
+  --baseline: #c3c8ce;
+  --border: rgba(0, 0, 0, 0.1);
+  --radius: 10px;
+}
+
 /* ---- Minimal & Monochromatic ---- */
 :root[data-palette="minimal"] {
   color-scheme: light;
@@ -234,6 +263,21 @@
   --text-muted: #767c8c;
   --gridline: #2c313e;
   --baseline: #3d4353;
+  --border: rgba(255, 255, 255, 0.08);
+}
+
+/* theultracyclist's own dark palette, near-verbatim: #0b0e11 page plane with
+   #14181d / #1c2128 elevated surfaces. */
+:root[data-palette="ultracyclist"][data-theme="dark"] {
+  --sidebar-bg: #14181d;
+  --page-plane: #0b0e11;
+  --surface-1: #14181d;
+  --surface-2: #1c2128;
+  --text-primary: #f5f6f7;
+  --text-secondary: #9aa4ae;
+  --text-muted: #6f7982;
+  --gridline: #232a31;
+  --baseline: #333c45;
   --border: rgba(255, 255, 255, 0.08);
 }
 
@@ -793,11 +837,132 @@ th {
 
 /* Dashboard grid */
 
-.dashboard-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 1.25rem;
-  align-items: start;
+/* Dashboard canvas: widgets are freely positioned and freely resized (see
+   utils/useCanvasItem.ts), so the canvas is a positioning context whose
+   height is computed from the lowest widget — absolutely-positioned children
+   contribute nothing to their parent's natural height. Edit chrome (drag
+   handle, resize grip, controls) stays hidden until a card is held down, so
+   scrolling past the dashboard never pops up editing controls. */
+
+.dashboard-canvas {
+  /* Widgets can be dragged beyond the viewport's width on a narrow screen;
+     scrolling the canvas keeps them reachable without the page itself
+     growing a horizontal scrollbar. */
+  overflow-x: auto;
+}
+
+.canvas-card {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  transition: border-color 0.15s ease;
+  /* Holding to select would otherwise also trigger the browser's native
+     text-selection UI on touch devices — the hold is long enough to register
+     as a "select text" gesture. -webkit-touch-callout suppresses iOS's
+     copy/lookup menu for the same reason. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.canvas-card:hover,
+.canvas-card[data-selected] {
+  border-color: var(--accent);
+}
+
+.canvas-card__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: none;
+}
+
+.canvas-card__title {
+  flex: 1;
+  min-width: 44px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-card__content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* display:none (not opacity) so hidden chrome doesn't reserve header width
+   at rest — otherwise the title fights it for space on every render, not
+   just while the card is selected. */
+.canvas-card__drag {
+  flex: none;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: grab;
+  touch-action: none;
+}
+
+.canvas-card__drag:active {
+  cursor: grabbing;
+}
+
+.canvas-card__controls {
+  display: none;
+  align-items: center;
+  gap: 0.3rem;
+  flex: none;
+}
+
+.canvas-card[data-selected] .canvas-card__drag,
+.canvas-card[data-selected] .canvas-card__controls {
+  display: flex;
+}
+
+.canvas-card__resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 30px;
+  height: 30px;
+  display: none;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 0 5px 3px 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: nwse-resize;
+  touch-action: none;
+  overscroll-behavior: none;
+}
+
+.canvas-card[data-selected] .canvas-card__resize {
+  display: flex;
+}
+
+.canvas-card__resize:hover {
+  color: var(--accent);
 }
 
 /* Stat tiles */

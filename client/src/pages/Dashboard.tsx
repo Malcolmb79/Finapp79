@@ -1,5 +1,3 @@
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
-import { SortableContext, arrayMove, rectSortingStrategy } from "@dnd-kit/sortable";
 import { ArrowDownRight, ArrowUpRight, Plus, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -7,7 +5,7 @@ import CashFlowCard, { type MonthFlow } from "../components/dashboard/CashFlowCa
 import MagnitudeBarList from "../components/dashboard/MagnitudeBarList.js";
 import NetWorthCard, { type TrendPoint } from "../components/dashboard/NetWorthCard.js";
 import PendingReviewWidget from "../components/dashboard/PendingReviewWidget.js";
-import SortableCard, { type WidgetMode, type WidgetSize } from "../components/dashboard/SortableCard.js";
+import CanvasCard, { type WidgetMode } from "../components/dashboard/CanvasCard.js";
 import {
   api,
   type Account,
@@ -18,7 +16,17 @@ import {
   type SavingsGoal,
   type Transaction,
 } from "../api/client.js";
-import { WIDGET_IDS, WIDGET_META, widgetAccentVar, type WidgetId } from "../dashboardWidgets.js";
+import {
+  LAYOUT_GAP,
+  MIN_WIDGET_HEIGHT,
+  MIN_WIDGET_WIDTH,
+  WIDE_WIDTH,
+  WIDGET_IDS,
+  WIDGET_META,
+  widgetAccentVar,
+  type WidgetId,
+} from "../dashboardWidgets.js";
+import { computeCanvasHeight, type CanvasRect } from "../utils/useCanvasItem.js";
 import AccountAvatar from "../components/AccountAvatar.js";
 import { accountBalance } from "../utils/accountBalance.js";
 import { budgetStatus } from "../utils/budgetStatus.js";
@@ -27,46 +35,90 @@ import { monthsToPayoff } from "../utils/payoff.js";
 
 interface DashboardConfig {
   enabled: WidgetId[];
-  sizes: Partial<Record<WidgetId, WidgetSize>>;
+  rects: Partial<Record<WidgetId, CanvasRect>>;
   modes: Partial<Record<WidgetId, WidgetMode>>;
 }
 
-const STORAGE_KEY = "dashboard.config.v1";
+const STORAGE_KEY = "dashboard.config.v2";
+// v1 stored an ordered list plus coarse 1-or-2-column sizes; v0 stored just
+// an order. Both predate free positioning, so they're migrated by laying
+// their order out on the canvas rather than being discarded.
+const V1_STORAGE_KEY = "dashboard.config.v1";
 const LEGACY_STORAGE_KEY = "dashboard.widgetOrder.v3";
 
+// Packs widgets left-to-right into a two-column canvas, wrapping when the
+// next one doesn't fit and starting a new row for full-width widgets. Only
+// ever used to seed a layout (fresh install, migration, or a widget added
+// after the fact) — once a widget has a stored rect, that wins.
+function autoLayout(enabled: WidgetId[], existing: Partial<Record<WidgetId, CanvasRect>> = {}): Partial<Record<WidgetId, CanvasRect>> {
+  const rects: Partial<Record<WidgetId, CanvasRect>> = { ...existing };
+  let cursorX = 0;
+  let rowY = 0;
+  let rowHeight = 0;
+
+  for (const id of enabled) {
+    if (rects[id]) continue;
+    const meta = WIDGET_META[id];
+    const width = meta.defaultWidth;
+    const height = meta.defaultHeight;
+
+    if (cursorX > 0 && cursorX + width > WIDE_WIDTH) {
+      cursorX = 0;
+      rowY += rowHeight + LAYOUT_GAP;
+      rowHeight = 0;
+    }
+
+    rects[id] = { x: cursorX, y: rowY, width, height };
+    cursorX += width + LAYOUT_GAP;
+    rowHeight = Math.max(rowHeight, height);
+  }
+
+  return rects;
+}
+
 function defaultConfig(): DashboardConfig {
+  const enabled = WIDGET_IDS.filter((id) => WIDGET_META[id].defaultEnabled);
   return {
-    enabled: WIDGET_IDS.filter((id) => WIDGET_META[id].defaultEnabled),
-    sizes: Object.fromEntries(WIDGET_IDS.map((id) => [id, WIDGET_META[id].defaultSize])),
+    enabled,
+    rects: autoLayout(enabled),
     modes: Object.fromEntries(WIDGET_IDS.filter((id) => WIDGET_META[id].defaultMode).map((id) => [id, WIDGET_META[id].defaultMode])),
   };
+}
+
+function readEnabled(raw: unknown): WidgetId[] | null {
+  if (!raw || typeof raw !== "object") return null;
+  const enabled = (raw as { enabled?: unknown }).enabled;
+  if (!Array.isArray(enabled)) return null;
+  return enabled.filter((id: string) => (WIDGET_IDS as readonly string[]).includes(id)) as WidgetId[];
 }
 
 function loadConfig(): DashboardConfig {
   try {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
-    if (stored && Array.isArray(stored.enabled)) {
-      return {
-        enabled: stored.enabled.filter((id: string) => (WIDGET_IDS as readonly string[]).includes(id)),
-        sizes: stored.sizes ?? {},
-        modes: stored.modes ?? {},
-      };
+    const enabled = readEnabled(stored);
+    if (enabled) {
+      // autoLayout fills in anything without a stored rect, so a widget added
+      // by a later release lands somewhere sensible instead of at 0,0 on top
+      // of an existing one.
+      return { enabled, rects: autoLayout(enabled, stored.rects ?? {}), modes: stored.modes ?? {} };
     }
   } catch {
     // fall through
   }
 
-  // Migrate the pre-configurability layout (just an order, no sizes/modes/
-  // add-remove) so upgrading doesn't silently reset anyone's dashboard.
-  try {
-    const legacyOrder = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY) ?? "null");
-    if (Array.isArray(legacyOrder) && legacyOrder.length > 0) {
-      const enabled = legacyOrder.filter((id: string) => (WIDGET_IDS as readonly string[]).includes(id));
-      const base = defaultConfig();
-      return { enabled, sizes: base.sizes, modes: base.modes };
+  // Migrate a pre-canvas layout so upgrading doesn't silently reset anyone's
+  // dashboard: the widget set and modes carry over, and their order becomes
+  // the starting arrangement on the canvas.
+  for (const key of [V1_STORAGE_KEY, LEGACY_STORAGE_KEY]) {
+    try {
+      const stored = JSON.parse(localStorage.getItem(key) ?? "null");
+      const enabled = readEnabled(stored) ?? (Array.isArray(stored) ? (stored.filter((id: string) => (WIDGET_IDS as readonly string[]).includes(id)) as WidgetId[]) : null);
+      if (enabled && enabled.length > 0) {
+        return { enabled, rects: autoLayout(enabled), modes: stored?.modes ?? defaultConfig().modes };
+      }
+    } catch {
+      // fall through
     }
-  } catch {
-    // fall through
   }
 
   return defaultConfig();
@@ -84,8 +136,6 @@ export default function Dashboard() {
   const [syncingAll, setSyncingAll] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
-
   function refresh() {
     api.listTransactions().then(setTransactions);
     api.listPendingTransactions().then(setPendingTransactions);
@@ -102,18 +152,14 @@ export default function Dashboard() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
   }, [config]);
 
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    setConfig((c) => {
-      const oldIndex = c.enabled.indexOf(active.id as WidgetId);
-      const newIndex = c.enabled.indexOf(over.id as WidgetId);
-      return { ...c, enabled: arrayMove(c.enabled, oldIndex, newIndex) };
-    });
-  }
-
   function addWidget(id: WidgetId) {
-    setConfig((c) => (c.enabled.includes(id) ? c : { ...c, enabled: [...c.enabled, id] }));
+    setConfig((c) => {
+      if (c.enabled.includes(id)) return c;
+      const enabled = [...c.enabled, id];
+      // Existing rects are passed through untouched, so a newly added widget
+      // is the only one that gets placed.
+      return { ...c, enabled, rects: autoLayout(enabled, c.rects) };
+    });
     setAddMenuOpen(false);
   }
 
@@ -121,8 +167,20 @@ export default function Dashboard() {
     setConfig((c) => ({ ...c, enabled: c.enabled.filter((x) => x !== id) }));
   }
 
-  function setSize(id: WidgetId, size: WidgetSize) {
-    setConfig((c) => ({ ...c, sizes: { ...c.sizes, [id]: size } }));
+  function moveWidget(id: WidgetId, x: number, y: number) {
+    setConfig((c) => {
+      const rect = c.rects[id];
+      if (!rect) return c;
+      return { ...c, rects: { ...c.rects, [id]: { ...rect, x, y } } };
+    });
+  }
+
+  function resizeWidget(id: WidgetId, width: number, height: number) {
+    setConfig((c) => {
+      const rect = c.rects[id];
+      if (!rect) return c;
+      return { ...c, rects: { ...c.rects, [id]: { ...rect, width, height } } };
+    });
   }
 
   function setMode(id: WidgetId, mode: WidgetMode) {
@@ -425,7 +483,7 @@ export default function Dashboard() {
       <div className="page-header">
         <div>
           <h1>Dashboard</h1>
-          <p className="page-header__subtitle">Drag cards to rearrange, or use each widget's gear icon to resize it</p>
+          <p className="page-header__subtitle">Hold a card to edit it, then drag ⠿ to move or ⌟ to resize</p>
         </div>
         <div style={{ display: "flex", gap: "0.6rem", position: "relative" }}>
           {availableWidgets.length > 0 && (
@@ -464,32 +522,37 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={config.enabled} strategy={rectSortingStrategy}>
-          <div className="dashboard-grid">
-            {config.enabled.map((id) => {
-              const meta = WIDGET_META[id];
-              return (
-                <SortableCard
-                  key={id}
-                  id={id}
-                  title={meta.title}
-                  icon={meta.icon}
-                  accentVar={widgetAccentVar(id)}
-                  headerExtra={widgetContent[id].headerExtra}
-                  size={config.sizes[id] ?? meta.defaultSize}
-                  onSizeChange={(size) => setSize(id, size)}
-                  mode={meta.defaultMode ? (config.modes[id] ?? meta.defaultMode) : undefined}
-                  onModeChange={meta.defaultMode ? (mode) => setMode(id, mode) : undefined}
-                  onRemove={() => removeWidget(id)}
-                >
-                  {widgetContent[id].body}
-                </SortableCard>
-              );
-            })}
-          </div>
-        </SortableContext>
-      </DndContext>
+      {/* Absolutely-positioned children don't contribute to their parent's
+          height, so the canvas is sized explicitly to fit the lowest widget. */}
+      <div
+        className="dashboard-canvas"
+        style={{ position: "relative", height: computeCanvasHeight(Object.values(config.rects).filter(Boolean) as CanvasRect[]) }}
+      >
+        {config.enabled.map((id) => {
+          const meta = WIDGET_META[id];
+          const rect = config.rects[id];
+          if (!rect) return null;
+          return (
+            <CanvasCard
+              key={id}
+              title={meta.title}
+              icon={meta.icon}
+              accentVar={widgetAccentVar(id)}
+              headerExtra={widgetContent[id].headerExtra}
+              rect={rect}
+              minWidth={MIN_WIDGET_WIDTH}
+              minHeight={MIN_WIDGET_HEIGHT}
+              onMove={(x, y) => moveWidget(id, x, y)}
+              onResize={(width, height) => resizeWidget(id, width, height)}
+              mode={meta.defaultMode ? (config.modes[id] ?? meta.defaultMode) : undefined}
+              onModeChange={meta.defaultMode ? (mode) => setMode(id, mode) : undefined}
+              onRemove={() => removeWidget(id)}
+            >
+              {widgetContent[id].body}
+            </CanvasCard>
+          );
+        })}
+      </div>
     </div>
   );
 }
