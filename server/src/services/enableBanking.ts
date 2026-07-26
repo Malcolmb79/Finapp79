@@ -70,7 +70,13 @@ async function ebFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!res.ok) {
-    throw new Error(`Enable Banking request failed: ${res.status} ${await res.text()}`);
+    // Enable Banking stamps every response with X-Request-Id, and it's the
+    // first thing their support asks for. Carry it in the error so a failure
+    // is reportable straight from the logs, without reproducing the call.
+    const requestId = res.headers.get("x-request-id") ?? "none";
+    throw new Error(
+      `Enable Banking request failed: ${res.status} ${await res.text()} [${path} request_id=${requestId}]`
+    );
   }
 
   return res.json() as Promise<T>;
