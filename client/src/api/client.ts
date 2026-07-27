@@ -214,9 +214,25 @@ export const api = {
 
   // Pass null for either to clear it: a null balance hands the account back
   // to its transaction history, a null overdraft removes the facility.
+  /**
+   * Identifies the bank behind an account from the name it was given.
+   * Writes nothing — the result is for the user to confirm.
+   */
+  detectAccountBank: (id: string) =>
+    request<{ name: string; logo: string | null; country: string; confidence: "high" | "medium" | "low" } | null>(
+      `/accounts/${id}/detect-bank`,
+      { method: "POST" }
+    ),
+
   updateAccount: (
     id: string,
-    patch: { balance?: number | null; overdraft_limit?: number | null; account_type?: AccountType }
+    patch: {
+      balance?: number | null;
+      overdraft_limit?: number | null;
+      account_type?: AccountType;
+      logo?: string | null;
+      institution_name?: string | null;
+    }
   ) =>
     request<Account>(`/accounts/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   deleteAccount: (id: string) => request<void>(`/accounts/${id}`, { method: "DELETE" }),

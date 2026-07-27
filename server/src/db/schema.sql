@@ -135,6 +135,14 @@ ALTER TABLE accounts ADD COLUMN IF NOT EXISTS balance_is_manual BOOLEAN NOT NULL
 -- column was assumed to be.
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT 'current';
 
+-- An account's own branding, as opposed to its bank connection's. A linked
+-- account inherits both from bank_connections, but a manual account has no
+-- connection to inherit from — these are where a bank matched by name (from a
+-- statement import or the detect-bank action) gets recorded. Without them
+-- that match had nowhere to go.
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS logo TEXT;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS institution_name TEXT;
+
 -- Category names are unique per user, not globally — two different users
 -- both wanting a "Groceries" category must not collide.
 CREATE TABLE IF NOT EXISTS categories (

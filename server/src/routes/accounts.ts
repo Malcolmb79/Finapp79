@@ -2,6 +2,7 @@ import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { db, withTransaction } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
+import { matchBankToAccount } from "../services/bankMatch.js";
 
 export const accountsRouter = Router();
 
@@ -11,7 +12,13 @@ accountsRouter.get("/", async (req, res) => {
   res.json(
     await db
       .prepare(
-        `SELECT a.*, bc.institution_name, bc.logo
+        // The account's own branding wins over its connection's, and these
+        // aliases come after a.* deliberately so they override the columns of
+        // the same name it selects. Without the COALESCE a manual account's
+        // logo would be shadowed by its (null) connection's.
+        `SELECT a.*,
+                COALESCE(a.institution_name, bc.institution_name) AS institution_name,
+                COALESCE(a.logo, bc.logo) AS logo
          FROM accounts a
          LEFT JOIN bank_connections bc ON bc.id = a.bank_connection_id
          WHERE a.user_id = ?
@@ -53,11 +60,13 @@ accountsRouter.post("/", async (req, res) => {
 // stay in sync with the bank, so unlike transactions.source (where only
 // 'manual' rows are deletable), there's no reason to restrict this.
 accountsRouter.patch("/:id", async (req, res) => {
-  const { name, balance, overdraft_limit, account_type } = req.body as {
+  const { name, balance, overdraft_limit, account_type, logo, institution_name } = req.body as {
     name?: unknown;
     balance?: unknown;
     overdraft_limit?: unknown;
     account_type?: unknown;
+    logo?: unknown;
+    institution_name?: unknown;
   };
 
   const sets: string[] = [];
@@ -109,6 +118,28 @@ accountsRouter.patch("/:id", async (req, res) => {
     params.push(account_type);
   }
 
+  // Applied only after the user has confirmed a detected bank, so the value
+  // originates from the directory rather than from the request body's
+  // imagination — but it still has to be an https URL, because it ends up in
+  // an <img src>. null clears the branding.
+  if (logo !== undefined) {
+    if (logo !== null && (typeof logo !== "string" || !/^https:\/\//.test(logo))) {
+      res.status(400).json({ error: "logo must be an https URL or null" });
+      return;
+    }
+    sets.push("logo = ?");
+    params.push(logo);
+  }
+
+  if (institution_name !== undefined) {
+    if (institution_name !== null && typeof institution_name !== "string") {
+      res.status(400).json({ error: "institution_name must be a string or null" });
+      return;
+    }
+    sets.push("institution_name = ?");
+    params.push(institution_name);
+  }
+
   if (sets.length === 0) {
     res.status(400).json({ error: "nothing to update" });
     return;
@@ -122,6 +153,59 @@ accountsRouter.patch("/:id", async (req, res) => {
     return;
   }
   res.json(await db.prepare("SELECT * FROM accounts WHERE id = ?").get(req.params.id));
+});
+
+// Where to look a bank up when nothing else says. Enable Banking's directory
+// is listed per country, and the euro spans a dozen of them, so this is only
+// the last resort — the countries the user has actually banked in are tried
+// first.
+const COUNTRY_BY_CURRENCY: Record<string, string> = {
+  EUR: "IE",
+  GBP: "GB",
+  USD: "US",
+  ZAR: "ZA",
+};
+
+/**
+ * Finds the bank behind an account and returns its logo for confirmation.
+ *
+ * Nothing is written here. The match is shown to the user first, because a
+ * wrong logo is worse than a blank avatar and only they can tell whether
+ * "Revolut spending" is really the Revolut account.
+ */
+accountsRouter.post("/:id/detect-bank", async (req, res) => {
+  const account = await db
+    .prepare("SELECT a.*, bc.country FROM accounts a LEFT JOIN bank_connections bc ON bc.id = a.bank_connection_id WHERE a.id = ? AND a.user_id = ?")
+    .get<{ name: string; currency: string; institution_name: string | null; country: string | null }>(
+      req.params.id,
+      req.user!.id
+    );
+  if (!account) {
+    res.status(404).json({ error: "account not found" });
+    return;
+  }
+
+  // In order of how much each country actually says about this account: the
+  // one its own bank connection is in, then the ones the user's other
+  // connections are in (someone banking in Ireland is likely to name Irish
+  // banks), then the currency's default.
+  const others = (await db
+    .prepare("SELECT DISTINCT country FROM bank_connections WHERE user_id = ? AND country IS NOT NULL")
+    .all(req.user!.id)) as unknown as { country: string }[];
+
+  const candidates = [account.country, ...others.map((o) => o.country), COUNTRY_BY_CURRENCY[account.currency]].filter(
+    (c): c is string => !!c && /^[A-Za-z]{2}$/.test(c)
+  );
+
+  for (const country of [...new Set(candidates.map((c) => c.toUpperCase()))]) {
+    const match = await matchBankToAccount(account.name, account.institution_name, country);
+    if (match?.logo) {
+      res.json(match);
+      return;
+    }
+  }
+
+  res.json(null);
 });
 
 /**

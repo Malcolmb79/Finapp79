@@ -1,4 +1,4 @@
-import { Check, Eraser, Pencil, RefreshCw, Trash2, Upload, X } from "lucide-react";
+import { Check, Eraser, Loader2, Pencil, RefreshCw, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Account, type AccountType, type Transaction } from "../api/client.js";
@@ -54,6 +54,13 @@ export default function Accounts() {
   const [typeDraft, setTypeDraft] = useState<AccountType>("current");
   const [lastEdited, setLastEdited] = useState<"overdraft" | "available">("overdraft");
   const [savingBalance, setSavingBalance] = useState(false);
+  // A detected bank waits here for the user to accept it. Nothing is written
+  // until they do — a wrong logo is worse than a blank avatar.
+  const [detectingId, setDetectingId] = useState<string | null>(null);
+  const [detected, setDetected] = useState<{
+    accountId: string;
+    match: { name: string; logo: string | null; confidence: string } | null;
+  } | null>(null);
 
   // One hidden input reused by every row's upload button — the account it
   // belongs to is stashed here when the button is clicked.
@@ -147,6 +154,23 @@ export default function Accounts() {
     } finally {
       setSavingBalance(false);
     }
+  }
+
+  async function detectBank(account: Account) {
+    setDetectingId(account.id);
+    setDetected(null);
+    try {
+      const match = await api.detectAccountBank(account.id);
+      setDetected({ accountId: account.id, match });
+    } finally {
+      setDetectingId(null);
+    }
+  }
+
+  async function applyDetectedBank(accountId: string, match: { name: string; logo: string | null }) {
+    await api.updateAccount(accountId, { logo: match.logo, institution_name: match.name });
+    setDetected(null);
+    refresh();
   }
 
   function startUpload(account: Account) {
@@ -274,7 +298,27 @@ export default function Accounts() {
               const isEditing = editingId === a.id;
               return (
                 <div className="account-row" key={a.id}>
-                  <AccountAvatar name={a.name} logo={a.logo} />
+                  {/* Tapping a blank avatar looks for the bank in the account's
+                      own name. Accounts that already carry a logo are left
+                      alone — there's nothing to find. */}
+                  {a.logo ? (
+                    <AccountAvatar name={a.name} logo={a.logo} />
+                  ) : (
+                    <button
+                      onClick={() => detectBank(a)}
+                      disabled={detectingId === a.id}
+                      title="Find this account's bank logo"
+                      aria-label={`Find the bank logo for ${a.name}`}
+                      style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", position: "relative" }}
+                    >
+                      <AccountAvatar name={a.name} logo={null} />
+                      {detectingId === a.id ? (
+                        <Loader2 size={12} className="spin" style={{ position: "absolute", right: -2, bottom: -2 }} />
+                      ) : (
+                        <Sparkles size={12} color="var(--accent)" style={{ position: "absolute", right: -2, bottom: -2 }} />
+                      )}
+                    </button>
+                  )}
                   <div className="account-row__info">
                     {isEditing ? (
                       <div style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
@@ -312,6 +356,37 @@ export default function Accounts() {
                         >
                           <Pencil size={12} color="var(--text-muted)" />
                         </button>
+                      </div>
+                    )}
+                    {detected?.accountId === a.id && (
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", margin: "0.25rem 0", flexWrap: "wrap" }}>
+                        {detected.match?.logo ? (
+                          <>
+                            <img src={detected.match.logo} alt="" style={{ width: 20, height: 20, objectFit: "contain" }} />
+                            <span style={{ fontSize: "0.78rem" }}>
+                              {detected.match.name}
+                              <span style={{ color: "var(--text-muted)" }}> · {detected.match.confidence} confidence</span>
+                            </span>
+                            <button
+                              onClick={() => applyDetectedBank(a.id, detected.match!)}
+                              aria-label="Use this logo"
+                              title="Use this logo"
+                              style={{ padding: "0.2rem", display: "flex" }}
+                            >
+                              <Check size={13} />
+                            </button>
+                            <button onClick={() => setDetected(null)} aria-label="Discard" title="Discard" style={{ padding: "0.2rem", display: "flex" }}>
+                              <X size={13} />
+                            </button>
+                          </>
+                        ) : (
+                          <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                            No bank matched “{a.name}” — rename it to include the bank and try again.
+                            <button onClick={() => setDetected(null)} style={{ marginLeft: "0.4rem", padding: "0.15rem 0.4rem", fontSize: "0.75rem" }}>
+                              Dismiss
+                            </button>
+                          </span>
+                        )}
                       </div>
                     )}
                     <div className="account-row__meta">
