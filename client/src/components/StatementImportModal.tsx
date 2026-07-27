@@ -2,6 +2,7 @@ import { AlertTriangle, Loader2, Plus, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, type Category, type StatementMapping, type StatementPreview } from "../api/client.js";
 import CategorySelect from "./CategorySelect.js";
+import { formatCurrency } from "../utils/formatCurrency.js";
 
 /**
  * Confirms how a statement file will be read before anything is written.
@@ -546,7 +547,7 @@ export default function StatementImportModal({
 
                       <span className={`tx-row__amount${row.amount >= 0 ? " tx-row__amount--positive" : ""}`}>
                         {row.amount >= 0 ? "+" : ""}
-                        {row.amount.toFixed(2)} {preview.currency}
+                        {formatCurrency(row.amount, preview.currency)}
                       </span>
                     </div>
                   ))}

@@ -2,6 +2,7 @@ import { Check, Loader2, Plus, Search, Sparkles, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, type Account, type Category, type PendingTransaction } from "../../api/client.js";
 import CategorySelect from "../CategorySelect.js";
+import { formatCurrency } from "../../utils/formatCurrency.js";
 
 // Per-row category choice starts at the suggested category but the user can
 // override it before approving — a row only gets an entry in `selections`
@@ -228,7 +229,7 @@ export default function PendingReviewWidget({
           />
           <span className={`tx-row__amount${t.amount >= 0 ? " tx-row__amount--positive" : ""}`}>
             {t.amount >= 0 ? "+" : ""}
-            {t.amount.toFixed(2)}
+            {formatCurrency(t.amount, t.currency)}
           </span>
           <button className="icon-button" aria-label="Approve" onClick={() => approve(t)} disabled={approvingId === t.id}>
             <Check size={15} />

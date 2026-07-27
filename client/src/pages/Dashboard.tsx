@@ -306,7 +306,9 @@ export default function Dashboard() {
                     {a.source === "enablebanking" ? "Linked" : "Manual"}
                   </div>
                 </div>
-                <span className="account-row__balance">{accountBalance(a, byAccount.get(a.id) ?? 0).toFixed(2)}</span>
+                <span className="account-row__balance">
+                  {formatCurrency(accountBalance(a, byAccount.get(a.id) ?? 0), a.currency)}
+                </span>
               </div>
             ))}
           </div>
@@ -384,7 +386,7 @@ export default function Dashboard() {
                 </div>
                 <span className={`tx-row__amount${tx.amount >= 0 ? " tx-row__amount--positive" : ""}`}>
                   {tx.amount >= 0 ? "+" : ""}
-                  {tx.amount.toFixed(2)}
+                  {formatCurrency(tx.amount, tx.currency)}
                 </span>
               </div>
             ))}

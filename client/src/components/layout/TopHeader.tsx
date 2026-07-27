@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { api, type PendingTransaction } from "../../api/client.js";
 import { useAuth } from "../../contexts/AuthContext.js";
 import { initials } from "../../utils/avatarColor.js";
+import { formatCurrency } from "../../utils/formatCurrency.js";
 import ThemeToggle from "../ThemeToggle.js";
 
 export default function TopHeader({ onOpenNav }: { onOpenNav: () => void }) {
@@ -59,7 +60,7 @@ export default function TopHeader({ onOpenNav }: { onOpenNav: () => void }) {
                         <span style={{ fontSize: "0.83rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {t.description || t.counterparty || "Transaction"}
                         </span>
-                        <span style={{ fontSize: "0.83rem", fontWeight: 600, whiteSpace: "nowrap" }}>{t.amount.toFixed(2)}</span>
+                        <span style={{ fontSize: "0.83rem", fontWeight: 600, whiteSpace: "nowrap" }}>{formatCurrency(t.amount, t.currency)}</span>
                       </div>
                     ))}
                     <button
