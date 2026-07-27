@@ -1,4 +1,4 @@
-import { Check, Pencil, RefreshCw, Trash2, Upload, X } from "lucide-react";
+import { Check, Eraser, Pencil, RefreshCw, Trash2, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Account, type Transaction } from "../api/client.js";
@@ -28,6 +28,10 @@ export default function Accounts() {
   const [deleting, setDeleting] = useState(false);
   const [upload, setUpload] = useState<PendingUpload | null>(null);
   const [importNotice, setImportNotice] = useState<string | null>(null);
+  // Which account is showing its clear-transactions choices. Deleting history
+  // is irreversible, so it takes a deliberate second click rather than one.
+  const [clearingId, setClearingId] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
   // One hidden input reused by every row's upload button — the account it
   // belongs to is stashed here when the button is clicked.
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -70,6 +74,20 @@ export default function Accounts() {
     // decides the format from the content anyway.
     const contentBase64 = await fileToBase64(file);
     setUpload({ accountId: account.id, accountName: account.name, filename: file.name, contentBase64 });
+  }
+
+  async function handleClear(account: Account, source?: "csv") {
+    setClearing(true);
+    try {
+      const { deleted } = await api.clearAccountTransactions(account.id, source);
+      setImportNotice(
+        `Removed ${deleted} ${source === "csv" ? "imported " : ""}transaction${deleted === 1 ? "" : "s"} from ${account.name}.`
+      );
+      setClearingId(null);
+      refresh();
+    } finally {
+      setClearing(false);
+    }
   }
 
   async function handleSync(accountId: string) {
@@ -205,6 +223,32 @@ export default function Accounts() {
                   <button onClick={() => startUpload(a)} title="Upload statement" aria-label={`Upload statement for ${a.name}`}>
                     <Upload size={14} color="var(--text-muted)" />
                   </button>
+                  {clearingId === a.id ? (
+                    <div style={{ display: "flex", gap: "0.3rem", alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "0.78rem", color: "var(--critical)", whiteSpace: "nowrap" }}>Clear:</span>
+                      <button onClick={() => handleClear(a, "csv")} disabled={clearing} style={{ fontSize: "0.78rem" }}>
+                        Imported only
+                      </button>
+                      <button
+                        onClick={() => handleClear(a)}
+                        disabled={clearing}
+                        style={{ fontSize: "0.78rem", color: "var(--critical)" }}
+                      >
+                        Everything
+                      </button>
+                      <button onClick={() => setClearingId(null)} disabled={clearing} aria-label="Cancel clear" title="Cancel">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setClearingId(a.id)}
+                      title="Clear transactions (keeps the account)"
+                      aria-label={`Clear transactions for ${a.name}`}
+                    >
+                      <Eraser size={14} color="var(--text-muted)" />
+                    </button>
+                  )}
                   {a.source === "enablebanking" && (
                     <button onClick={() => handleSync(a.id)} disabled={syncingId === a.id} title="Sync transactions" aria-label="Sync">
                       <RefreshCw size={14} className={syncingId === a.id ? "spin" : undefined} />

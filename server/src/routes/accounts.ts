@@ -59,6 +59,40 @@ accountsRouter.patch("/:id", async (req, res) => {
   res.json(await db.prepare("SELECT * FROM accounts WHERE id = ?").get(req.params.id));
 });
 
+/**
+ * Clears an account's transactions without removing the account.
+ *
+ * Deleting the account was previously the only way to shed its transactions,
+ * which is too blunt when the account itself is fine and only an import went
+ * wrong. `source` scopes it: clearing just the imported rows leaves
+ * bank-synced and manually entered history intact, which is what you want
+ * after a statement is imported with the wrong sign or against the wrong
+ * account.
+ */
+accountsRouter.delete("/:id/transactions", async (req, res) => {
+  const account = await db
+    .prepare("SELECT 1 FROM accounts WHERE id = ? AND user_id = ?")
+    .get(req.params.id, req.user!.id);
+  if (!account) {
+    res.status(404).json({ error: "account not found" });
+    return;
+  }
+
+  const source = typeof req.query.source === "string" ? req.query.source : null;
+  if (source !== null && !["csv", "enablebanking", "manual"].includes(source)) {
+    res.status(400).json({ error: "unknown source" });
+    return;
+  }
+
+  const result = source
+    ? await db
+        .prepare("DELETE FROM transactions WHERE account_id = ? AND user_id = ? AND source = ?")
+        .run(req.params.id, req.user!.id, source)
+    : await db.prepare("DELETE FROM transactions WHERE account_id = ? AND user_id = ?").run(req.params.id, req.user!.id);
+
+  res.json({ deleted: result.changes });
+});
+
 // Removing an account also removes its own transaction history (there's no
 // other reasonable state for an orphaned transaction to be in) and, if this
 // was the last account on its bank_connection, the bank_connection row too

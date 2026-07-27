@@ -197,6 +197,14 @@ export const api = {
     request<Account>(`/accounts/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   deleteAccount: (id: string) => request<void>(`/accounts/${id}`, { method: "DELETE" }),
 
+  // Clears an account's transactions but keeps the account. Omit `source` to
+  // clear everything; pass "csv" to remove only statement imports and leave
+  // bank-synced and manual history alone.
+  clearAccountTransactions: (accountId: string, source?: "csv" | "enablebanking" | "manual") =>
+    request<{ deleted: number }>(`/accounts/${accountId}/transactions${source ? `?source=${source}` : ""}`, {
+      method: "DELETE",
+    }),
+
   listCategories: () => request<Category[]>("/categories"),
   createCategory: (name: string, parentId?: number | null) =>
     request<Category>("/categories", { method: "POST", body: JSON.stringify({ name, parent_id: parentId ?? null }) }),
