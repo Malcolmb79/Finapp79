@@ -1,8 +1,9 @@
-import { Check, Eraser, Loader2, Pencil, RefreshCw, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { Check, Eraser, FileText, Loader2, Pencil, RefreshCw, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type Account, type AccountType, type Transaction } from "../api/client.js";
+import { api, type Account, type AccountType, type LoanTerms, type Transaction } from "../api/client.js";
 import AccountAvatar from "../components/AccountAvatar.js";
+import LoanContractModal from "../components/LoanContractModal.js";
 import StatementImportModal from "../components/StatementImportModal.js";
 import {
   ACCOUNT_TYPES,
@@ -57,6 +58,8 @@ export default function Accounts() {
   // A detected bank waits here for the user to accept it. Nothing is written
   // until they do — a wrong logo is worse than a blank avatar.
   const [detectingId, setDetectingId] = useState<string | null>(null);
+  const [readingContract, setReadingContract] = useState<string | null>(null);
+  const [contractTerms, setContractTerms] = useState<{ account: Account; terms: LoanTerms } | null>(null);
   const [detected, setDetected] = useState<{
     accountId: string;
     match: { name: string; logo: string | null; confidence: string; source: string } | null;
@@ -66,6 +69,9 @@ export default function Accounts() {
   // belongs to is stashed here when the button is clicked.
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadTargetRef = useRef<Account | null>(null);
+  // Which reader the pending file is destined for. A ref rather than state
+  // because the file dialog resolves outside React's update cycle.
+  const contractModeRef = useRef(false);
 
   const refresh = useCallback(() => {
     api.listAccounts().then(setAccounts);
@@ -156,6 +162,30 @@ export default function Accounts() {
     }
   }
 
+  // A loan agreement goes through the same upload button as a statement, but
+  // a different reader — which one is decided by what the button was for, not
+  // by guessing at the file, since misreading a statement as a contract would
+  // put invented terms in front of the user.
+  function startContractUpload(account: Account) {
+    uploadTargetRef.current = account;
+    contractModeRef.current = true;
+    setImportNotice(null);
+    fileInputRef.current?.click();
+  }
+
+  async function readContract(account: Account, contentBase64: string) {
+    setReadingContract(account.id);
+    setImportNotice(null);
+    try {
+      const terms = await api.previewLoanContract(account.id, contentBase64);
+      setContractTerms({ account, terms });
+    } catch (err) {
+      setImportNotice(err instanceof Error ? err.message : "Could not read that contract.");
+    } finally {
+      setReadingContract(null);
+    }
+  }
+
   async function detectBank(account: Account) {
     setDetectingId(account.id);
     setDetected(null);
@@ -175,6 +205,7 @@ export default function Accounts() {
 
   function startUpload(account: Account) {
     uploadTargetRef.current = account;
+    contractModeRef.current = false;
     setImportNotice(null);
     fileInputRef.current?.click();
   }
@@ -182,13 +213,19 @@ export default function Accounts() {
   async function handleFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     const account = uploadTargetRef.current;
+    const asContract = contractModeRef.current;
     // Reset immediately so re-picking the same file still fires a change event.
     e.target.value = "";
+    contractModeRef.current = false;
     if (!file || !account) return;
 
     // Bytes rather than text: a PDF read as text is mojibake, and the server
     // decides the format from the content anyway.
     const contentBase64 = await fileToBase64(file);
+    if (asContract) {
+      await readContract(account, contentBase64);
+      return;
+    }
     setUpload({ accountId: account.id, accountName: account.name, filename: file.name, contentBase64 });
   }
 
@@ -406,6 +443,22 @@ export default function Accounts() {
                   <button onClick={() => startUpload(a)} title="Upload statement" aria-label={`Upload statement for ${a.name}`}>
                     <Upload size={14} color="var(--text-muted)" />
                   </button>
+                  {/* Only on loans: the terms it reads — rate, instalment,
+                      final payment — describe a loan and nothing else. */}
+                  {a.account_type === "loan" && (
+                    <button
+                      onClick={() => startContractUpload(a)}
+                      disabled={readingContract === a.id}
+                      title="Upload loan agreement to read its terms"
+                      aria-label={`Upload the loan agreement for ${a.name}`}
+                    >
+                      {readingContract === a.id ? (
+                        <Loader2 size={14} className="spin" />
+                      ) : (
+                        <FileText size={14} color="var(--text-muted)" />
+                      )}
+                    </button>
+                  )}
                   {clearingId === a.id ? (
                     <div style={{ display: "flex", gap: "0.3rem", alignItems: "center", flexWrap: "wrap" }}>
                       <span style={{ fontSize: "0.78rem", color: "var(--critical)", whiteSpace: "nowrap" }}>Clear:</span>
@@ -610,6 +663,17 @@ export default function Accounts() {
                       {a.balance_is_manual && a.balance != null && (
                         <span style={{ display: "block", fontSize: "0.7rem", color: "var(--text-muted)" }}>set by hand</span>
                       )}
+                      {(a.loan_rate != null || a.loan_monthly_payment != null || a.loan_end_date) && (
+                        <span style={{ display: "block", fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                          {[
+                            a.loan_rate != null ? `${a.loan_rate}%` : null,
+                            a.loan_monthly_payment != null ? `${formatCurrency(a.loan_monthly_payment, a.currency)}/mo` : null,
+                            a.loan_end_date ? `to ${a.loan_end_date}` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -647,6 +711,21 @@ export default function Accounts() {
                 (brandedAs ? `, matched to ${brandedAs}` : "") +
                 ". They're waiting in New transactions for review."
             );
+            refresh();
+          }}
+        />
+      )}
+
+      {contractTerms && (
+        <LoanContractModal
+          accountId={contractTerms.account.id}
+          accountName={contractTerms.account.name}
+          currency={contractTerms.account.currency}
+          terms={contractTerms.terms}
+          onClose={() => setContractTerms(null)}
+          onSaved={() => {
+            setContractTerms(null);
+            setImportNotice(`Saved the loan terms for ${contractTerms.account.name}.`);
             refresh();
           }}
         />

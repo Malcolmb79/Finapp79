@@ -4,6 +4,8 @@ import { db, withTransaction } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { matchBankFromWeb, matchBankToAccount } from "../services/bankMatch.js";
 import { fetchLogoDataUri } from "../services/webLogo.js";
+import { extractLoanTerms } from "../services/loanContract.js";
+import { extractPdfText, looksLikePdf } from "../services/pdfStatement.js";
 
 export const accountsRouter = Router();
 
@@ -147,6 +149,37 @@ accountsRouter.patch("/:id", async (req, res) => {
     params.push(institution_name);
   }
 
+  // Loan terms, each independently optional: a contract that states a rate
+  // but no end date should still record the rate. Bounds match the ones the
+  // contract reader applies, so a figure typed in by hand is held to the same
+  // standard as one read from the agreement.
+  const loanNumbers: [string, unknown, number, number][] = [
+    ["loan_principal", req.body.loan_principal, 0, 100_000_000],
+    ["loan_monthly_payment", req.body.loan_monthly_payment, 0, 10_000_000],
+    ["loan_rate", req.body.loan_rate, 0, 100],
+    ["loan_term_months", req.body.loan_term_months, 0, 600],
+  ];
+  for (const [column, value, min, max] of loanNumbers) {
+    if (value === undefined) continue;
+    if (value !== null && (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max)) {
+      res.status(400).json({ error: `${column} must be between ${min} and ${max}, or null` });
+      return;
+    }
+    sets.push(`${column} = ?`);
+    params.push(value);
+  }
+
+  for (const column of ["loan_start_date", "loan_end_date"] as const) {
+    const value = req.body[column];
+    if (value === undefined) continue;
+    if (value !== null && (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value))) {
+      res.status(400).json({ error: `${column} must be YYYY-MM-DD or null` });
+      return;
+    }
+    sets.push(`${column} = ?`);
+    params.push(value);
+  }
+
   if (sets.length === 0) {
     res.status(400).json({ error: "nothing to update" });
     return;
@@ -225,6 +258,51 @@ accountsRouter.post("/:id/detect-bank", async (req, res) => {
   }
 
   res.json(null);
+});
+
+/**
+ * Reads a loan agreement and returns its terms for confirmation.
+ *
+ * Writes nothing, like detect-bank: each figure comes back with the sentence
+ * it was read from so the user can check it against their own contract before
+ * any of it is stored.
+ */
+accountsRouter.post("/:id/loan-contract/preview", async (req, res) => {
+  const account = await db
+    .prepare("SELECT id FROM accounts WHERE id = ? AND user_id = ?")
+    .get(req.params.id, req.user!.id);
+  if (!account) {
+    res.status(404).json({ error: "account not found" });
+    return;
+  }
+
+  const { content_base64, content } = req.body as { content_base64?: unknown; content?: unknown };
+  let text: string;
+
+  if (typeof content_base64 === "string") {
+    const bytes = Buffer.from(content_base64, "base64");
+    text = looksLikePdf(bytes) ? await extractPdfText(bytes) : bytes.toString("utf8");
+  } else if (typeof content === "string") {
+    text = content;
+  } else {
+    res.status(400).json({ error: "no file content" });
+    return;
+  }
+
+  if (text.trim().length < 50) {
+    res.status(422).json({
+      error: "Nothing readable in that file — if it's a scan rather than a text PDF, the terms can't be read from it.",
+    });
+    return;
+  }
+
+  const terms = await extractLoanTerms(text);
+  if (!terms) {
+    res.status(503).json({ error: "Contract reading is unavailable — the AI key is not configured." });
+    return;
+  }
+
+  res.json(terms);
 });
 
 /**

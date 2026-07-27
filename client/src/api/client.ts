@@ -32,6 +32,23 @@ export interface PendingTransaction extends Transaction {
 
 export type AccountType = "current" | "savings" | "credit_card" | "loan";
 
+/** A figure read from a loan agreement, with the sentence it came from. */
+export interface ExtractedField<T> {
+  value: T;
+  quote: string;
+}
+
+export interface LoanTerms {
+  principal: ExtractedField<number> | null;
+  monthlyPayment: ExtractedField<number> | null;
+  interestRate: ExtractedField<number> | null;
+  startDate: ExtractedField<string> | null;
+  endDate: ExtractedField<string> | null;
+  termMonths: ExtractedField<number> | null;
+  lender: string | null;
+  currency: string | null;
+}
+
 export interface Account {
   id: string;
   name: string;
@@ -44,6 +61,13 @@ export interface Account {
   balance?: number | null;
   available_balance?: number | null;
   balance_synced_at?: string | null;
+  loan_principal?: number | null;
+  loan_monthly_payment?: number | null;
+  /** Annual interest rate as a percentage: 11.5 means 11.5%. */
+  loan_rate?: number | null;
+  loan_start_date?: string | null;
+  loan_end_date?: string | null;
+  loan_term_months?: number | null;
   /** Set when the balance was entered by hand rather than synced from a bank. */
   balance_is_manual?: boolean;
   /** Arranged overdraft, stored positive: 45000 means the balance may reach -45000. */
@@ -228,6 +252,13 @@ export const api = {
       source: string;
     } | null>(`/accounts/${id}/detect-bank`, { method: "POST" }),
 
+  /** Reads a loan agreement. Writes nothing — the terms come back for review. */
+  previewLoanContract: (id: string, contentBase64: string) =>
+    request<LoanTerms>(`/accounts/${id}/loan-contract/preview`, {
+      method: "POST",
+      body: JSON.stringify({ content_base64: contentBase64 }),
+    }),
+
   updateAccount: (
     id: string,
     patch: {
@@ -236,6 +267,12 @@ export const api = {
       account_type?: AccountType;
       logo?: string | null;
       institution_name?: string | null;
+      loan_principal?: number | null;
+      loan_monthly_payment?: number | null;
+      loan_rate?: number | null;
+      loan_term_months?: number | null;
+      loan_start_date?: string | null;
+      loan_end_date?: string | null;
     }
   ) =>
     request<Account>(`/accounts/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),

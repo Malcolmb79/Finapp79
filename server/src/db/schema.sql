@@ -143,6 +143,18 @@ ALTER TABLE accounts ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS logo TEXT;
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS institution_name TEXT;
 
+-- Terms of a loan, read from its agreement (see services/loanContract.ts).
+-- They live on the account rather than in a separate table because they
+-- describe the account itself, the way overdraft_limit does — and a loan
+-- account without them still works, it just can't say when it will be paid
+-- off. loan_rate is an annual percentage (11.5 means 11.5%).
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS loan_principal DOUBLE PRECISION;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS loan_monthly_payment DOUBLE PRECISION;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS loan_rate DOUBLE PRECISION;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS loan_start_date TEXT;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS loan_end_date TEXT;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS loan_term_months INTEGER;
+
 -- Category names are unique per user, not globally — two different users
 -- both wanting a "Groceries" category must not collide.
 CREATE TABLE IF NOT EXISTS categories (

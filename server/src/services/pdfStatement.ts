@@ -23,6 +23,18 @@ export function looksLikePdf(bytes: Uint8Array): boolean {
   return bytes.length > 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46;
 }
 
+/**
+ * The document's text, unstructured.
+ *
+ * A statement is a grid and gets turned into one; a contract is prose, where
+ * the same reshaping would destroy the sentences the terms live in.
+ */
+export async function extractPdfText(bytes: Uint8Array): Promise<string> {
+  const document = await getDocumentProxy(bytes);
+  const { text } = await extractText(document, { mergePages: true });
+  return text;
+}
+
 export async function extractPdfRows(bytes: Uint8Array): Promise<string[][]> {
   const document = await getDocumentProxy(bytes);
   const { text } = await extractText(document, { mergePages: true });

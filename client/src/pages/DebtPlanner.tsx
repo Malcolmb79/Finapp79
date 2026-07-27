@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type Debt } from "../api/client.js";
+import { api, type Account, type Debt, type Transaction } from "../api/client.js";
+import { accountBalance, isLiability } from "../utils/accountBalance.js";
+import { formatCurrency } from "../utils/formatCurrency.js";
 import StatTile from "../components/dashboard/StatTile.js";
 import { monthsToPayoff } from "../utils/payoff.js";
 
@@ -50,8 +52,51 @@ function DebtRow({ debt, onChanged }: { debt: Debt; onChanged: () => void }) {
   );
 }
 
+/**
+ * A borrowing account shown alongside the hand-entered debts.
+ *
+ * These aren't editable here — the balance comes from the account and the
+ * terms from its agreement, so the place to change either is the account. What
+ * they add is that the payoff picture covers everything owed rather than only
+ * what was typed in twice.
+ */
+function AccountDebtRow({ account, txSum }: { account: Account; txSum: number }) {
+  const owed = -accountBalance(account, txSum);
+  const payment = account.loan_monthly_payment ?? 0;
+  const rate = account.loan_rate ?? 0;
+  const months = payment > 0 ? monthsToPayoff(owed, rate, payment) : null;
+
+  const detail = [
+    account.loan_rate != null ? `${account.loan_rate.toFixed(2)}% a year` : null,
+    payment > 0 ? `${formatCurrency(payment, account.currency)}/mo` : null,
+    // The contract's own end date beats the computed one — it accounts for
+    // fees and rounding the payoff formula here doesn't model.
+    account.loan_end_date
+      ? `ends ${account.loan_end_date}`
+      : months === null
+        ? null
+        : months === 0
+          ? "paid off"
+          : `~${months} mo at this payment`,
+  ].filter(Boolean);
+
+  return (
+    <div className="account-row" style={{ flexWrap: "wrap" }}>
+      <div className="account-row__info">
+        <div className="account-row__name">{account.name}</div>
+        <div className="account-row__meta">
+          {detail.length > 0 ? detail.join(" · ") : "No terms recorded — upload the agreement on the Accounts page"}
+        </div>
+      </div>
+      <span className="account-row__balance">{formatCurrency(owed, account.currency)}</span>
+    </div>
+  );
+}
+
 export default function DebtPlanner() {
   const [debts, setDebts] = useState<Debt[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [name, setName] = useState("");
   const [balance, setBalance] = useState("");
   const [apr, setApr] = useState("");
@@ -59,6 +104,8 @@ export default function DebtPlanner() {
 
   const refresh = useCallback(() => {
     api.listDebts().then(setDebts);
+    api.listAccounts().then(setAccounts);
+    api.listTransactions().then(setTransactions);
   }, []);
 
   useEffect(refresh, [refresh]);
@@ -77,6 +124,16 @@ export default function DebtPlanner() {
   const totalBalance = debts.reduce((s, d) => s + d.balance, 0);
   const totalMinPayment = debts.reduce((s, d) => s + d.minimum_payment, 0);
 
+  const byAccount = new Map<string, number>();
+  for (const tx of transactions) {
+    byAccount.set(tx.account_id, (byAccount.get(tx.account_id) ?? 0) + tx.amount);
+  }
+  // Only accounts actually in debt: a card sitting at zero, or in credit, is
+  // not something to plan a payoff for.
+  const borrowing = accounts.filter(
+    (a) => isLiability(a) && accountBalance(a, byAccount.get(a.id) ?? 0) < 0
+  );
+
   return (
     <div>
       <div className="page-header">
@@ -92,6 +149,20 @@ export default function DebtPlanner() {
             <StatTile label="Total debt" value={totalBalance.toFixed(2)} />
             <StatTile label="Total minimum payments" value={totalMinPayment.toFixed(2)} />
           </div>
+        </div>
+      )}
+
+      {borrowing.length > 0 && (
+        <div className="card" style={{ marginBottom: "1.25rem" }}>
+          <div className="card__header">
+            <h2 className="card__title">Credit cards and loans</h2>
+            <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.2rem 0 0" }}>
+              From your accounts. Balances and terms are edited there, not here.
+            </p>
+          </div>
+          {borrowing.map((a) => (
+            <AccountDebtRow key={a.id} account={a} txSum={byAccount.get(a.id) ?? 0} />
+          ))}
         </div>
       )}
 
