@@ -67,7 +67,9 @@ function AccountChart({ projection, account }: { projection: DebtProjection; acc
       <p style={{ fontSize: "0.73rem", color: "var(--text-muted)", margin: "0.15rem 0 0.4rem" }}>
         {[
           projection.rate > 0 ? `${projection.rate}% a year` : "no rate recorded",
-          projection.minimumPayment > 0 ? `${formatCurrency(projection.minimumPayment, projection.currency)}/mo` : "no payment recorded",
+          projection.minimumIsAssumed
+            ? `${formatCurrency(projection.minimumPayment, projection.currency)}/mo assumed`
+            : `${formatCurrency(projection.minimumPayment, projection.currency)}/mo`,
           projection.minimums.neverClears ? "never clears at this payment" : `clear in ${months(projection.minimums.months)}`,
         ].join(" · ")}
       </p>
@@ -93,6 +95,16 @@ function AccountChart({ projection, account }: { projection: DebtProjection; acc
             />
           )}
         </svg>
+      )}
+
+      {/* A curve drawn from a stand-in payment is the one most worth
+          doubting, so it says so rather than looking like the agreement. */}
+      {projection.minimumIsAssumed && (
+        <p style={{ fontSize: "0.71rem", color: "var(--text-muted)", margin: "0.2rem 0 0" }}>
+          No payment imported yet, so this assumes a typical{" "}
+          {projection.rate > 0 ? "card minimum — 1% of the balance plus interest, falling as the balance does" : "minimum payment"}.
+          Import a statement or the agreement to replace it.
+        </p>
       )}
 
       {projection.withExtra && (

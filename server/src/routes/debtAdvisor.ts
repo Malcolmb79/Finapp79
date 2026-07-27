@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { Router } from "express";
 import { db } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
-import { compareStrategies, simulate, type DebtInput } from "../services/debtStrategy.js";
+import { assumedMinimum, compareStrategies, simulate, type DebtInput } from "../services/debtStrategy.js";
 
 /**
  * Answers questions about paying down debt, using the user's own accounts.
@@ -116,6 +116,7 @@ async function loadDebts(userId: string): Promise<DebtInput[]> {
       rate: account.loan_rate ?? 0,
       minimumPayment: account.loan_monthly_payment ?? 0,
       currency: account.currency,
+      type: (account.account_type ?? "current") as DebtInput["type"],
     }));
 }
 
@@ -124,7 +125,13 @@ function describeDebts(debts: DebtInput[]): string {
 
   const lines = debts.map((d) => {
     const rate = d.rate > 0 ? `${d.rate}% a year` : "interest rate not recorded";
-    const payment = d.minimumPayment > 0 ? `${d.minimumPayment.toFixed(2)} a month` : "no monthly payment recorded";
+    // The simulator falls back to an assumed minimum, so the model has to
+    // know which payments are real — otherwise it reports a projection built
+    // on a stand-in as though it came from the agreement.
+    const payment =
+      d.minimumPayment > 0
+        ? `${d.minimumPayment.toFixed(2)} a month`
+        : `no payment recorded, assuming ${assumedMinimum(d).toFixed(2)} a month${d.type === "credit_card" ? " (a typical card minimum: 1% of the balance plus that month's interest, recalculated as it falls)" : ""}`;
     return `- ${d.name}: ${d.balance.toFixed(2)} ${d.currency} owed, ${rate}, ${payment}`;
   });
 
@@ -182,7 +189,11 @@ debtAdvisorRouter.get("/projection", async (req, res) => {
       currency: debt.currency,
       balance: debt.balance,
       rate: debt.rate,
-      minimumPayment: debt.minimumPayment,
+      minimumPayment: debt.minimumPayment > 0 ? debt.minimumPayment : assumedMinimum(debt),
+      // Says whether the payment behind the curve is the real one or a stand-in
+      // — a projection built on an assumption should never be presented as
+      // though it came from the agreement.
+      minimumIsAssumed: debt.minimumPayment <= 0,
       minimums: simulate([debt], 0, "avalanche"),
       withExtra: extraPerMonth > 0 ? simulate([debt], extraPerMonth, "avalanche") : null,
     }))

@@ -57,6 +57,8 @@ export interface DebtProjection {
   balance: number;
   rate: number;
   minimumPayment: number;
+  /** True when no payment is recorded and a typical one is being assumed. */
+  minimumIsAssumed: boolean;
   minimums: PayoffResult;
   /** The same account with the extra payment aimed at it. Null when none was asked for. */
   withExtra: PayoffResult | null;
