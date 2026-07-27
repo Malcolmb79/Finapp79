@@ -56,6 +56,8 @@ export interface DebtProjection {
   currency: string;
   balance: number;
   rate: number;
+  /** Which assumption the projection used, when no payment is recorded. */
+  accountType: AccountType;
   minimumPayment: number;
   /** True when no payment is recorded and a typical one is being assumed. */
   minimumIsAssumed: boolean;

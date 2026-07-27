@@ -206,6 +206,11 @@ debtAdvisorRouter.post("/projection", async (req, res) => {
         currency: debt.currency,
         balance: debt.balance,
         rate: debt.rate,
+        // Returned because it decides which assumption was used, and an
+        // unexplained figure on screen is one the user can't act on: a card
+        // still typed as a cheque account gets one percent of its balance
+        // rather than the standard card payment, and nothing said why.
+        accountType: debt.type ?? "current",
         minimumPayment: debt.minimumPayment > 0 ? debt.minimumPayment : assumedMinimum(debt),
         // Says whether the payment behind the curve is the real one or a
         // stand-in — a projection built on an assumption should never be
