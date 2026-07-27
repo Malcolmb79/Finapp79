@@ -82,6 +82,13 @@ export default function StatementImportModal({
     if (!mapping) return;
     const next = { ...mapping, ...patch };
     setMapping(next);
+    // Per-row choices are keyed by index, and changing the mapping re-parses
+    // the file — a different number of rows, in a different order. Keeping
+    // them would silently apply a category or a skip to a different
+    // transaction than the one it was chosen for, so they're cleared.
+    setRowCategories({});
+    setRowSkip({});
+    setProposed([]);
     const id = ++requestId.current;
     api
       .previewStatement(accountId, contentBase64, next)

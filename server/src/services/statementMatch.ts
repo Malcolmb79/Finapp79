@@ -48,6 +48,63 @@ function sameAccount(statementNumber: string, accountNumber: string): boolean | 
   return a.slice(-length) === b.slice(-length);
 }
 
+export interface ExistingTransaction {
+  id: string;
+  booking_date: string;
+  amount: number;
+  description: string | null;
+  counterparty: string | null;
+}
+
+export interface DuplicateMatch {
+  id: string;
+  date: string;
+  amount: number;
+  description: string | null;
+}
+
+/**
+ * Pairs incoming rows against transactions already on the account.
+ *
+ * Matched on date and amount rather than the content hash the importer
+ * dedupes with: a statement re-downloaded later often carries the same
+ * payment with its description reworded or padded, which changes the hash but
+ * is plainly the same transaction.
+ *
+ * Each existing transaction accounts for at most one incoming row. Without
+ * that, a statement legitimately listing the same purchase twice would have
+ * both occurrences flagged against a single stored transaction, and the user
+ * would skip a payment they actually made.
+ */
+export function pairDuplicates(
+  rows: { date: string; amount: number }[],
+  existing: ExistingTransaction[]
+): (DuplicateMatch | null)[] {
+  const key = (date: string, amount: number) => `${date}|${amount.toFixed(2)}`;
+
+  const byKey = new Map<string, ExistingTransaction[]>();
+  for (const row of existing) {
+    const k = key(row.booking_date, row.amount);
+    byKey.set(k, [...(byKey.get(k) ?? []), row]);
+  }
+
+  const used = new Map<string, number>();
+  return rows.map((row) => {
+    const k = key(row.date, row.amount);
+    const candidates = byKey.get(k) ?? [];
+    const taken = used.get(k) ?? 0;
+    if (taken >= candidates.length) return null;
+    used.set(k, taken + 1);
+    const match = candidates[taken];
+    return {
+      id: match.id,
+      date: match.booking_date,
+      amount: match.amount,
+      description: match.description ?? match.counterparty,
+    };
+  });
+}
+
 export function checkStatement(
   mapping: StatementMapping,
   rows: ParsedRow[],

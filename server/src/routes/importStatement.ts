@@ -4,7 +4,7 @@ import { db, withTransaction } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { resolveBank } from "../services/bankLogo.js";
 import { categoriseImport } from "../services/importCategorise.js";
-import { checkStatement } from "../services/statementMatch.js";
+import { checkStatement, pairDuplicates, type ExistingTransaction } from "../services/statementMatch.js";
 import { extractPdfRows, looksLikePdf } from "../services/pdfStatement.js";
 import {
   applyMapping,
@@ -120,19 +120,10 @@ async function gridFromBody(body: StatementBody): Promise<string[][] | Failure> 
   return { error: "account_id and a file are required", status: 400 };
 }
 
-/**
- * Finds rows that already exist on this account.
- *
- * Matched on date and amount rather than the content hash the importer
- * dedupes with: a statement re-downloaded a month later often has the same
- * transaction with its description reworded or padded differently, which
- * changes the hash but is still plainly the same payment. Matching on the two
- * fields that don't drift catches those, at the cost of occasionally flagging
- * two genuinely identical purchases — which is the right trade, because the
- * user decides per row and a missed duplicate is the more expensive mistake.
- */
+/** Loads what's already on the account over the statement's date range, and
+ *  pairs it against the incoming rows (see pairDuplicates for the rule). */
 async function findExisting(accountId: string, userId: string, rows: ParsedRow[]) {
-  if (rows.length === 0) return rows.map(() => null);
+  if (rows.length === 0) return [];
 
   const dates = rows.map((r) => r.date).sort();
   const existing = (await db
@@ -141,39 +132,9 @@ async function findExisting(accountId: string, userId: string, rows: ParsedRow[]
        FROM transactions
        WHERE account_id = ? AND user_id = ? AND booking_date BETWEEN ? AND ?`
     )
-    .all(accountId, userId, dates[0], dates[dates.length - 1])) as unknown as {
-    id: string;
-    booking_date: string;
-    amount: number;
-    description: string | null;
-    counterparty: string | null;
-  }[];
+    .all(accountId, userId, dates[0], dates[dates.length - 1])) as unknown as ExistingTransaction[];
 
-  const key = (date: string, amount: number) => `${date}|${amount.toFixed(2)}`;
-  const byKey = new Map<string, (typeof existing)[number][]>();
-  for (const row of existing) {
-    const k = key(row.booking_date, row.amount);
-    byKey.set(k, [...(byKey.get(k) ?? []), row]);
-  }
-
-  // Each existing transaction can only account for one incoming row, so a
-  // statement legitimately containing the same purchase twice only has its
-  // first occurrence flagged when the account holds one of them.
-  const used = new Map<string, number>();
-  return rows.map((row) => {
-    const k = key(row.date, row.amount);
-    const candidates = byKey.get(k) ?? [];
-    const taken = used.get(k) ?? 0;
-    if (taken >= candidates.length) return null;
-    used.set(k, taken + 1);
-    const match = candidates[taken];
-    return {
-      id: match.id,
-      date: match.booking_date,
-      amount: match.amount,
-      description: match.description ?? match.counterparty,
-    };
-  });
+  return pairDuplicates(rows, existing);
 }
 
 // Labels each column from the header row when there is one, falling back to a
