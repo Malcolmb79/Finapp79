@@ -38,6 +38,11 @@ export default function Accounts() {
   const [editingBalanceId, setEditingBalanceId] = useState<string | null>(null);
   const [balanceDraft, setBalanceDraft] = useState("");
   const [overdraftDraft, setOverdraftDraft] = useState("");
+  // The available figure and the overdraft are two views of one number, so
+  // whichever was typed into last is the one that wins on save — otherwise
+  // the untouched field's stale value would silently overwrite the edit.
+  const [availableDraft, setAvailableDraft] = useState("");
+  const [lastEdited, setLastEdited] = useState<"overdraft" | "available">("overdraft");
   const [savingBalance, setSavingBalance] = useState(false);
 
   // One hidden input reused by every row's upload button — the account it
@@ -69,21 +74,42 @@ export default function Accounts() {
     setEditingBalanceId(account.id);
     setBalanceDraft(String(accountBalance(account, txSum)));
     setOverdraftDraft(account.overdraft_limit != null ? String(account.overdraft_limit) : "");
+    setAvailableDraft(String(accountAvailable(account, txSum)));
+    setLastEdited("overdraft");
   }
 
-  // Blank means clear, so "" and 0 are deliberately different: "" hands the
-  // balance back to the transaction history / removes the overdraft, 0 is a
-  // real zero. Anything unparseable leaves that field untouched rather than
-  // writing a guess over a real figure.
+  // "" and 0 are deliberately different: "" clears (handing the balance back
+  // to the transaction history, or removing the overdraft), 0 is a real zero.
+  // Anything unparseable leaves that field untouched rather than writing a
+  // guess over a real figure.
+  function parseDraft(value: string) {
+    const trimmed = value.trim().replace(/[,\s€£$]/g, "");
+    if (trimmed === "") return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  /**
+   * The overdraft implied by an available figure typed in directly.
+   *
+   * Banks publish "available funds" (AIB shows 6,599.26) but not the facility
+   * behind it, so typing the number from the banking app is easier than
+   * working out the difference by hand. Returns undefined when the sum can't
+   * be taken, and null when available is at or below the balance — that gap
+   * is a hold or a pending item, not a negative overdraft.
+   */
+  function overdraftFromAvailable(available: string, balance: string): number | null | undefined {
+    const a = parseDraft(available);
+    const b = parseDraft(balance);
+    if (a === undefined || b === undefined) return undefined;
+    if (a === null) return null;
+    const base = b ?? 0;
+    return a > base ? Number((a - base).toFixed(2)) : null;
+  }
+
   async function saveBalance(account: Account) {
-    const parse = (value: string) => {
-      const trimmed = value.trim().replace(/,/g, "");
-      if (trimmed === "") return null;
-      const parsed = Number(trimmed);
-      return Number.isFinite(parsed) ? parsed : undefined;
-    };
-    const balance = parse(balanceDraft);
-    const overdraft = parse(overdraftDraft);
+    const balance = parseDraft(balanceDraft);
+    const overdraft = lastEdited === "available" ? overdraftFromAvailable(availableDraft, balanceDraft) : parseDraft(overdraftDraft);
 
     setSavingBalance(true);
     try {
@@ -344,13 +370,37 @@ export default function Accounts() {
                         <input
                           inputMode="decimal"
                           value={overdraftDraft}
-                          onChange={(e) => setOverdraftDraft(e.target.value)}
+                          onChange={(e) => {
+                            setOverdraftDraft(e.target.value);
+                            setLastEdited("overdraft");
+                          }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") saveBalance(a);
                             if (e.key === "Escape") setEditingBalanceId(null);
                           }}
                           placeholder="none"
                           style={{ display: "block", width: 90, fontSize: "0.85rem", padding: "0.25rem 0.4rem" }}
+                        />
+                      </label>
+                      {/* Type the "available funds" figure straight from the
+                          banking app and the overdraft behind it is worked out
+                          from the balance — banks publish the total but not the
+                          facility. */}
+                      <label style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                        Available
+                        <input
+                          inputMode="decimal"
+                          value={availableDraft}
+                          onChange={(e) => {
+                            setAvailableDraft(e.target.value);
+                            setLastEdited("available");
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") saveBalance(a);
+                            if (e.key === "Escape") setEditingBalanceId(null);
+                          }}
+                          placeholder="balance"
+                          style={{ display: "block", width: 110, fontSize: "0.85rem", padding: "0.25rem 0.4rem" }}
                         />
                       </label>
                       <button
