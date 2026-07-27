@@ -110,16 +110,21 @@ function transactionId(accountUid: string, tx: RemoteTransaction): string {
   return createHash("sha256").update(hashInput).digest("hex");
 }
 
-// Berlin Group/XS2A balance_type values, in preference order — different
-// banks populate different subsets, so this tries the most specific first
-// and falls back rather than requiring an exact match.
-const BOOKED_BALANCE_TYPES = ["closingBooked", "interimBooked", "openingBooked", "expected"];
-const AVAILABLE_BALANCE_TYPES = ["interimAvailable", "closingAvailable", "forwardAvailable", "expected"];
+// ISO 20022 balance_type codes, in preference order — different banks
+// populate different subsets, so this tries the most specific first and falls
+// back rather than requiring an exact match. The Berlin Group camelCase
+// spellings are kept as aliases only because they cost nothing; Enable
+// Banking returns the four-letter codes.
+export const BOOKED_BALANCE_TYPES = ["CLBD", "ITBD", "OPBD", "PRCD", "XPCD", "closingBooked", "interimBooked"];
+export const AVAILABLE_BALANCE_TYPES = ["ITAV", "CLAV", "FWAV", "OPAV", "XPCD", "interimAvailable", "closingAvailable"];
 
-function pickBalance(balances: enableBanking.AccountBalance[], types: string[]): number | null {
+export function pickBalance(balances: enableBanking.AccountBalance[], types: string[]): number | null {
   for (const type of types) {
     const match = balances.find((b) => b.balance_type === type);
-    if (match) return Number(match.balance_amount.amount);
+    if (match) {
+      const amount = Number(match.balance_amount.amount);
+      if (Number.isFinite(amount)) return amount;
+    }
   }
   return null;
 }
@@ -162,16 +167,41 @@ bankLinkRouter.post("/accounts/:accountId/sync", async (req, res) => {
   // whole sync, since the transactions above already succeeded.
   try {
     const balances = await enableBanking.getAccountBalances(accountId);
-    console.log(`Balances for account ${accountId}:`, JSON.stringify(balances)); // TEMP: remove after confirming real balance_type values
+    console.log(`Balances for account ${accountId}:`, JSON.stringify(balances));
     const booked = pickBalance(balances, BOOKED_BALANCE_TYPES);
     const available = pickBalance(balances, AVAILABLE_BALANCE_TYPES);
     if (booked !== null || available !== null) {
+      // A balance set by hand is a deliberate correction, so a sync leaves it
+      // alone — clearing it in the UI is what hands the account back to the
+      // bank's figure. available_balance has no manual counterpart, so it
+      // always takes the fresh number.
       await db
-        .prepare("UPDATE accounts SET balance = ?, available_balance = ?, balance_synced_at = ? WHERE id = ?")
+        .prepare(
+          `UPDATE accounts
+              SET balance = CASE WHEN balance_is_manual THEN balance ELSE ? END,
+                  available_balance = ?,
+                  balance_synced_at = ?
+            WHERE id = ?`
+        )
         .run(booked, available, new Date().toISOString(), accountId);
     }
   } catch (err) {
     console.error(`Failed to sync balance for account ${accountId}:`, err);
+  }
+
+  // The overdraft is on the account details resource, not the balances one.
+  // Only filled in when it hasn't been set by hand — an entered figure is the
+  // user's own statement about their facility and outranks the bank's.
+  try {
+    const details = await enableBanking.getAccountDetails(accountId);
+    const limit = details.credit_limit ? Number(details.credit_limit.amount) : null;
+    if (limit !== null && Number.isFinite(limit)) {
+      await db
+        .prepare("UPDATE accounts SET overdraft_limit = ? WHERE id = ? AND overdraft_limit IS NULL")
+        .run(Math.abs(limit), accountId);
+    }
+  } catch (err) {
+    console.error(`Failed to sync overdraft limit for account ${accountId}:`, err);
   }
 
   res.json({ synced, totalFetched: transactions.length });

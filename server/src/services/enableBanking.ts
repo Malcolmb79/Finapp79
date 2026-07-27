@@ -120,7 +120,10 @@ export function startAuthorization(
 
 export interface AccountBalance {
   balance_amount: { amount: string; currency: string };
-  balance_type: string; // Berlin Group/XS2A: closingBooked, interimAvailable, expected, openingBooked, etc.
+  // ISO 20022 four-letter codes -- CLBD (closing booked), ITAV (interim
+  // available), XPCD (expected), and so on. Not the Berlin Group camelCase
+  // spellings ("closingBooked"), which this API never returns.
+  balance_type: string;
 }
 
 // listAccountTransactions only pulls a 90-day window, so summing those
@@ -130,6 +133,17 @@ export interface AccountBalance {
 export async function getAccountBalances(accountUid: string): Promise<AccountBalance[]> {
   const { balances } = await ebFetch<{ balances: AccountBalance[] }>(`/accounts/${accountUid}/balances`);
   return balances;
+}
+
+export interface AccountDetails {
+  // "The maximum credit or overdraft allowed on the account" -- the arranged
+  // facility, which the balances endpoint does not carry. Optional: plenty of
+  // banks don't expose it, and an account with no facility has none.
+  credit_limit?: { amount: string; currency: string };
+}
+
+export function getAccountDetails(accountUid: string): Promise<AccountDetails> {
+  return ebFetch<AccountDetails>(`/accounts/${accountUid}/details`);
 }
 
 export interface SessionAccount {
