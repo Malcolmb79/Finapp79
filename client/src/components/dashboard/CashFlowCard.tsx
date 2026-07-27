@@ -1,3 +1,4 @@
+import { formatCurrency } from "../../utils/formatCurrency.js";
 import StatTile from "./StatTile.js";
 
 export interface MonthFlow {
@@ -19,13 +20,17 @@ export default function CashFlowCard({
   income,
   expenses,
   months,
+  currency,
   mode = "chart",
 }: {
   income: number;
   expenses: number;
   months: MonthFlow[];
+  /** Every figure here combines accounts, so it is already converted into this. */
+  currency: string | null;
   mode?: "chart" | "number";
 }) {
+  const money = (value: number) => (currency ? formatCurrency(value, currency) : value.toFixed(2));
   const saved = income - expenses;
   const max = Math.max(1, ...months.flatMap((m) => [m.income, m.expenses]));
 
@@ -36,11 +41,11 @@ export default function CashFlowCard({
   return (
     <div>
       <div className="stat-row" style={{ marginBottom: "1.25rem" }}>
-        <StatTile label="Income" value={income.toFixed(2)} />
-        <StatTile label="Expenses" value={expenses.toFixed(2)} />
+        <StatTile label="Income" value={money(income)} />
+        <StatTile label="Expenses" value={money(expenses)} />
         <div>
           <p className="stat-tile__label">Saved</p>
-          <p className={`stat-tile__value${saved >= 0 ? " stat-tile__value--good" : ""}`}>{saved.toFixed(2)}</p>
+          <p className={`stat-tile__value${saved >= 0 ? " stat-tile__value--good" : ""}`}>{money(saved)}</p>
         </div>
       </div>
 

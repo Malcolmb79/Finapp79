@@ -1,3 +1,5 @@
+import { formatCurrency } from "../../utils/formatCurrency.js";
+
 export interface BarDatum {
   label: string;
   value: number;
@@ -8,7 +10,17 @@ export interface BarDatum {
  * so every bar shares one hue rather than a color-per-row. Value is
  * direct-labeled at the tip since there's no room for a separate axis.
  */
-export default function MagnitudeBarList({ data, mode = "chart" }: { data: BarDatum[]; mode?: "chart" | "number" }) {
+export default function MagnitudeBarList({
+  data,
+  currency,
+  mode = "chart",
+}: {
+  data: BarDatum[];
+  /** These totals combine accounts, so they are already converted into this. */
+  currency: string | null;
+  mode?: "chart" | "number";
+}) {
+  const money = (value: number) => (currency ? formatCurrency(value, currency) : value.toFixed(2));
   if (data.length === 0) return <p className="empty-state">Nothing to show yet.</p>;
 
   const max = Math.max(0, ...data.map((d) => d.value));
@@ -22,10 +34,10 @@ export default function MagnitudeBarList({ data, mode = "chart" }: { data: BarDa
           Total spend
         </p>
         <p className="stat-tile__value" style={{ fontSize: "2rem" }}>
-          {total.toFixed(2)}
+          {money(total)}
         </p>
         <p className="page-header__subtitle" style={{ margin: "0.3rem 0 0" }}>
-          Top category: {top.label} ({top.value.toFixed(2)})
+          Top category: {top.label} ({money(top.value)})
         </p>
       </div>
     );
@@ -39,7 +51,7 @@ export default function MagnitudeBarList({ data, mode = "chart" }: { data: BarDa
           <div className="bar-list__row" key={d.label}>
             <div className="bar-list__meta">
               <span>{d.label}</span>
-              <strong>{d.value.toFixed(2)}</strong>
+              <strong>{money(d.value)}</strong>
             </div>
             <div className="bar-list__track">
               <div className="bar-list__fill" style={{ width: `${pct}%` }} />

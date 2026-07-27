@@ -25,7 +25,7 @@ import {
   widgetAccentVar,
   type WidgetId,
 } from "../dashboardWidgets.js";
-import { sumInBase, useFxRates } from "../utils/fx.js";
+import { inBase, sumInBase, useFxRates } from "../utils/fx.js";
 import { computeCanvasHeight, type CanvasRect } from "../utils/useCanvasItem.js";
 import { useMeasuredWidth } from "../utils/useMeasuredWidth.js";
 import AccountAvatar from "../components/AccountAvatar.js";
@@ -213,17 +213,26 @@ export default function Dashboard() {
   // totalling them raw produced a net worth that meant nothing.
   const balances = accounts.map((a) => ({ amount: accountBalance(a, byAccount.get(a.id) ?? 0), currency: a.currency }));
   const { converted: netWorth, unconvertible } = sumInBase(balances, rates);
+  // Currencies missing a rate are named wherever they affect a total, so a
+  // combined figure is never shown as complete when part of it was dropped.
   const thisMonthKey = new Date().toISOString().slice(0, 7);
-  const monthDelta = transactions
+
+  // Every aggregate below combines accounts, so all of them work from
+  // transactions restated in one currency. Adding a ZAR amount to a EUR one
+  // gives a figure in no currency at all — confident and meaningless.
+  const { items: convertedTx, dropped: droppedCurrencies } = inBase(transactions, rates);
+  const missingRates = [...new Set([...unconvertible, ...droppedCurrencies])];
+
+  const monthDelta = convertedTx
     .filter((tx) => tx.booking_date.startsWith(thisMonthKey))
     .reduce((sum, tx) => sum + tx.amount, 0);
 
-  const income = transactions.filter((tx) => tx.amount > 0).reduce((sum, tx) => sum + tx.amount, 0);
-  const expenses = Math.abs(transactions.filter((tx) => tx.amount < 0).reduce((sum, tx) => sum + tx.amount, 0));
+  const income = convertedTx.filter((tx) => tx.amount > 0).reduce((sum, tx) => sum + tx.amount, 0);
+  const expenses = Math.abs(convertedTx.filter((tx) => tx.amount < 0).reduce((sum, tx) => sum + tx.amount, 0));
 
-  const monthKeys = [...new Set(transactions.map((tx) => tx.booking_date.slice(0, 7)))].sort().slice(-6);
+  const monthKeys = [...new Set(convertedTx.map((tx) => tx.booking_date.slice(0, 7)))].sort().slice(-6);
   const monthFlows: MonthFlow[] = monthKeys.map((key) => {
-    const monthTx = transactions.filter((tx) => tx.booking_date.startsWith(key));
+    const monthTx = convertedTx.filter((tx) => tx.booking_date.startsWith(key));
     return {
       label: key.slice(5),
       income: monthTx.filter((tx) => tx.amount > 0).reduce((s, tx) => s + tx.amount, 0),
@@ -233,18 +242,18 @@ export default function Dashboard() {
 
   const netWorthTrend: TrendPoint[] = (() => {
     const sorted = [...monthKeys];
-    let running = transactions
+    let running = convertedTx
       .filter((tx) => sorted.length > 0 && tx.booking_date < `${sorted[0]}-01`)
       .reduce((s, tx) => s + tx.amount, 0);
     return sorted.map((key) => {
-      running += transactions.filter((tx) => tx.booking_date.startsWith(key)).reduce((s, tx) => s + tx.amount, 0);
+      running += convertedTx.filter((tx) => tx.booking_date.startsWith(key)).reduce((s, tx) => s + tx.amount, 0);
       return { label: key.slice(5), value: running };
     });
   })();
 
   const categoryNames = new Map(categories.map((c) => [c.id, c.name]));
   const spendByCategory = new Map<string, number>();
-  for (const tx of transactions) {
+  for (const tx of convertedTx) {
     if (tx.amount >= 0) continue;
     const name = tx.category_id != null ? (categoryNames.get(tx.category_id) ?? "Unknown") : "Uncategorized";
     spendByCategory.set(name, (spendByCategory.get(name) ?? 0) + Math.abs(tx.amount));
@@ -286,7 +295,7 @@ export default function Dashboard() {
           points={netWorthTrend}
           mode={config.modes.netWorth}
           currency={rates?.base}
-          unconvertible={unconvertible}
+          unconvertible={missingRates}
         />
       ),
     },
@@ -353,7 +362,7 @@ export default function Dashboard() {
         ),
     },
     cashflow: {
-      body: <CashFlowCard income={income} expenses={expenses} months={monthFlows} mode={config.modes.cashflow} />,
+      body: <CashFlowCard income={income} expenses={expenses} months={monthFlows} currency={rates?.base ?? null} mode={config.modes.cashflow} />,
     },
     pendingReview: {
       body: (
@@ -398,7 +407,7 @@ export default function Dashboard() {
           </div>
         ),
     },
-    category: { body: <MagnitudeBarList data={categoryRows} mode={config.modes.category} /> },
+    category: { body: <MagnitudeBarList data={categoryRows} currency={rates?.base ?? null} mode={config.modes.category} /> },
     budgets: {
       headerExtra: (
         <Link to="/budgets" className="card__link">

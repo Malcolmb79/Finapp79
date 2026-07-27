@@ -53,7 +53,7 @@ export default function NetWorthCard({
         {currency ? formatCurrency(current, currency) : current.toFixed(2)}
       </p>
       <p className={`sidebar__net-worth-delta`} style={{ margin: "0.2rem 0 0" }}>
-        {delta >= 0 ? "↗" : "↘"} {delta.toFixed(2)} this month
+        {delta >= 0 ? "↗" : "↘"} {currency ? formatCurrency(delta, currency) : delta.toFixed(2)} this month
       </p>
       {/* Named explicitly: a single figure drawn from accounts in several
           currencies is only meaningful if you know which one it's in. */}

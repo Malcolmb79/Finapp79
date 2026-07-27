@@ -3,6 +3,8 @@ import CashFlowCard, { type MonthFlow } from "../components/dashboard/CashFlowCa
 import MagnitudeBarList from "../components/dashboard/MagnitudeBarList.js";
 import StatTile from "../components/dashboard/StatTile.js";
 import { api, type Category, type Transaction } from "../api/client.js";
+import { formatCurrency } from "../utils/formatCurrency.js";
+import { inBase, useFxRates } from "../utils/fx.js";
 
 const TREND_MONTHS = 12;
 
@@ -15,9 +17,15 @@ export default function Analytics() {
     api.listCategories().then(setCategories);
   }, []);
 
-  const monthKeys = [...new Set(transactions.map((tx) => tx.booking_date.slice(0, 7)))].sort().slice(-TREND_MONTHS);
+  const rates = useFxRates("EUR");
+  // Every figure on this page totals transactions from accounts that may be
+  // in different currencies, so all of it works from amounts restated in one.
+  const { items: convertedTx, dropped } = inBase(transactions, rates);
+  const money = (value: number) => (rates ? formatCurrency(value, rates.base) : value.toFixed(2));
+
+  const monthKeys = [...new Set(convertedTx.map((tx) => tx.booking_date.slice(0, 7)))].sort().slice(-TREND_MONTHS);
   const monthFlows: MonthFlow[] = monthKeys.map((key) => {
-    const monthTx = transactions.filter((tx) => tx.booking_date.startsWith(key));
+    const monthTx = convertedTx.filter((tx) => tx.booking_date.startsWith(key));
     return {
       label: key,
       income: monthTx.filter((tx) => tx.amount > 0).reduce((s, tx) => s + tx.amount, 0),
@@ -31,10 +39,10 @@ export default function Analytics() {
   const avgMonthlyExpenses = monthFlows.length > 0 ? totalExpenses / monthFlows.length : 0;
 
   const categoryNames = new Map(categories.map((c) => [c.id, c.name]));
-  const totalSpend = transactions.filter((tx) => tx.amount < 0).reduce((s, tx) => s + Math.abs(tx.amount), 0);
+  const totalSpend = convertedTx.filter((tx) => tx.amount < 0).reduce((s, tx) => s + Math.abs(tx.amount), 0);
 
   const categoryStats = new Map<string, { total: number; count: number }>();
-  for (const tx of transactions) {
+  for (const tx of convertedTx) {
     if (tx.amount >= 0) continue;
     const name = tx.category_id != null ? (categoryNames.get(tx.category_id) ?? "Unknown") : "Uncategorized";
     const entry = categoryStats.get(name) ?? { total: 0, count: 0 };
@@ -45,7 +53,7 @@ export default function Analytics() {
   const categoryRows = [...categoryStats.entries()].sort((a, b) => b[1].total - a[1].total);
 
   const merchantStats = new Map<string, { total: number; count: number }>();
-  for (const tx of transactions) {
+  for (const tx of convertedTx) {
     if (tx.amount >= 0 || !tx.description) continue;
     const entry = merchantStats.get(tx.description) ?? { total: 0, count: 0 };
     entry.total += Math.abs(tx.amount);
@@ -59,7 +67,13 @@ export default function Analytics() {
       <div className="page-header">
         <div>
           <h1>Analytics</h1>
-          <p className="page-header__subtitle">Trends across the last {monthFlows.length || 0} month{monthFlows.length === 1 ? "" : "s"}</p>
+          <p className="page-header__subtitle">
+            Trends across the last {monthFlows.length || 0} month{monthFlows.length === 1 ? "" : "s"}
+            {rates ? ` · converted to ${rates.base}` : ""}
+            {/* Named rather than quietly omitted: a chart that silently drops
+                a currency under-reports without ever looking wrong. */}
+            {dropped.length > 0 ? ` · excludes ${dropped.join(", ")}, no rate available` : ""}
+          </p>
         </div>
       </div>
 
@@ -68,7 +82,7 @@ export default function Analytics() {
           <div className="card__header">
             <h2 className="card__title">Income vs. expenses</h2>
           </div>
-          <CashFlowCard income={totalIncome} expenses={totalExpenses} months={monthFlows} />
+          <CashFlowCard income={totalIncome} expenses={totalExpenses} months={monthFlows} currency={rates?.base ?? null} />
         </div>
 
         <div className="card">
@@ -76,8 +90,8 @@ export default function Analytics() {
             <h2 className="card__title">Monthly averages</h2>
           </div>
           <div className="stat-row" style={{ gridTemplateColumns: "1fr 1fr" }}>
-            <StatTile label="Avg income" value={avgMonthlyIncome.toFixed(2)} />
-            <StatTile label="Avg expenses" value={avgMonthlyExpenses.toFixed(2)} />
+            <StatTile label="Avg income" value={money(avgMonthlyIncome)} />
+            <StatTile label="Avg expenses" value={money(avgMonthlyExpenses)} />
           </div>
         </div>
 
@@ -85,7 +99,7 @@ export default function Analytics() {
           <div className="card__header">
             <h2 className="card__title">Spend by category</h2>
           </div>
-          <MagnitudeBarList data={categoryRows.map(([label, s]) => ({ label, value: s.total }))} />
+          <MagnitudeBarList data={categoryRows.map(([label, s]) => ({ label, value: s.total }))} currency={rates?.base ?? null} />
         </div>
 
         <div className="card">
@@ -109,7 +123,7 @@ export default function Analytics() {
                   <tr key={name}>
                     <td>{name}</td>
                     <td>{s.count}</td>
-                    <td>{s.total.toFixed(2)}</td>
+                    <td>{money(s.total)}</td>
                     <td>{totalSpend > 0 ? ((s.total / totalSpend) * 100).toFixed(1) : "0.0"}%</td>
                   </tr>
                 ))}
@@ -138,7 +152,7 @@ export default function Analytics() {
                   <tr key={name}>
                     <td>{name}</td>
                     <td>{s.count}</td>
-                    <td>{s.total.toFixed(2)}</td>
+                    <td>{money(s.total)}</td>
                   </tr>
                 ))}
               </tbody>

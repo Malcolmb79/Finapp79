@@ -36,6 +36,31 @@ export function sumInBase(
   return { converted, unconvertible: [...unconvertible] };
 }
 
+/**
+ * Restates a list of amounts in the base currency, dropping any that can't be.
+ *
+ * For the aggregate views — cash flow, spending by category, net worth over
+ * time — where every figure combines accounts that may be in different
+ * currencies. Adding those raw produces a number in no currency at all, which
+ * looks authoritative and means nothing.
+ *
+ * `dropped` names the currencies left out, so a chart is never presented as
+ * covering everything when part of it is missing.
+ */
+export function inBase<T extends { amount: number; currency: string }>(
+  items: T[],
+  rates: FxRates | null
+): { items: T[]; dropped: string[] } {
+  const converted: T[] = [];
+  const dropped = new Set<string>();
+  for (const item of items) {
+    const amount = toBase(item.amount, item.currency, rates);
+    if (amount == null) dropped.add(item.currency);
+    else converted.push({ ...item, amount });
+  }
+  return { items: converted, dropped: [...dropped] };
+}
+
 // Module-scoped so every widget on a page shares one fetch rather than each
 // asking for rates on mount.
 let cached: FxRates | null = null;
