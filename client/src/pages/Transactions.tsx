@@ -49,7 +49,7 @@ export default function Transactions() {
       title: "New transactions",
       icon: Inbox,
       accentVar: "--accent",
-      body: <PendingReviewWidget transactions={pending} categories={categories} onApproved={refresh} />,
+      body: <PendingReviewWidget transactions={pending} categories={categories} accounts={accounts} onApproved={refresh} />,
     },
     categories: {
       title: "Categories",

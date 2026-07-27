@@ -1,6 +1,6 @@
 import { Check, Loader2, Plus, Search, Sparkles, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api, type Category, type PendingTransaction } from "../../api/client.js";
+import { api, type Account, type Category, type PendingTransaction } from "../../api/client.js";
 import CategorySelect from "../CategorySelect.js";
 
 // Per-row category choice starts at the suggested category but the user can
@@ -10,16 +10,20 @@ import CategorySelect from "../CategorySelect.js";
 export default function PendingReviewWidget({
   transactions,
   categories,
+  accounts = [],
   onApproved,
 }: {
   transactions: PendingTransaction[];
   categories: Category[];
+  /** Enables the account filter, and names the account on each row. */
+  accounts?: Account[];
   onApproved: () => void;
 }) {
   const [selections, setSelections] = useState<Record<string, number | null>>({});
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [approvingAll, setApprovingAll] = useState(false);
   const [query, setQuery] = useState("");
+  const [accountId, setAccountId] = useState<string>("");
   const [suggesting, setSuggesting] = useState(false);
   const [proposed, setProposed] = useState<string[]>([]);
   const [known, setKnown] = useState<Category[]>(categories);
@@ -72,13 +76,20 @@ export default function PendingReviewWidget({
   // the search is how you choose what to act on, so "approve all" while a
   // filter is active must mean the rows you can see.
   const needle = query.trim().toLowerCase();
-  const visible = needle
-    ? transactions.filter((t) =>
-        [t.description, t.counterparty, t.booking_date, t.amount.toFixed(2)]
-          .filter(Boolean)
-          .some((field) => String(field).toLowerCase().includes(needle))
-      )
-    : transactions;
+  const accountName = new Map(accounts.map((a) => [a.id, a.name]));
+  const visible = transactions.filter((t) => {
+    if (accountId && t.account_id !== accountId) return false;
+    if (!needle) return true;
+    return [t.description, t.counterparty, t.booking_date, t.amount.toFixed(2), accountName.get(t.account_id)]
+      .filter(Boolean)
+      .some((field) => String(field).toLowerCase().includes(needle));
+  });
+
+  // Only accounts with something waiting are worth offering, with their
+  // counts — an account with nothing pending is a dead end in the dropdown.
+  const pendingByAccount = new Map<string, number>();
+  for (const t of transactions) pendingByAccount.set(t.account_id, (pendingByAccount.get(t.account_id) ?? 0) + 1);
+  const filterableAccounts = accounts.filter((a) => pendingByAccount.has(a.id));
 
   async function approveVisible() {
     setApprovingAll(true);
@@ -104,16 +115,38 @@ export default function PendingReviewWidget({
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", marginBottom: "0.5rem" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
         <Search size={13} color="var(--text-muted)" style={{ flexShrink: 0 }} />
         <input
           value={query}
           placeholder="Search description, payee, date or amount"
           onChange={(e) => setQuery(e.target.value)}
-          style={{ flex: 1, minWidth: 0, fontSize: "0.82rem" }}
+          style={{ flex: 1, minWidth: 120, fontSize: "0.82rem" }}
         />
-        {query && (
-          <button onClick={() => setQuery("")} aria-label="Clear search" title="Clear search">
+        {filterableAccounts.length > 1 && (
+          <select
+            value={accountId}
+            onChange={(e) => setAccountId(e.target.value)}
+            style={{ fontSize: "0.82rem", maxWidth: 170 }}
+            aria-label="Filter by account"
+          >
+            <option value="">All accounts ({transactions.length})</option>
+            {filterableAccounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name} ({pendingByAccount.get(a.id)})
+              </option>
+            ))}
+          </select>
+        )}
+        {(query || accountId) && (
+          <button
+            onClick={() => {
+              setQuery("");
+              setAccountId("");
+            }}
+            aria-label="Clear filters"
+            title="Clear filters"
+          >
             <X size={13} />
           </button>
         )}
@@ -166,6 +199,9 @@ export default function PendingReviewWidget({
             <div className="tx-row__name">{t.description || t.counterparty || "Transaction"}</div>
             <div className="tx-row__meta">
               {t.booking_date}
+              {/* Named only when more than one account has rows waiting —
+                  otherwise it's the same word on every line. */}
+              {filterableAccounts.length > 1 && accountName.has(t.account_id) && ` · ${accountName.get(t.account_id)}`}
               {t.suggestion_source === "ai" && !(t.id in selections) && (
                 <span
                   title="Suggested by AI — check before approving"

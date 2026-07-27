@@ -334,7 +334,14 @@ export default function Dashboard() {
       body: <CashFlowCard income={income} expenses={expenses} months={monthFlows} mode={config.modes.cashflow} />,
     },
     pendingReview: {
-      body: <PendingReviewWidget transactions={pendingTransactions} categories={categories} onApproved={refresh} />,
+      body: (
+        <PendingReviewWidget
+          transactions={pendingTransactions}
+          categories={categories}
+          accounts={accounts}
+          onApproved={refresh}
+        />
+      ),
     },
     transactions: {
       headerExtra: (
