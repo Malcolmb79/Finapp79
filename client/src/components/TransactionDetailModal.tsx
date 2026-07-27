@@ -52,9 +52,14 @@ export default function TransactionDetailModal({
     }
   }
 
+  // The backdrop dismisses on pointerdown rather than click, and only when the
+  // press started on the backdrop itself. The category picker inside commits
+  // on pointerdown and unmounts immediately, so the click that follows lands
+  // on the backdrop — a click handler here would read that as the user
+  // dismissing the modal and close it mid-selection.
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <button onClick={onClose} aria-label="Close" style={{ padding: "0.3rem", display: "flex", background: "transparent", border: "none" }}>
             <X size={18} />

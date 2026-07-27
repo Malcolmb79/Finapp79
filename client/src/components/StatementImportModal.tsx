@@ -179,7 +179,12 @@ export default function StatementImportModal({
 
   return (
     <>
-      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 60 }} onClick={onClose} />
+      {/* Closes on pointerdown, not click. A popover inside the dialog (the
+          category picker) commits its selection on pointerdown and unmounts
+          straight away, so the click that follows lands on whatever is now
+          under the finger — the backdrop — and a click handler here would
+          tear down the whole dialog as if the user had dismissed it. */}
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 60 }} onPointerDown={onClose} />
       <div
         role="dialog"
         aria-label="Confirm statement import"
