@@ -178,7 +178,6 @@ bankLinkRouter.post("/accounts/:accountId/sync", async (req, res) => {
   // whole sync, since the transactions above already succeeded.
   try {
     const balances = await enableBanking.getAccountBalances(accountId);
-    console.log(`Balances for account ${accountId}:`, JSON.stringify(balances));
     const booked = pickBalance(balances, BOOKED_BALANCE_TYPES);
     const reported = pickBalance(balances, AVAILABLE_BALANCE_TYPES);
     // When a bank sends only one usable figure it lands in both lists, and
@@ -211,9 +210,13 @@ bankLinkRouter.post("/accounts/:accountId/sync", async (req, res) => {
   // The overdraft is on the account details resource, not the balances one.
   // Only filled in when it hasn't been set by hand — an entered figure is the
   // user's own statement about their facility and outranks the bank's.
+  //
+  // Plenty of banks send nothing here: AIB returns credit_limit: null while
+  // its own app shows an arranged overdraft of 3,500 against the account. So
+  // this fills the field in where it can and the UI still has to let the
+  // figure be entered by hand.
   try {
     const details = await enableBanking.getAccountDetails(accountId);
-    console.log(`Credit limit for account ${accountId}:`, JSON.stringify(details.credit_limit ?? null));
     const limit = details.credit_limit ? Number(details.credit_limit.amount) : null;
     if (limit !== null && Number.isFinite(limit)) {
       await db
