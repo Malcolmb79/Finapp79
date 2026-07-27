@@ -440,25 +440,35 @@ export default function Accounts() {
                       {a.source === "enablebanking" ? a.institution_name ?? "Linked via Enable Banking" : "Manual"} · {a.currency}
                     </div>
                   </div>
-                  <button onClick={() => startUpload(a)} title="Upload statement" aria-label={`Upload statement for ${a.name}`}>
-                    <Upload size={14} color="var(--text-muted)" />
+                  {/* Two uploads that read the same file completely
+                      differently, so they are labelled rather than left as
+                      neighbouring icons — picking the wrong one silently gives
+                      you the wrong reader. Both are offered on every account:
+                      a credit card has an agreement too, and an account whose
+                      type hasn't been set yet still has one. */}
+                  <button
+                    onClick={() => startUpload(a)}
+                    title="Import transactions from a statement"
+                    aria-label={`Upload a statement for ${a.name}`}
+                    style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.75rem", whiteSpace: "nowrap" }}
+                  >
+                    <Upload size={13} color="var(--text-muted)" />
+                    Statement
                   </button>
-                  {/* Only on loans: the terms it reads — rate, instalment,
-                      final payment — describe a loan and nothing else. */}
-                  {a.account_type === "loan" && (
-                    <button
-                      onClick={() => startContractUpload(a)}
-                      disabled={readingContract === a.id}
-                      title="Upload loan agreement to read its terms"
-                      aria-label={`Upload the loan agreement for ${a.name}`}
-                    >
-                      {readingContract === a.id ? (
-                        <Loader2 size={14} className="spin" />
-                      ) : (
-                        <FileText size={14} color="var(--text-muted)" />
-                      )}
-                    </button>
-                  )}
+                  <button
+                    onClick={() => startContractUpload(a)}
+                    disabled={readingContract === a.id}
+                    title="Read the terms from a loan or credit agreement"
+                    aria-label={`Upload the agreement for ${a.name}`}
+                    style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.75rem", whiteSpace: "nowrap" }}
+                  >
+                    {readingContract === a.id ? (
+                      <Loader2 size={13} className="spin" />
+                    ) : (
+                      <FileText size={13} color="var(--text-muted)" />
+                    )}
+                    {readingContract === a.id ? "Reading…" : "Agreement"}
+                  </button>
                   {clearingId === a.id ? (
                     <div style={{ display: "flex", gap: "0.3rem", alignItems: "center", flexWrap: "wrap" }}>
                       <span style={{ fontSize: "0.78rem", color: "var(--critical)", whiteSpace: "nowrap" }}>Clear:</span>
