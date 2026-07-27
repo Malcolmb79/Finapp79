@@ -75,6 +75,16 @@ export interface StatementMapping {
    */
   bankName: string | null;
   bankCountry: string | null;
+  /**
+   * The account this statement belongs to, and the period it covers, read off
+   * the header. Used to catch the two mistakes a confirmation dialog can't
+   * otherwise show: importing a statement into the wrong account, and
+   * importing rows that fall outside the period the statement claims to
+   * cover. Null whenever the document doesn't say.
+   */
+  accountNumber: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
 }
 
 export interface ParsedRow {
@@ -321,6 +331,9 @@ const MAPPING_SCHEMA = {
     decimalSeparator: { type: "string", enum: [".", ","] },
     bankName: { type: ["string", "null"] },
     bankCountry: { type: ["string", "null"] },
+    accountNumber: { type: ["string", "null"] },
+    periodStart: { type: ["string", "null"] },
+    periodEnd: { type: ["string", "null"] },
   },
   required: [
     "hasHeader",
@@ -335,6 +348,9 @@ const MAPPING_SCHEMA = {
     "decimalSeparator",
     "bankName",
     "bankCountry",
+    "accountNumber",
+    "periodStart",
+    "periodEnd",
   ],
   additionalProperties: false,
 } as const;
@@ -508,10 +524,15 @@ function heuristicMapping(rows: string[][], preamble: string[][] = []): Statemen
     decimalSeparator,
     invertAmounts: false,
     source: "heuristic",
-    // Identifying the bank means reading prose around the table, which is the
-    // model's job — the heuristic path deliberately doesn't guess.
+    // Identifying the bank, the account and the period means reading prose
+    // around the table, which is the model's job — the heuristic path
+    // deliberately doesn't guess. The period is still derivable from the rows
+    // themselves, so the route fills that in from what actually parsed.
     bankName: null,
     bankCountry: null,
+    accountNumber: null,
+    periodStart: null,
+    periodEnd: null,
   };
 }
 
@@ -565,6 +586,8 @@ export async function inferMapping(rows: string[][], preamble: string[][] = []):
             "decimalSeparator is the character before the last two digits of an amount.",
             "bankName: the bank this statement is from, if the file names it or an IBAN/sort code makes it unambiguous — otherwise null. Do not guess from a merchant name in the transaction rows.",
             "bankCountry: that bank's ISO 3166-1 alpha-2 country code (an IBAN's first two letters give it), otherwise null.",
+            "accountNumber: the account number or IBAN this statement is for, exactly as printed (keep any masking). Null if the file doesn't show one. This is the statement's own account — never a card number from a transaction row.",
+            "periodStart and periodEnd: the period the statement covers, as YYYY-MM-DD. Read them from a stated period or from the earliest and latest transaction dates. Null if neither is determinable.",
           ].join("\n"),
         },
       ],

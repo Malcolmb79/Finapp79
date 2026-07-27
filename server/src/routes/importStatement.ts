@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { db, withTransaction } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { resolveBank } from "../services/bankLogo.js";
+import { checkStatement } from "../services/statementMatch.js";
 import { extractPdfRows, looksLikePdf } from "../services/pdfStatement.js";
 import { applyMapping, hasDateShape, inferMapping, parseDelimited, splitPreamble, type StatementMapping } from "../services/statementParser.js";
 
@@ -113,7 +114,9 @@ function columnLabels(table: string[][], mapping: StatementMapping) {
 }
 
 async function ownedAccount(accountId: string, userId: string) {
-  return db.prepare("SELECT currency FROM accounts WHERE id = ? AND user_id = ?").get<{ currency: string }>(accountId, userId);
+  return db
+    .prepare("SELECT currency, iban FROM accounts WHERE id = ? AND user_id = ?")
+    .get<{ currency: string; iban: string | null }>(accountId, userId);
 }
 
 importStatementRouter.post("/preview", async (req, res) => {
@@ -193,6 +196,10 @@ importStatementRouter.post("/preview", async (req, res) => {
     // Offered rather than applied: the user sees which bank was matched, with
     // its logo, and decides. A wrong logo is worse than no logo.
     detectedBank: await resolveBank(mapping.bankName, mapping.bankCountry),
+    // Whether this statement belongs to the account it's being imported into,
+    // and what period it covers. Neither is visible in a row-by-row preview:
+    // the right statement imported into the wrong account parses perfectly.
+    check: checkStatement(mapping, rows, account),
   });
 });
 

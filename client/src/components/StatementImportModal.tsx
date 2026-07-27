@@ -255,6 +255,52 @@ export default function StatementImportModal({
               </label>
             )}
 
+            {/* An account mismatch is the one error a row-by-row preview can
+                never show: every row is correct, they're just about to land
+                against the wrong account. */}
+            {preview.check.accountMatches === false && (
+              <div
+                role="alert"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.6rem",
+                  margin: "0.75rem 0",
+                  padding: "0.6rem 0.75rem",
+                  borderRadius: "var(--radius)",
+                  border: "1px solid var(--critical)",
+                  background: "color-mix(in srgb, var(--critical) 12%, transparent)",
+                  fontSize: "0.85rem",
+                }}
+              >
+                <AlertTriangle size={15} color="var(--critical)" />
+                <span>
+                  This statement is for account <strong>{preview.check.accountNumber}</strong>, which doesn't match{" "}
+                  <strong>{accountName}</strong>. Check you've picked the right account before importing.
+                </span>
+              </div>
+            )}
+
+            {(preview.check.periodStart || preview.check.outsidePeriod > 0) && (
+              <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", margin: "0.5rem 0" }}>
+                {preview.check.periodStart && (
+                  <>
+                    Covers <strong>{preview.check.periodStart}</strong> to <strong>{preview.check.periodEnd}</strong>
+                    {preview.check.accountMatches === true && preview.check.accountNumber && (
+                      <> · account {preview.check.accountNumber} ✓</>
+                    )}
+                  </>
+                )}
+                {preview.check.outsidePeriod > 0 && (
+                  <>
+                    {" "}
+                    · <strong>{preview.check.outsidePeriod}</strong> row
+                    {preview.check.outsidePeriod === 1 ? "" : "s"} fall outside that period
+                  </>
+                )}
+              </p>
+            )}
+
             {preview.parsed > 1 && (preview.direction.inflow === 0 || preview.direction.outflow === 0) && (
               <div
                 role="alert"

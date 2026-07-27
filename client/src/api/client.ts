@@ -62,6 +62,21 @@ export interface StatementMapping {
   source: "ai" | "heuristic";
   bankName: string | null;
   bankCountry: string | null;
+  accountNumber: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+}
+
+// Whether the statement belongs to the account it's being imported into, and
+// what period it covers — neither is visible in a row-by-row preview, since
+// the right statement imported into the wrong account parses perfectly.
+export interface StatementCheck {
+  accountNumber: string | null;
+  /** Null when either side has no number — an unknown is not a mismatch. */
+  accountMatches: boolean | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  outsidePeriod: number;
 }
 
 export interface StatementPreview {
@@ -77,6 +92,7 @@ export interface StatementPreview {
   // The bank matched from the statement against Enable Banking's directory,
   // offered so the account can carry its real logo.
   detectedBank: { name: string; logo: string | null; country: string } | null;
+  check: StatementCheck;
 }
 
 export interface Aspsp {
