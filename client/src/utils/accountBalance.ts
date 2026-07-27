@@ -84,3 +84,20 @@ export function accountAvailable(account: Account, txSum: number): number {
 export function hasAvailable(account: Account): boolean {
   return (account.account_type ?? "current") !== "loan";
 }
+
+/**
+ * How much an account is actually borrowing right now.
+ *
+ * A negative balance is money owed whatever the account is called — an
+ * overdrawn cheque account is debt as surely as a loan is, which is why this
+ * doesn't consult the type. A positive balance owes nothing, even where a
+ * facility exists to draw on.
+ */
+export function amountDrawn(account: Account, txSum: number): number {
+  return Math.max(0, -accountBalance(account, txSum));
+}
+
+/** Whether the account belongs in the borrowing picture at all. */
+export function isBorrowing(account: Account, txSum: number): boolean {
+  return accountBalance(account, txSum) < 0 || (account.overdraft_limit ?? 0) > 0;
+}

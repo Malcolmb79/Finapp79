@@ -11,7 +11,6 @@ import {
   type Account,
   type Budget,
   type Category,
-  type Debt,
   type PendingTransaction,
   type SavingsGoal,
   type Transaction,
@@ -30,7 +29,7 @@ import { sumInBase, useFxRates } from "../utils/fx.js";
 import { computeCanvasHeight, type CanvasRect } from "../utils/useCanvasItem.js";
 import { useMeasuredWidth } from "../utils/useMeasuredWidth.js";
 import AccountAvatar from "../components/AccountAvatar.js";
-import { accountBalance } from "../utils/accountBalance.js";
+import { accountBalance, amountDrawn, isBorrowing } from "../utils/accountBalance.js";
 import { budgetStatus } from "../utils/budgetStatus.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { monthsToPayoff } from "../utils/payoff.js";
@@ -132,7 +131,6 @@ export default function Dashboard() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
-  const [debts, setDebts] = useState<Debt[]>([]);
   const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
   const [config, setConfig] = useState<DashboardConfig>(loadConfig);
   const [syncingAll, setSyncingAll] = useState(false);
@@ -146,7 +144,6 @@ export default function Dashboard() {
     api.listAccounts().then(setAccounts);
     api.listCategories().then(setCategories);
     api.listBudgets().then(setBudgets);
-    api.listDebts().then(setDebts);
     api.listSavingsGoals().then(setSavingsGoals);
   }
 
@@ -269,8 +266,16 @@ export default function Dashboard() {
 
   const linkedAccountCount = accounts.filter((a) => a.source === "enablebanking").length;
 
-  const totalDebt = debts.reduce((s, d) => s + d.balance, 0);
-  const debtsByApr = [...debts].sort((a, b) => b.apr - a.apr).slice(0, 4);
+  // Borrowing comes from the accounts themselves rather than a separate list
+  // typed in by hand: an overdrawn account is debt whatever it's called, and
+  // maintaining the same figure in two places only creates a disagreement.
+  const borrowing = accounts
+    .filter((a) => isBorrowing(a, byAccount.get(a.id) ?? 0))
+    .sort((a, b) => amountDrawn(b, byAccount.get(b.id) ?? 0) - amountDrawn(a, byAccount.get(a.id) ?? 0));
+  const { converted: totalDebt } = sumInBase(
+    borrowing.map((a) => ({ amount: amountDrawn(a, byAccount.get(a.id) ?? 0), currency: a.currency })),
+    rates
+  );
 
   const widgetContent: Record<WidgetId, { headerExtra?: React.ReactNode; body: React.ReactNode }> = {
     netWorth: {
@@ -442,27 +447,35 @@ export default function Dashboard() {
         </Link>
       ),
       body:
-        debts.length === 0 ? (
-          <p className="empty-state">No debts tracked yet.</p>
+        borrowing.length === 0 ? (
+          <p className="empty-state">Nothing borrowed.</p>
         ) : (
           <div>
             <p className="stat-tile__label" style={{ marginBottom: "0.2rem" }}>
-              Total debt
+              Total borrowed
             </p>
             <p className="stat-tile__value" style={{ fontSize: "1.6rem", marginBottom: "0.9rem" }}>
-              {totalDebt.toFixed(2)}
+              {rates ? formatCurrency(totalDebt, rates.base) : totalDebt.toFixed(2)}
             </p>
-            {debtsByApr.map((d) => {
-              const months = monthsToPayoff(d.balance, d.apr, d.minimum_payment);
+            {borrowing.slice(0, 4).map((a) => {
+              const owed = amountDrawn(a, byAccount.get(a.id) ?? 0);
+              const payment = a.loan_monthly_payment ?? 0;
+              const months = owed > 0 && payment > 0 ? monthsToPayoff(owed, a.loan_rate ?? 0, payment) : null;
               return (
-                <div className="account-row" key={d.id}>
+                <div className="account-row" key={a.id}>
                   <div className="account-row__info">
-                    <div className="account-row__name">{d.name}</div>
+                    <div className="account-row__name">{a.name}</div>
                     <div className="account-row__meta">
-                      {d.apr.toFixed(2)}% APR · {months === null ? "won't pay off at minimum" : `~${months} mo left`}
+                      {[
+                        a.loan_rate != null ? `${a.loan_rate.toFixed(2)}%` : null,
+                        months === null ? null : months === 0 ? "paid off" : `~${months} mo left`,
+                        owed === 0 && a.overdraft_limit ? "facility not drawn" : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || "No terms recorded"}
                     </div>
                   </div>
-                  <span className="account-row__balance">{d.balance.toFixed(2)}</span>
+                  <span className="account-row__balance">{formatCurrency(owed, a.currency)}</span>
                 </div>
               );
             })}
