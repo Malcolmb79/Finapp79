@@ -100,3 +100,33 @@ describe("compareStrategies", () => {
     expect(snowball.order[0].name).toBe("Tiny cheap");
   });
 });
+
+// The series behind the chart. It comes from the same run as the headline
+// figures so the picture can't disagree with the number printed beside it.
+describe("balanceByMonth", () => {
+  it("starts at what is owed today and ends at nothing", () => {
+    const result = simulate([debt("Card", 1000, 0, 100)], 0, "avalanche");
+    expect(result.balanceByMonth[0]).toBe(1000);
+    expect(result.balanceByMonth[result.balanceByMonth.length - 1]).toBe(0);
+  });
+
+  it("has one point per month plus today", () => {
+    const result = simulate([debt("Card", 1000, 0, 100)], 0, "avalanche");
+    expect(result.balanceByMonth).toHaveLength((result.months ?? 0) + 1);
+  });
+
+  it("only ever falls while the debt is being cleared", () => {
+    const debts = [debt("A", 3000, 18, 100), debt("B", 1500, 6, 50)];
+    const { balanceByMonth } = simulate(debts, 200, "avalanche");
+    for (let i = 1; i < balanceByMonth.length; i++) {
+      expect(balanceByMonth[i]).toBeLessThanOrEqual(balanceByMonth[i - 1]);
+    }
+  });
+
+  // The case worth seeing on a chart: payments below the interest, so the
+  // line climbs instead of falling.
+  it("rises when the payments don't cover the interest", () => {
+    const { balanceByMonth } = simulate([debt("Card", 10_000, 24, 100)], 0, "avalanche");
+    expect(balanceByMonth[12]).toBeGreaterThan(balanceByMonth[0]);
+  });
+});

@@ -37,6 +37,26 @@ export interface AdvisorMessage {
   content: string;
 }
 
+export interface PayoffResult {
+  months: number | null;
+  totalInterest: number;
+  totalPaid: number;
+  monthlyOutlay: number;
+  neverClears: boolean;
+  focusOrder: string[];
+  /** Total owed at each month end, starting with today. For the curve. */
+  balanceByMonth: number[];
+  order: { name: string; monthCleared: number; interestPaid: number }[];
+}
+
+export interface DebtProjection {
+  currency: string;
+  debts: { name: string; balance: number; rate: number }[];
+  minimums: PayoffResult;
+  /** Only present when an extra payment was asked for. */
+  withExtra: PayoffResult | null;
+}
+
 /** One payoff simulation behind an answer: what was asked for, and what it gave. */
 export interface AdvisorWorking {
   input: unknown;
@@ -279,6 +299,10 @@ export const api = {
    * `workings` is every payoff calculation the answer was built from, so a
    * figure in the reply can be checked against the simulation that produced it.
    */
+  /** The payoff curve, from the same simulator the adviser quotes. */
+  debtProjection: (extraPerMonth = 0) =>
+    request<DebtProjection[]>(`/debt-advisor/projection?extra=${encodeURIComponent(String(extraPerMonth))}`),
+
   askDebtAdvisor: (messages: AdvisorMessage[]) =>
     request<{ reply: string; workings: AdvisorWorking[] }>("/debt-advisor", {
       method: "POST",

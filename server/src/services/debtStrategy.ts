@@ -39,6 +39,14 @@ export interface PayoffResult {
   focusOrder: string[];
   /** What is being paid across all these debts each month, at the start. */
   monthlyOutlay: number;
+  /**
+   * Total owed at the end of each month, starting with what's owed today.
+   *
+   * For drawing the curve. It comes from the same run as the headline figures
+   * rather than from a second, simpler calculation, so a chart can never
+   * disagree with the number printed beside it.
+   */
+  balanceByMonth: number[];
   /** Set when the payments don't cover the interest, so the debt only grows. */
   neverClears: boolean;
 }
@@ -86,6 +94,8 @@ export function simulate(
   let totalPaid = 0;
   let month = 0;
   const focusOrder: string[] = [];
+  const totalOwed = () => round(state.reduce((sum, d) => sum + Math.max(0, d.balance), 0));
+  const balanceByMonth: number[] = [totalOwed()];
 
   while (month < MAX_MONTHS && state.some((d) => d.balance > SETTLED)) {
     month++;
@@ -136,6 +146,8 @@ export function simulate(
       // and no other debt is live.
       if (payment <= 0) break;
     }
+
+    balanceByMonth.push(totalOwed());
   }
 
   const outstanding = state.filter((d) => d.balance > SETTLED);
@@ -152,6 +164,7 @@ export function simulate(
     monthlyOutlay: round(monthlyOutlay),
     neverClears,
     focusOrder,
+    balanceByMonth,
     order: state
       .filter((d) => d.monthCleared > 0)
       .sort((a, b) => a.monthCleared - b.monthCleared)

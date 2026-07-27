@@ -154,6 +154,37 @@ function runTool(input: Record<string, unknown>, debts: DebtInput[]): unknown {
   return strategy === "both" ? compareStrategies(scoped, extra) : simulate(scoped, extra, strategy);
 }
 
+/**
+ * The payoff curve, for charting.
+ *
+ * Served from the same simulator the adviser uses rather than recomputed in
+ * the browser, so the picture and the figures quoted beside it can never
+ * disagree — and the arithmetic stays in the one place that has tests.
+ */
+debtAdvisorRouter.get("/projection", async (req, res) => {
+  const extra = Number(req.query.extra);
+  const extraPerMonth = Number.isFinite(extra) && extra > 0 ? extra : 0;
+
+  const debts = await loadDebts(req.user!.id);
+  const currencies = [...new Set(debts.map((d) => d.currency))];
+
+  res.json(
+    currencies.map((currency) => {
+      const scoped = debts.filter((d) => d.currency === currency);
+      const minimums = simulate(scoped, 0, "avalanche");
+      // Only worth returning when it differs from the baseline, which it
+      // doesn't at zero extra.
+      const withExtra = extraPerMonth > 0 ? simulate(scoped, extraPerMonth, "avalanche") : null;
+      return {
+        currency,
+        debts: scoped.map((d) => ({ name: d.name, balance: d.balance, rate: d.rate })),
+        minimums,
+        withExtra,
+      };
+    })
+  );
+});
+
 debtAdvisorRouter.post("/", async (req, res) => {
   if (!process.env.ANTHROPIC_API_KEY) {
     res.status(503).json({ error: "The adviser needs an AI key configured." });
