@@ -2,7 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { Router } from "express";
 import { db } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
-import { assumedMinimum, compareStrategies, simulate, type DebtInput } from "../services/debtStrategy.js";
+import { ASSUMED_CARD_PAYMENT_EUR, assumedMinimum, compareStrategies, simulate, type DebtInput } from "../services/debtStrategy.js";
+import { fromBase, loadRates } from "../services/exchangeRates.js";
 
 /**
  * Answers questions about paying down debt, using the user's own accounts.
@@ -88,6 +89,10 @@ interface AccountRow {
  * Accounts page reads them from, so the advisor and the screen can't disagree.
  */
 async function loadDebts(userId: string): Promise<DebtInput[]> {
+  // Converted once here rather than per simulation, so every projection and
+  // every answer the adviser gives uses the same figure for a given card.
+  const rates = await loadRates("EUR");
+
   const accounts = (await db
     .prepare("SELECT * FROM accounts WHERE user_id = ?")
     .all(userId)) as unknown as AccountRow[];
@@ -117,6 +122,11 @@ async function loadDebts(userId: string): Promise<DebtInput[]> {
       minimumPayment: account.loan_monthly_payment ?? 0,
       currency: account.currency,
       type: (account.account_type ?? "current") as DebtInput["type"],
+      // Falls back to the euro figure when rates are unavailable. That is
+      // wrong for a rand card, but it is wrong by a knowable amount and only
+      // while the rate provider is down — better than refusing to project.
+      assumedCardPayment:
+        fromBase(ASSUMED_CARD_PAYMENT_EUR, account.currency, rates) ?? ASSUMED_CARD_PAYMENT_EUR,
     }));
 }
 
@@ -131,7 +141,7 @@ function describeDebts(debts: DebtInput[]): string {
     const payment =
       d.minimumPayment > 0
         ? `${d.minimumPayment.toFixed(2)} a month`
-        : `no payment recorded, assuming ${assumedMinimum(d).toFixed(2)} a month${d.type === "credit_card" ? " (a typical card minimum: 1% of the balance plus that month's interest, recalculated as it falls)" : ""}`;
+        : `no payment recorded, assuming ${assumedMinimum(d).toFixed(2)} ${d.currency} a month${d.type === "credit_card" ? ` (the standard ${ASSUMED_CARD_PAYMENT_EUR} EUR card payment, converted)` : ""}`;
     return `- ${d.name}: ${d.balance.toFixed(2)} ${d.currency} owed, ${rate}, ${payment}`;
   });
 

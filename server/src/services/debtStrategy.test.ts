@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ASSUMED_CARD_PAYMENT, assumedMinimum, compareStrategies, simulate, type DebtInput } from "./debtStrategy.js";
+import { ASSUMED_CARD_PAYMENT_EUR, assumedMinimum, compareStrategies, simulate, type DebtInput } from "./debtStrategy.js";
 
 const debt = (name: string, balance: number, rate: number, minimumPayment: number): DebtInput => ({
   id: name,
@@ -142,9 +142,21 @@ const card = (name: string, balance: number, rate: number, minimumPayment = 0): 
  * is why it is pinned here.
  */
 describe("assumed credit card minimums", () => {
-  it("uses the standing figure, in the account's own currency", () => {
-    expect(assumedMinimum(card("Visa", 5000, 24))).toBe(ASSUMED_CARD_PAYMENT);
-    expect(assumedMinimum({ ...card("Rand card", 5000, 24), currency: "ZAR" })).toBe(ASSUMED_CARD_PAYMENT);
+  it("uses the euro figure for a euro card", () => {
+    expect(assumedMinimum(card("Visa", 5000, 24))).toBe(ASSUMED_CARD_PAYMENT_EUR);
+  });
+
+  it("uses the converted figure the caller supplies", () => {
+    // 300 EUR is a meaningless payment against a rand balance, so the caller
+    // converts and passes the local equivalent in.
+    const randCard = { ...card("Rand card", 200_000, 22), currency: "ZAR", assumedCardPayment: 6200 };
+    expect(assumedMinimum(randCard)).toBe(6200);
+  });
+
+  it("falls back to the euro figure when no conversion was supplied", () => {
+    // Rates being unavailable must not stop a projection: wrong by a knowable
+    // amount beats refusing to draw anything.
+    expect(assumedMinimum({ ...card("Rand card", 200_000, 22), currency: "ZAR" })).toBe(ASSUMED_CARD_PAYMENT_EUR);
   });
 
   it("never pays more than is left owing", () => {

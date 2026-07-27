@@ -20,6 +20,16 @@ export interface DebtInput {
   currency: string;
   /** What kind of borrowing this is, which decides the assumed minimum. */
   type?: "credit_card" | "loan" | "current" | "savings";
+  /**
+   * The standing card payment to assume, already in this debt's currency.
+   *
+   * Passed in rather than looked up here: converting it needs an exchange
+   * rate, and a simulator that reaches for the network is one that can't be
+   * tested by giving it numbers. The caller converts; this just does the
+   * arithmetic. Falls back to the euro figure when absent, which is right for
+   * a euro account and visible as an assumption for any other.
+   */
+  assumedCardPayment?: number;
 }
 
 export interface PayoffResult {
@@ -67,15 +77,14 @@ const MINIMUM_FLOOR = 25;
 
 /**
  * What a card is assumed to be paid each month until its real payment is
- * imported. A standing figure rather than a percentage, at the user's
- * instruction.
+ * imported: €300, converted into the account's own currency by the caller.
  *
- * Stated in the account's own currency: 300 on a ZAR card means R300, not the
- * rand equivalent of €300. Converting it would make the assumption depend on
- * an exchange rate, which is a strange thing for "what I pay my card each
- * month" to hinge on.
+ * A card is paid in its own currency, so the assumption has to be expressed
+ * in that currency to mean anything — €300 against a rand balance is not a
+ * payment anyone could make. The euro figure is the standard; each account
+ * sees its own equivalent.
  */
-export const ASSUMED_CARD_PAYMENT = 300;
+export const ASSUMED_CARD_PAYMENT_EUR = 300;
 
 /**
  * What a debt is assumed to be paid each month when nothing has been imported
@@ -89,7 +98,10 @@ export const ASSUMED_CARD_PAYMENT = 300;
  * Either way the balance caps it — nobody pays 300 against 40 outstanding.
  */
 export function assumedMinimum(debt: DebtInput): number {
-  const base = debt.type === "credit_card" ? ASSUMED_CARD_PAYMENT : Math.max(debt.balance * 0.01, MINIMUM_FLOOR);
+  const base =
+    debt.type === "credit_card"
+      ? (debt.assumedCardPayment ?? ASSUMED_CARD_PAYMENT_EUR)
+      : Math.max(debt.balance * 0.01, MINIMUM_FLOOR);
   return Math.min(base, debt.balance);
 }
 

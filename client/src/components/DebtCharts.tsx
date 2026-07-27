@@ -175,8 +175,11 @@ function AccountChart({
           doubting, so it says so rather than looking like the agreement. */}
       {projection.minimumIsAssumed && (
         <p style={{ fontSize: "0.71rem", color: "var(--text-muted)", margin: "0.35rem 0 0" }}>
-          No payment imported yet, so this assumes {formatCurrency(projection.minimumPayment, projection.currency)} a month.
-          Import a statement or the agreement to replace it.
+          No payment imported yet, so this assumes {formatCurrency(projection.minimumPayment, projection.currency)} a month
+          {/* Naming the euro standard makes the local figure legible as a
+              conversion rather than an arbitrary number. */}
+          {account?.account_type === "credit_card" && projection.currency !== "EUR" ? " — the standard €300, converted" : ""}. Import
+          a statement or the agreement to replace it.
         </p>
       )}
 
