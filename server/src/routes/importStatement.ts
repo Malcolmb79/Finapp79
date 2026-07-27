@@ -4,7 +4,7 @@ import { db, withTransaction } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { resolveBank } from "../services/bankLogo.js";
 import { extractPdfRows, looksLikePdf } from "../services/pdfStatement.js";
-import { applyMapping, inferMapping, parseDelimited, splitPreamble, type StatementMapping } from "../services/statementParser.js";
+import { applyMapping, hasDateShape, inferMapping, parseDelimited, splitPreamble, type StatementMapping } from "../services/statementParser.js";
 
 export const importStatementRouter = Router();
 
@@ -111,6 +111,34 @@ importStatementRouter.post("/preview", async (req, res) => {
   const { preamble, table } = splitPreamble(grid);
   const mapping = body.mapping ?? (await inferMapping(table, preamble));
   const rows = applyMapping(table, mapping);
+
+  // A statement that parses locally and returns nothing in production has no
+  // other way of being diagnosed: the file can't be reproduced from an empty
+  // result, and the difference between the two environments (the model runs
+  // in one and not the other) is invisible from the response. This logs the
+  // shape of what the server actually saw — row counts and the first rows of
+  // the grid, not the statement's contents beyond what's needed to see how it
+  // was split.
+  console.log(
+    "[statement preview]",
+    JSON.stringify({
+      gridRows: grid.length,
+      widths: [...grid.reduce((m, r) => m.set(r.length, (m.get(r.length) ?? 0) + 1), new Map<number, number>())].sort(),
+      preambleRows: preamble.length,
+      tableRows: table.length,
+      firstDataRow: table.findIndex((r) => r.length > 1 && r.some((c) => hasDateShape(c))),
+      mappingSource: mapping.source,
+      dateColumn: mapping.dateColumn,
+      amountColumn: mapping.amountColumn,
+      debitColumn: mapping.debitColumn,
+      creditColumn: mapping.creditColumn,
+      defaultYear: mapping.defaultYear,
+      signFromMarker: mapping.signFromMarker,
+      hasHeader: mapping.hasHeader,
+      parsed: rows.length,
+      firstGridRows: table.slice(0, 3).map((r) => r.map((c) => c.slice(0, 24))),
+    })
+  );
 
   res.json({
     mapping,

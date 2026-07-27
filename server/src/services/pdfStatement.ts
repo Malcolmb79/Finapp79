@@ -26,6 +26,10 @@ export function looksLikePdf(bytes: Uint8Array): boolean {
 export async function extractPdfRows(bytes: Uint8Array): Promise<string[][]> {
   const document = await getDocumentProxy(bytes);
   const { text } = await extractText(document, { mergePages: true });
+  // Extraction is the step most likely to behave differently on a serverless
+  // runtime than locally, and an empty or differently-joined result is
+  // indistinguishable from a parsing failure downstream.
+  console.log("[pdf extract]", JSON.stringify({ chars: text.length, lines: text.split(/\r?\n/).length, head: text.slice(0, 200) }));
   return textToRows(text);
 }
 
