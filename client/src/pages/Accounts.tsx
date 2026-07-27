@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { api, type Account, type Transaction } from "../api/client.js";
 import AccountAvatar from "../components/AccountAvatar.js";
 import StatementImportModal from "../components/StatementImportModal.js";
-import { accountBalance } from "../utils/accountBalance.js";
+import { accountAvailable, accountBalance } from "../utils/accountBalance.js";
 import { fileToBase64 } from "../utils/fileBytes.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 
@@ -32,6 +32,14 @@ export default function Accounts() {
   // is irreversible, so it takes a deliberate second click rather than one.
   const [clearingId, setClearingId] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
+  // Which account's balance/overdraft is being edited, and the drafts. Kept
+  // as strings so the fields can be emptied — "" means clear it, which is a
+  // different intent from 0.
+  const [editingBalanceId, setEditingBalanceId] = useState<string | null>(null);
+  const [balanceDraft, setBalanceDraft] = useState("");
+  const [overdraftDraft, setOverdraftDraft] = useState("");
+  const [savingBalance, setSavingBalance] = useState(false);
+
   // One hidden input reused by every row's upload button — the account it
   // belongs to is stashed here when the button is clicked.
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -55,6 +63,39 @@ export default function Accounts() {
     await api.createAccount(name.trim(), currency);
     setName("");
     refresh();
+  }
+
+  function startEditingBalance(account: Account, txSum: number) {
+    setEditingBalanceId(account.id);
+    setBalanceDraft(String(accountBalance(account, txSum)));
+    setOverdraftDraft(account.overdraft_limit != null ? String(account.overdraft_limit) : "");
+  }
+
+  // Blank means clear, so "" and 0 are deliberately different: "" hands the
+  // balance back to the transaction history / removes the overdraft, 0 is a
+  // real zero. Anything unparseable leaves that field untouched rather than
+  // writing a guess over a real figure.
+  async function saveBalance(account: Account) {
+    const parse = (value: string) => {
+      const trimmed = value.trim().replace(/,/g, "");
+      if (trimmed === "") return null;
+      const parsed = Number(trimmed);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    };
+    const balance = parse(balanceDraft);
+    const overdraft = parse(overdraftDraft);
+
+    setSavingBalance(true);
+    try {
+      await api.updateAccount(account.id, {
+        ...(balance !== undefined ? { balance } : {}),
+        ...(overdraft !== undefined ? { overdraft_limit: overdraft === null ? null : Math.abs(overdraft) } : {}),
+      });
+      setEditingBalanceId(null);
+      refresh();
+    } finally {
+      setSavingBalance(false);
+    }
   }
 
   function startUpload(account: Account) {
@@ -281,16 +322,89 @@ export default function Accounts() {
                       <Trash2 size={14} color="var(--text-muted)" />
                     </button>
                   )}
-                  <div style={{ textAlign: "right" }}>
-                    <span className="account-row__balance" style={{ display: "block" }}>
-                      {formatCurrency(accountBalance(a, byAccount.get(a.id) ?? 0), a.currency)}
-                    </span>
-                    {a.source === "enablebanking" && a.available_balance != null && (
-                      <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                        {formatCurrency(a.available_balance, a.currency)} available
-                      </span>
-                    )}
-                  </div>
+                  {editingBalanceId === a.id ? (
+                    <div style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
+                      <label style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                        Balance
+                        <input
+                          autoFocus
+                          inputMode="decimal"
+                          value={balanceDraft}
+                          onChange={(e) => setBalanceDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") saveBalance(a);
+                            if (e.key === "Escape") setEditingBalanceId(null);
+                          }}
+                          placeholder="from history"
+                          style={{ display: "block", width: 110, fontSize: "0.85rem", padding: "0.25rem 0.4rem" }}
+                        />
+                      </label>
+                      <label style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                        Overdraft
+                        <input
+                          inputMode="decimal"
+                          value={overdraftDraft}
+                          onChange={(e) => setOverdraftDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") saveBalance(a);
+                            if (e.key === "Escape") setEditingBalanceId(null);
+                          }}
+                          placeholder="none"
+                          style={{ display: "block", width: 90, fontSize: "0.85rem", padding: "0.25rem 0.4rem" }}
+                        />
+                      </label>
+                      <button
+                        onClick={() => saveBalance(a)}
+                        disabled={savingBalance}
+                        aria-label="Save balance"
+                        title="Save"
+                        style={{ padding: "0.3rem", display: "flex" }}
+                      >
+                        <Check size={14} />
+                      </button>
+                      <button
+                        onClick={() => setEditingBalanceId(null)}
+                        disabled={savingBalance}
+                        aria-label="Cancel balance edit"
+                        title="Cancel"
+                        style={{ padding: "0.3rem", display: "flex" }}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: "right" }}>
+                      <button
+                        onClick={() => startEditingBalance(a, byAccount.get(a.id) ?? 0)}
+                        title="Set balance and overdraft"
+                        aria-label={`Set balance and overdraft for ${a.name}`}
+                        style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", display: "block", marginLeft: "auto" }}
+                      >
+                        <span className="account-row__balance">
+                          {formatCurrency(accountBalance(a, byAccount.get(a.id) ?? 0), a.currency)}
+                        </span>
+                      </button>
+                      {/* An arranged overdraft is borrowing, so it shows only in
+                          what's available to spend — never in the balance or in
+                          net worth. */}
+                      {a.overdraft_limit ? (
+                        <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                          {formatCurrency(accountAvailable(a, byAccount.get(a.id) ?? 0), a.currency)} available · incl.{" "}
+                          {formatCurrency(a.overdraft_limit, a.currency)} overdraft
+                        </span>
+                      ) : (
+                        a.source === "enablebanking" &&
+                        a.available_balance != null && (
+                          <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                            {formatCurrency(a.available_balance, a.currency)} available
+                          </span>
+                        )
+                      )}
+                      {a.balance_is_manual && a.balance != null && (
+                        <span style={{ display: "block", fontSize: "0.7rem", color: "var(--text-muted)" }}>set by hand</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}

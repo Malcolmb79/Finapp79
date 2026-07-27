@@ -40,6 +40,10 @@ export interface Account {
   balance?: number | null;
   available_balance?: number | null;
   balance_synced_at?: string | null;
+  /** Set when the balance was entered by hand rather than synced from a bank. */
+  balance_is_manual?: boolean;
+  /** Arranged overdraft, stored positive: 45000 means the balance may reach -45000. */
+  overdraft_limit?: number | null;
 }
 
 // How a statement file's columns map onto this app's transaction shape. The
@@ -203,6 +207,11 @@ export const api = {
     request<Account>("/accounts", { method: "POST", body: JSON.stringify({ name, currency }) }),
   renameAccount: (id: string, name: string) =>
     request<Account>(`/accounts/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+
+  // Pass null for either to clear it: a null balance hands the account back
+  // to its transaction history, a null overdraft removes the facility.
+  updateAccount: (id: string, patch: { balance?: number | null; overdraft_limit?: number | null }) =>
+    request<Account>(`/accounts/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   deleteAccount: (id: string) => request<void>(`/accounts/${id}`, { method: "DELETE" }),
 
   // Clears an account's transactions but keeps the account. Omit `source` to

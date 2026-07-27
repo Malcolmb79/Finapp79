@@ -116,6 +116,16 @@ ALTER TABLE accounts ADD COLUMN IF NOT EXISTS balance DOUBLE PRECISION;
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS available_balance DOUBLE PRECISION;
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS balance_synced_at TEXT;
 
+-- An arranged overdraft: how far below zero the account may go. Kept apart
+-- from balance because it is a borrowing facility, not money held — it
+-- belongs in "available to spend" but never in net worth.
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS overdraft_limit DOUBLE PRECISION;
+
+-- Set when a balance was entered by hand rather than synced from a bank, so
+-- a manual figure is recognisable as one and a later sync can be told apart
+-- from it.
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS balance_is_manual BOOLEAN NOT NULL DEFAULT FALSE;
+
 -- Category names are unique per user, not globally — two different users
 -- both wanting a "Groceries" category must not collide.
 CREATE TABLE IF NOT EXISTS categories (

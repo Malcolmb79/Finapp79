@@ -43,15 +43,60 @@ accountsRouter.post("/", async (req, res) => {
 // stay in sync with the bank, so unlike transactions.source (where only
 // 'manual' rows are deletable), there's no reason to restrict this.
 accountsRouter.patch("/:id", async (req, res) => {
-  const { name } = req.body as { name?: unknown };
-  if (typeof name !== "string" || !name.trim()) {
-    res.status(400).json({ error: "name is required" });
+  const { name, balance, overdraft_limit } = req.body as {
+    name?: unknown;
+    balance?: unknown;
+    overdraft_limit?: unknown;
+  };
+
+  const sets: string[] = [];
+  const params: unknown[] = [];
+
+  if (name !== undefined) {
+    if (typeof name !== "string" || !name.trim()) {
+      res.status(400).json({ error: "name must not be empty" });
+      return;
+    }
+    sets.push("name = ?");
+    params.push(name.trim());
+  }
+
+  // A balance entered by hand becomes the account's balance outright, the
+  // same field a sync writes, so everything downstream reads one number
+  // rather than choosing between two. It's flagged as manual so a later sync
+  // is distinguishable, and null clears it — handing a derived account back
+  // to its transaction history.
+  if (balance !== undefined) {
+    if (balance !== null && (typeof balance !== "number" || !Number.isFinite(balance))) {
+      res.status(400).json({ error: "balance must be a number or null" });
+      return;
+    }
+    sets.push("balance = ?", "balance_is_manual = ?", "balance_synced_at = ?");
+    params.push(balance, balance !== null, balance === null ? null : new Date().toISOString());
+  }
+
+  // Stored as a positive figure: an overdraft of 45,000 means the balance may
+  // run to -45,000. Null removes the facility.
+  if (overdraft_limit !== undefined) {
+    if (
+      overdraft_limit !== null &&
+      (typeof overdraft_limit !== "number" || !Number.isFinite(overdraft_limit) || overdraft_limit < 0)
+    ) {
+      res.status(400).json({ error: "overdraft_limit must be a positive number or null" });
+      return;
+    }
+    sets.push("overdraft_limit = ?");
+    params.push(overdraft_limit);
+  }
+
+  if (sets.length === 0) {
+    res.status(400).json({ error: "nothing to update" });
     return;
   }
 
   const result = await db
-    .prepare("UPDATE accounts SET name = ? WHERE id = ? AND user_id = ?")
-    .run(name.trim(), req.params.id, req.user!.id);
+    .prepare(`UPDATE accounts SET ${sets.join(", ")} WHERE id = ? AND user_id = ?`)
+    .run(...params, req.params.id, req.user!.id);
   if (result.changes === 0) {
     res.status(404).json({ error: "account not found" });
     return;
