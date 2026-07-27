@@ -94,7 +94,10 @@ export default function LoanContractModal({ accountId, accountName, currency, te
           <h2 className="modal__title">Loan terms — {accountName}</h2>
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", margin: "0.3rem 0 0" }}>
             {terms.lender ? `${terms.lender} · ` : ""}
-            {found} of 6 terms found. Check each against the sentence it came from before saving.
+            {found} of 6 figures found
+            {terms.keyTerms.length > 0 ? `, plus ${terms.keyTerms.length} other terms` : ""}
+            {terms.passes > 1 ? ` · read in ${terms.passes} passes` : ""}. Check each against the wording it came from
+            before saving.
           </p>
         </div>
 
@@ -135,6 +138,29 @@ export default function LoanContractModal({ accountId, accountName, currency, te
           ))}
         </div>
 
+        {/* Everything the agreement says beyond the six figures above. These
+            aren't stored — they're here to be read once, while the contract is
+            in front of you, because the clauses that cost money are the ones
+            nobody reads. */}
+        {terms.keyTerms.length > 0 && (
+          <div style={{ padding: "0.5rem 1rem" }}>
+            <h3 style={{ fontSize: "0.85rem", margin: "0.5rem 0" }}>
+              Also in this agreement ({terms.keyTerms.length})
+            </h3>
+            <div style={{ display: "grid", gap: "0.6rem" }}>
+              {terms.keyTerms.map((term) => (
+                <div key={term.quote} style={{ borderLeft: "2px solid var(--border)", paddingLeft: "0.6rem" }}>
+                  <div style={{ fontSize: "0.82rem", fontWeight: 600 }}>{term.label}</div>
+                  <div style={{ fontSize: "0.8rem" }}>{term.detail}</div>
+                  <p style={{ margin: "0.2rem 0 0", fontSize: "0.73rem", color: "var(--text-muted)", fontStyle: "italic" }}>
+                    “{term.quote}”
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <p
           style={{
             display: "flex",
@@ -146,8 +172,8 @@ export default function LoanContractModal({ accountId, accountName, currency, te
           }}
         >
           <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 2 }} />
-          These were read from the document's wording rather than from a column of figures. Every one is worth a glance
-          against your own copy.
+          Read from the document's wording rather than from a column of figures. Every quote here was checked against
+          the file, but only you can confirm it means what it appears to — check each against your own copy.
         </p>
 
         {error && <p style={{ margin: "0 1rem", fontSize: "0.8rem", color: "var(--critical)" }}>{error}</p>}

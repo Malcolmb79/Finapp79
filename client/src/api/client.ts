@@ -38,6 +38,13 @@ export interface ExtractedField<T> {
   quote: string;
 }
 
+/** Anything else in the agreement worth knowing: fees, penalties, insurance. */
+export interface KeyTerm {
+  label: string;
+  detail: string;
+  quote: string;
+}
+
 export interface LoanTerms {
   principal: ExtractedField<number> | null;
   monthlyPayment: ExtractedField<number> | null;
@@ -47,6 +54,9 @@ export interface LoanTerms {
   termMonths: ExtractedField<number> | null;
   lender: string | null;
   currency: string | null;
+  keyTerms: KeyTerm[];
+  /** How many passes the document took to read — more than one means it was long. */
+  passes: number;
 }
 
 export interface Account {

@@ -23,14 +23,33 @@ import Anthropic from "@anthropic-ai/sdk";
 
 const MODEL = "claude-opus-5";
 
-// The whole contract is rarely needed and the terms are almost always in the
-// first pages, but schedules do run long. This bounds the prompt without
-// cutting into the part that matters.
-const MAX_CHARS = 60_000;
+// The whole document is read. Terms that cost real money — early settlement
+// penalties, default interest, credit-life premiums — live in the clauses
+// after the summary box, which is exactly the part a "first pages only" read
+// would have skipped.
+//
+// A contract longer than this goes through in overlapping chunks rather than
+// being cut short. The overlap keeps a clause that straddles a boundary intact
+// in at least one chunk.
+const CHARS_PER_PASS = 300_000;
+const CHUNK_OVERLAP = 5_000;
 
 export interface ExtractedField<T> {
   value: T;
   /** The sentence from the contract this was read from. */
+  quote: string;
+}
+
+/**
+ * Anything in the agreement worth knowing that isn't one of the six headline
+ * figures — fees, penalties, insurance, what counts as default.
+ *
+ * Deliberately open-ended: the point is to surface what a particular contract
+ * says rather than to fill in a form the app decided on in advance.
+ */
+export interface KeyTerm {
+  label: string;
+  detail: string;
   quote: string;
 }
 
@@ -43,6 +62,9 @@ export interface LoanTerms {
   termMonths: ExtractedField<number> | null;
   lender: string | null;
   currency: string | null;
+  keyTerms: KeyTerm[];
+  /** Set when the document was long enough to be read in more than one pass. */
+  passes: number;
 }
 
 const SCHEMA = {
@@ -56,6 +78,20 @@ const SCHEMA = {
     term_months: field("number", "Total number of instalments"),
     lender: { type: ["string", "null"] },
     currency: { type: ["string", "null"], description: "ISO code, e.g. ZAR, EUR" },
+    key_terms: {
+      type: "array",
+      description: "Everything else in the agreement the borrower should know before signing off on it",
+      items: {
+        type: "object",
+        properties: {
+          label: { type: "string", description: "Short name for the term, e.g. 'Early settlement'" },
+          detail: { type: "string", description: "What it says, in one plain sentence" },
+          quote: { type: "string", description: "The exact wording from the document" },
+        },
+        required: ["label", "detail", "quote"],
+        additionalProperties: false,
+      },
+    },
   },
   required: [
     "principal",
@@ -66,6 +102,7 @@ const SCHEMA = {
     "term_months",
     "lender",
     "currency",
+    "key_terms",
   ],
   additionalProperties: false,
 } as const;
@@ -94,6 +131,43 @@ const LIMITS = {
   interestRate: { min: 0, max: 100 },
   termMonths: { min: 1, max: 600 },
 };
+
+/**
+ * Flattens text for comparison, so a quote can be checked against the document
+ * despite the mangling PDF extraction does to it.
+ *
+ * Line breaks land mid-sentence, spacing between columns is arbitrary, and
+ * typographic quotes and dashes differ between the extracted text and how a
+ * quote comes back. None of that changes what the sentence says, so none of it
+ * should decide whether a quote is genuine.
+ */
+export function flatten(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[‘’ʼ]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[‐-―−]/g, "-")
+    .replace(/ /g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Whether a quote actually appears in the document.
+ *
+ * This is the check that makes the rest meaningful. Verifying a figure against
+ * its quote only proves the answer is internally consistent — a fabricated
+ * sentence containing a fabricated number passes that easily. Checking the
+ * quote against the source is what closes it, and it is only possible because
+ * the whole document is read rather than the first pages.
+ */
+export function quoteAppearsIn(quote: string, source: string): boolean {
+  const needle = flatten(quote);
+  // Too short to be distinctive: "R500" appears in any contract mentioning
+  // R500 and proves nothing about the sentence around it.
+  if (needle.length < 12) return false;
+  return flatten(source).includes(needle);
+}
 
 /**
  * Re-reads a number out of the quote it was supposedly taken from.
@@ -143,45 +217,94 @@ export function verifyDate(entry: { value: unknown; quote: unknown } | null): Ex
   return { value: entry.value, quote: entry.quote };
 }
 
-export async function extractLoanTerms(text: string): Promise<LoanTerms | null> {
-  if (!process.env.ANTHROPIC_API_KEY) return null;
+/** Splits a long document into overlapping passes, so no clause is cut in half. */
+export function chunk(text: string, size = CHARS_PER_PASS, overlap = CHUNK_OVERLAP): string[] {
+  if (text.length <= size) return [text];
+  const chunks: string[] = [];
+  for (let start = 0; start < text.length; start += size - overlap) {
+    chunks.push(text.slice(start, start + size));
+    if (start + size >= text.length) break;
+  }
+  return chunks;
+}
 
-  const client = new Anthropic();
+const SYSTEM_PROMPT = [
+  "You read consumer loan agreements and report their terms.",
+  "Quote the exact wording each item comes from, copied character for character from the document — the quotes are checked against the source text, and an item whose quote cannot be found there is discarded.",
+  "A term you cannot point at in the document must be reported as null rather than inferred, calculated, or filled in from what is typical.",
+].join(" ");
+
+function buildPrompt(part: string, index: number, total: number): string {
+  return [
+    total > 1
+      ? `Extract the terms of this loan agreement. This is section ${index + 1} of ${total} — report only what appears in this section and null for the rest.`
+      : "Extract the terms of this loan agreement.",
+    "",
+    "Report null for anything the document does not state. Do not calculate a missing field from the others — an end date the contract does not give is null, not start plus term.",
+    "",
+    "For key_terms, list everything else the borrower should know before signing off on it: fees, early settlement or prepayment penalties, default interest, insurance or credit-life premiums, what happens on a missed payment, variable-rate conditions, security or collateral. Include the ones that cost money even when they read as boilerplate. Leave it empty if the section states none.",
+    "",
+    "---",
+    part,
+  ].join("\n");
+}
+
+async function readPass(client: Anthropic, part: string, index: number, total: number) {
   const response = await client.messages.create({
     model: MODEL,
-    max_tokens: 8000,
+    max_tokens: 16000,
     output_config: { format: { type: "json_schema", schema: SCHEMA } },
-    system:
-      "You read consumer loan agreements and report their terms. Quote the exact sentence each figure comes from — a term you cannot point at in the document must be reported as null rather than inferred, calculated, or filled in from what is typical.",
-    messages: [
-      {
-        role: "user",
-        content: [
-          "Extract the terms of this loan agreement.",
-          "",
-          "Report null for anything the document does not state. Do not calculate a missing field from the others — an end date the contract does not give is null, not start plus term.",
-          "",
-          "---",
-          text.slice(0, MAX_CHARS),
-        ].join("\n"),
-      },
-    ],
+    system: SYSTEM_PROMPT,
+    messages: [{ role: "user", content: buildPrompt(part, index, total) }],
   });
 
   const block = response.content.find((b) => b.type === "text");
   if (!block || block.type !== "text") return null;
+  return JSON.parse(block.text);
+}
 
-  const parsed = JSON.parse(block.text);
+export async function extractLoanTerms(text: string): Promise<LoanTerms | null> {
+  if (!process.env.ANTHROPIC_API_KEY) return null;
+
+  const client = new Anthropic();
+  const parts = chunk(text);
+  // Sequential rather than parallel: a contract is one or two passes in
+  // practice, and this runs while someone waits on a modal.
+  const results: Record<string, any>[] = [];
+  for (const [index, part] of parts.entries()) {
+    const parsed = await readPass(client, part, index, parts.length);
+    if (parsed) results.push(parsed);
+  }
+  if (results.length === 0) return null;
+
+  // Every quote is checked against the document it supposedly came from, so a
+  // fabricated sentence is dropped however plausible it reads.
+  const grounded = <T>(entry: { quote?: unknown } | null, verify: () => T | null): T | null => {
+    if (!entry || typeof entry.quote !== "string" || !quoteAppearsIn(entry.quote, text)) return null;
+    return verify();
+  };
+
+  // First section to state a term wins: the headline figures appear in the
+  // summary box at the front, and a later mention is usually a worked example.
+  const first = <T>(pick: (parsed: any) => T | null): T | null => {
+    for (const parsed of results) {
+      const value = pick(parsed);
+      if (value) return value;
+    }
+    return null;
+  };
 
   const terms: LoanTerms = {
-    principal: verifyNumber(parsed.principal, LIMITS.principal),
-    monthlyPayment: verifyNumber(parsed.monthly_payment, LIMITS.monthlyPayment),
-    interestRate: verifyNumber(parsed.interest_rate, LIMITS.interestRate),
-    startDate: verifyDate(parsed.start_date),
-    endDate: verifyDate(parsed.end_date),
-    termMonths: verifyNumber(parsed.term_months, LIMITS.termMonths),
-    lender: typeof parsed.lender === "string" ? parsed.lender : null,
-    currency: typeof parsed.currency === "string" && /^[A-Z]{3}$/.test(parsed.currency) ? parsed.currency : null,
+    principal: first((p) => grounded(p.principal, () => verifyNumber(p.principal, LIMITS.principal))),
+    monthlyPayment: first((p) => grounded(p.monthly_payment, () => verifyNumber(p.monthly_payment, LIMITS.monthlyPayment))),
+    interestRate: first((p) => grounded(p.interest_rate, () => verifyNumber(p.interest_rate, LIMITS.interestRate))),
+    startDate: first((p) => grounded(p.start_date, () => verifyDate(p.start_date))),
+    endDate: first((p) => grounded(p.end_date, () => verifyDate(p.end_date))),
+    termMonths: first((p) => grounded(p.term_months, () => verifyNumber(p.term_months, LIMITS.termMonths))),
+    lender: first((p) => (typeof p.lender === "string" && p.lender ? p.lender : null)),
+    currency: first((p) => (typeof p.currency === "string" && /^[A-Z]{3}$/.test(p.currency) ? p.currency : null)),
+    keyTerms: collectKeyTerms(results, text),
+    passes: parts.length,
   };
 
   // A term that ends before it starts means one of the two dates was read off
@@ -189,6 +312,28 @@ export async function extractLoanTerms(text: string): Promise<LoanTerms | null> 
   if (terms.startDate && terms.endDate && terms.endDate.value <= terms.startDate.value) {
     terms.startDate = null;
     terms.endDate = null;
+  }
+
+  return terms;
+}
+
+// Chunks overlap, so a clause near a boundary is read twice and comes back
+// twice. Deduplicating on the quote keeps one copy of each.
+export function collectKeyTerms(results: { key_terms?: unknown }[], source: string): KeyTerm[] {
+  const seen = new Set<string>();
+  const terms: KeyTerm[] = [];
+
+  for (const parsed of results) {
+    if (!Array.isArray(parsed.key_terms)) continue;
+    for (const item of parsed.key_terms) {
+      if (!item || typeof item.label !== "string" || typeof item.detail !== "string" || typeof item.quote !== "string") continue;
+      if (!quoteAppearsIn(item.quote, source)) continue;
+
+      const key = flatten(item.quote);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      terms.push({ label: item.label, detail: item.detail, quote: item.quote });
+    }
   }
 
   return terms;
