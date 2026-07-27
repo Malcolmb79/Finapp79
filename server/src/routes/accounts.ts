@@ -21,19 +21,29 @@ accountsRouter.get("/", async (req, res) => {
   );
 });
 
+// Kept in one place because both the create and the update path validate
+// against it, and an unrecognised type would quietly change how a balance is
+// read — see schema.sql.
+export const ACCOUNT_TYPES = ["current", "savings", "credit_card", "loan"];
+
 accountsRouter.post("/", async (req, res) => {
-  const { name, currency } = req.body;
+  const { name, currency, account_type } = req.body;
   if (!name) {
     res.status(400).json({ error: "name is required" });
     return;
   }
+  if (account_type !== undefined && !ACCOUNT_TYPES.includes(account_type)) {
+    res.status(400).json({ error: "unknown account type" });
+    return;
+  }
 
   const id = randomUUID();
-  await db.prepare("INSERT INTO accounts (id, user_id, name, currency, source) VALUES (?, ?, ?, ?, 'manual')").run(
+  await db.prepare("INSERT INTO accounts (id, user_id, name, currency, source, account_type) VALUES (?, ?, ?, ?, 'manual', ?)").run(
     id,
     req.user!.id,
     name,
-    currency ?? "USD"
+    currency ?? "USD",
+    account_type ?? "current"
   );
   res.status(201).json(await db.prepare("SELECT * FROM accounts WHERE id = ?").get(id));
 });
@@ -43,10 +53,11 @@ accountsRouter.post("/", async (req, res) => {
 // stay in sync with the bank, so unlike transactions.source (where only
 // 'manual' rows are deletable), there's no reason to restrict this.
 accountsRouter.patch("/:id", async (req, res) => {
-  const { name, balance, overdraft_limit } = req.body as {
+  const { name, balance, overdraft_limit, account_type } = req.body as {
     name?: unknown;
     balance?: unknown;
     overdraft_limit?: unknown;
+    account_type?: unknown;
   };
 
   const sets: string[] = [];
@@ -87,6 +98,15 @@ accountsRouter.patch("/:id", async (req, res) => {
     }
     sets.push("overdraft_limit = ?");
     params.push(overdraft_limit);
+  }
+
+  if (account_type !== undefined) {
+    if (typeof account_type !== "string" || !ACCOUNT_TYPES.includes(account_type)) {
+      res.status(400).json({ error: "unknown account type" });
+      return;
+    }
+    sets.push("account_type = ?");
+    params.push(account_type);
   }
 
   if (sets.length === 0) {

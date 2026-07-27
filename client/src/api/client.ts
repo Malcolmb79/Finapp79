@@ -30,11 +30,15 @@ export interface PendingTransaction extends Transaction {
   suggestion_source: "history" | "ai" | null;
 }
 
+export type AccountType = "current" | "savings" | "credit_card" | "loan";
+
 export interface Account {
   id: string;
   name: string;
   currency: string;
   source: "enablebanking" | "manual";
+  /** Defaults to "current" for accounts created before types existed. */
+  account_type?: AccountType;
   institution_name?: string | null;
   logo?: string | null;
   balance?: number | null;
@@ -203,14 +207,17 @@ export const api = {
   deleteTransaction: (id: string) => request<void>(`/transactions/${id}`, { method: "DELETE" }),
 
   listAccounts: () => request<Account[]>("/accounts"),
-  createAccount: (name: string, currency = "USD") =>
-    request<Account>("/accounts", { method: "POST", body: JSON.stringify({ name, currency }) }),
+  createAccount: (name: string, currency = "USD", account_type: AccountType = "current") =>
+    request<Account>("/accounts", { method: "POST", body: JSON.stringify({ name, currency, account_type }) }),
   renameAccount: (id: string, name: string) =>
     request<Account>(`/accounts/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
 
   // Pass null for either to clear it: a null balance hands the account back
   // to its transaction history, a null overdraft removes the facility.
-  updateAccount: (id: string, patch: { balance?: number | null; overdraft_limit?: number | null }) =>
+  updateAccount: (
+    id: string,
+    patch: { balance?: number | null; overdraft_limit?: number | null; account_type?: AccountType }
+  ) =>
     request<Account>(`/accounts/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   deleteAccount: (id: string) => request<void>(`/accounts/${id}`, { method: "DELETE" }),
 

@@ -1,10 +1,18 @@
 import { Check, Eraser, Pencil, RefreshCw, Trash2, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type Account, type Transaction } from "../api/client.js";
+import { api, type Account, type AccountType, type Transaction } from "../api/client.js";
 import AccountAvatar from "../components/AccountAvatar.js";
 import StatementImportModal from "../components/StatementImportModal.js";
-import { accountAvailable, accountBalance } from "../utils/accountBalance.js";
+import {
+  ACCOUNT_TYPES,
+  accountAvailable,
+  accountBalance,
+  accountTypeLabel,
+  facilityLabel,
+  hasAvailable,
+  isLiability,
+} from "../utils/accountBalance.js";
 import { fileToBase64 } from "../utils/fileBytes.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 
@@ -20,6 +28,7 @@ export default function Accounts() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [name, setName] = useState("");
   const [currency, setCurrency] = useState("USD");
+  const [newType, setNewType] = useState<AccountType>("current");
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
@@ -42,6 +51,7 @@ export default function Accounts() {
   // whichever was typed into last is the one that wins on save — otherwise
   // the untouched field's stale value would silently overwrite the edit.
   const [availableDraft, setAvailableDraft] = useState("");
+  const [typeDraft, setTypeDraft] = useState<AccountType>("current");
   const [lastEdited, setLastEdited] = useState<"overdraft" | "available">("overdraft");
   const [savingBalance, setSavingBalance] = useState(false);
 
@@ -65,16 +75,20 @@ export default function Accounts() {
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
-    await api.createAccount(name.trim(), currency);
+    await api.createAccount(name.trim(), currency, newType);
     setName("");
     refresh();
   }
 
   function startEditingBalance(account: Account, txSum: number) {
     setEditingBalanceId(account.id);
-    setBalanceDraft(String(accountBalance(account, txSum)));
+    // Debts are entered the way they're thought about — 1,200 owed, not
+    // -1,200 held. saveBalance puts the sign back.
+    const balance = accountBalance(account, txSum);
+    setBalanceDraft(String(isLiability(account) ? -balance : balance));
     setOverdraftDraft(account.overdraft_limit != null ? String(account.overdraft_limit) : "");
     setAvailableDraft(String(accountAvailable(account, txSum)));
+    setTypeDraft(account.account_type ?? "current");
     setLastEdited("overdraft");
   }
 
@@ -90,32 +104,43 @@ export default function Accounts() {
   }
 
   /**
-   * The overdraft implied by an available figure typed in directly.
+   * The facility implied by an available figure typed in directly.
    *
    * Banks publish "available funds" (AIB shows 6,599.26) but not the facility
    * behind it, so typing the number from the banking app is easier than
-   * working out the difference by hand. Returns undefined when the sum can't
-   * be taken, and null when available is at or below the balance — that gap
-   * is a hold or a pending item, not a negative overdraft.
+   * working out the difference by hand. On a card the same sum gives the
+   * credit limit: 3,800 available against 1,200 owed is a 5,000 limit.
+   *
+   * Returns undefined when the sum can't be taken, and null when available is
+   * at or below the balance — that gap is a hold or a pending item, not a
+   * negative facility.
    */
-  function overdraftFromAvailable(available: string, balance: string): number | null | undefined {
+  function facilityFromAvailable(available: string, signedBalance: number): number | null | undefined {
     const a = parseDraft(available);
-    const b = parseDraft(balance);
-    if (a === undefined || b === undefined) return undefined;
+    if (a === undefined) return undefined;
     if (a === null) return null;
-    const base = b ?? 0;
-    return a > base ? Number((a - base).toFixed(2)) : null;
+    return a > signedBalance ? Number((a - signedBalance).toFixed(2)) : null;
   }
 
   async function saveBalance(account: Account) {
-    const balance = parseDraft(balanceDraft);
-    const overdraft = lastEdited === "available" ? overdraftFromAvailable(availableDraft, balanceDraft) : parseDraft(overdraftDraft);
+    const entered = parseDraft(balanceDraft);
+    // A debt is stored as a negative balance — that convention is what makes
+    // net worth come out right by plain addition — but it's entered as a
+    // positive figure, so the sign goes back on here.
+    const liability = typeDraft === "credit_card" || typeDraft === "loan";
+    const balance = entered == null ? entered : liability ? -entered : entered;
+
+    const overdraft =
+      lastEdited === "available"
+        ? facilityFromAvailable(availableDraft, typeof balance === "number" ? balance : 0)
+        : parseDraft(overdraftDraft);
 
     setSavingBalance(true);
     try {
       await api.updateAccount(account.id, {
         ...(balance !== undefined ? { balance } : {}),
         ...(overdraft !== undefined ? { overdraft_limit: overdraft === null ? null : Math.abs(overdraft) } : {}),
+        ...(typeDraft !== (account.account_type ?? "current") ? { account_type: typeDraft } : {}),
       });
       setEditingBalanceId(null);
       refresh();
@@ -224,6 +249,13 @@ export default function Accounts() {
             <option value="GBP">GBP</option>
             <option value="ZAR">ZAR</option>
           </select>
+          <select value={newType} onChange={(e) => setNewType(e.target.value as AccountType)} aria-label="Account type">
+            {ACCOUNT_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
           <button type="submit" className="btn-accent">
             Add account
           </button>
@@ -284,6 +316,7 @@ export default function Accounts() {
                     )}
                     <div className="account-row__meta">
                       <span className="status-dot" />
+                      {accountTypeLabel(a)} ·{" "}
                       {a.source === "enablebanking" ? a.institution_name ?? "Linked via Enable Banking" : "Manual"} · {a.currency}
                     </div>
                   </div>
@@ -351,7 +384,24 @@ export default function Accounts() {
                   {editingBalanceId === a.id ? (
                     <div style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
                       <label style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
-                        Balance
+                        Type
+                        <select
+                          value={typeDraft}
+                          onChange={(e) => setTypeDraft(e.target.value as AccountType)}
+                          style={{ display: "block", fontSize: "0.85rem", padding: "0.25rem 0.4rem" }}
+                        >
+                          {ACCOUNT_TYPES.map((t) => (
+                            <option key={t.value} value={t.value}>
+                              {t.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {/* Labelled by what the figure means on this type: a card
+                          and a loan hold a debt, so the amount owed is entered
+                          as a positive number and stored negative. */}
+                      <label style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                        {typeDraft === "credit_card" || typeDraft === "loan" ? "Owed" : "Balance"}
                         <input
                           autoFocus
                           inputMode="decimal"
@@ -365,44 +415,50 @@ export default function Accounts() {
                           style={{ display: "block", width: 110, fontSize: "0.85rem", padding: "0.25rem 0.4rem" }}
                         />
                       </label>
-                      <label style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
-                        Overdraft
-                        <input
-                          inputMode="decimal"
-                          value={overdraftDraft}
-                          onChange={(e) => {
-                            setOverdraftDraft(e.target.value);
-                            setLastEdited("overdraft");
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") saveBalance(a);
-                            if (e.key === "Escape") setEditingBalanceId(null);
-                          }}
-                          placeholder="none"
-                          style={{ display: "block", width: 90, fontSize: "0.85rem", padding: "0.25rem 0.4rem" }}
-                        />
-                      </label>
-                      {/* Type the "available funds" figure straight from the
-                          banking app and the overdraft behind it is worked out
-                          from the balance — banks publish the total but not the
-                          facility. */}
-                      <label style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
-                        Available
-                        <input
-                          inputMode="decimal"
-                          value={availableDraft}
-                          onChange={(e) => {
-                            setAvailableDraft(e.target.value);
-                            setLastEdited("available");
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") saveBalance(a);
-                            if (e.key === "Escape") setEditingBalanceId(null);
-                          }}
-                          placeholder="balance"
-                          style={{ display: "block", width: 110, fontSize: "0.85rem", padding: "0.25rem 0.4rem" }}
-                        />
-                      </label>
+                      {/* A loan has no facility — the principal is already the
+                          balance — and a savings account has none either. */}
+                      {facilityLabel({ ...a, account_type: typeDraft }) && (
+                        <>
+                          <label style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                            {facilityLabel({ ...a, account_type: typeDraft })}
+                            <input
+                              inputMode="decimal"
+                              value={overdraftDraft}
+                              onChange={(e) => {
+                                setOverdraftDraft(e.target.value);
+                                setLastEdited("overdraft");
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") saveBalance(a);
+                                if (e.key === "Escape") setEditingBalanceId(null);
+                              }}
+                              placeholder="none"
+                              style={{ display: "block", width: 100, fontSize: "0.85rem", padding: "0.25rem 0.4rem" }}
+                            />
+                          </label>
+                          {/* Type the "available funds" figure straight from the
+                              banking app and the facility behind it is worked
+                              out from the balance — banks publish the total but
+                              not the facility. */}
+                          <label style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                            Available
+                            <input
+                              inputMode="decimal"
+                              value={availableDraft}
+                              onChange={(e) => {
+                                setAvailableDraft(e.target.value);
+                                setLastEdited("available");
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") saveBalance(a);
+                                if (e.key === "Escape") setEditingBalanceId(null);
+                              }}
+                              placeholder="balance"
+                              style={{ display: "block", width: 110, fontSize: "0.85rem", padding: "0.25rem 0.4rem" }}
+                            />
+                          </label>
+                        </>
+                      )}
                       <button
                         onClick={() => saveBalance(a)}
                         disabled={savingBalance}
@@ -431,17 +487,28 @@ export default function Accounts() {
                         style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", display: "block", marginLeft: "auto" }}
                       >
                         <span className="account-row__balance">
-                          {formatCurrency(accountBalance(a, byAccount.get(a.id) ?? 0), a.currency)}
+                          {/* Debts read as what's owed rather than as a
+                              negative holding, which is how a card statement
+                              and a loan statement both present them. */}
+                          {formatCurrency(
+                            isLiability(a) ? -accountBalance(a, byAccount.get(a.id) ?? 0) : accountBalance(a, byAccount.get(a.id) ?? 0),
+                            a.currency
+                          )}
+                          {isLiability(a) && <span style={{ fontSize: "0.7rem", fontWeight: 400 }}> owed</span>}
                         </span>
                       </button>
                       {/* Always sits under the balance, so the two figures can
                           be read against each other the way the bank's own app
-                          shows them. An arranged overdraft is borrowing, so it
-                          lands here and never in the balance or in net worth. */}
-                      <span style={{ display: "block", fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                        {formatCurrency(accountAvailable(a, byAccount.get(a.id) ?? 0), a.currency)} available
-                        {a.overdraft_limit ? ` · incl. ${formatCurrency(a.overdraft_limit, a.currency)} overdraft` : ""}
-                      </span>
+                          shows them. A facility is borrowing, so it lands here
+                          and never in the balance or in net worth. */}
+                      {hasAvailable(a) && (
+                        <span style={{ display: "block", fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                          {formatCurrency(accountAvailable(a, byAccount.get(a.id) ?? 0), a.currency)} available
+                          {a.overdraft_limit
+                            ? ` · ${formatCurrency(a.overdraft_limit, a.currency)} ${facilityLabel(a)?.toLowerCase() ?? ""}`
+                            : ""}
+                        </span>
+                      )}
                       {a.balance_is_manual && a.balance != null && (
                         <span style={{ display: "block", fontSize: "0.7rem", color: "var(--text-muted)" }}>set by hand</span>
                       )}

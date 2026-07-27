@@ -126,6 +126,15 @@ ALTER TABLE accounts ADD COLUMN IF NOT EXISTS overdraft_limit DOUBLE PRECISION;
 -- from it.
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS balance_is_manual BOOLEAN NOT NULL DEFAULT FALSE;
 
+-- current | savings | credit_card | loan. What the account *is*, which the
+-- balance alone can't say: a credit card and a current account both sit at
+-- -1,200 in completely different senses. Two things follow from it — money
+-- owed is entered as a positive figure and stored negative, and a facility
+-- is an overdraft on a current account but a credit limit on a card.
+-- Defaults to 'current' because that is what every account predating this
+-- column was assumed to be.
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT 'current';
+
 -- Category names are unique per user, not globally — two different users
 -- both wanting a "Groceries" category must not collide.
 CREATE TABLE IF NOT EXISTS categories (
