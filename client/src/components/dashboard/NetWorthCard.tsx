@@ -1,3 +1,5 @@
+import { formatCurrency } from "../../utils/formatCurrency.js";
+
 export interface TrendPoint {
   label: string;
   value: number;
@@ -14,11 +16,17 @@ export default function NetWorthCard({
   delta,
   points,
   mode = "chart",
+  currency,
+  unconvertible = [],
 }: {
   current: number;
   delta: number;
   points: TrendPoint[];
   mode?: "chart" | "number";
+  /** Currency the figure has been converted into, when accounts span several. */
+  currency?: string;
+  /** Currencies with no available rate — their balances are missing from the total. */
+  unconvertible?: string[];
 }) {
   const width = 560;
   const height = 140;
@@ -42,11 +50,24 @@ export default function NetWorthCard({
         Net worth
       </p>
       <p className="stat-tile__value" style={{ fontSize: "2rem" }}>
-        {current.toFixed(2)}
+        {currency ? formatCurrency(current, currency) : current.toFixed(2)}
       </p>
-      <p className={`sidebar__net-worth-delta`} style={{ margin: "0.2rem 0 1rem" }}>
+      <p className={`sidebar__net-worth-delta`} style={{ margin: "0.2rem 0 0" }}>
         {delta >= 0 ? "↗" : "↘"} {delta.toFixed(2)} this month
       </p>
+      {/* Named explicitly: a single figure drawn from accounts in several
+          currencies is only meaningful if you know which one it's in. */}
+      {currency && (
+        <p style={{ margin: "0.15rem 0 0", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+          Converted to {currency} at ECB rates
+        </p>
+      )}
+      {unconvertible.length > 0 && (
+        <p role="alert" style={{ margin: "0.15rem 0 0", fontSize: "0.75rem", color: "var(--warning)" }}>
+          Excludes {unconvertible.join(", ")} — no rate available
+        </p>
+      )}
+      <div style={{ height: "1rem" }} />
       {mode === "chart" && points.length > 1 ? (
         <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} preserveAspectRatio="none">
           <defs>

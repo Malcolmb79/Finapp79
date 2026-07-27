@@ -26,6 +26,7 @@ import {
   widgetAccentVar,
   type WidgetId,
 } from "../dashboardWidgets.js";
+import { sumInBase, useFxRates } from "../utils/fx.js";
 import { computeCanvasHeight, type CanvasRect } from "../utils/useCanvasItem.js";
 import { useMeasuredWidth } from "../utils/useMeasuredWidth.js";
 import AccountAvatar from "../components/AccountAvatar.js";
@@ -137,6 +138,7 @@ export default function Dashboard() {
   const [syncingAll, setSyncingAll] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [canvasRef, canvasWidth] = useMeasuredWidth(WIDE_WIDTH);
+  const rates = useFxRates("EUR");
 
   function refresh() {
     api.listTransactions().then(setTransactions);
@@ -209,7 +211,11 @@ export default function Dashboard() {
   // Linked accounts contribute their real bank balance (not a sum of the
   // 90-day synced transaction window); manual accounts have no other
   // source of truth, so they still derive from their transaction history.
-  const netWorth = accounts.reduce((sum, a) => sum + accountBalance(a, byAccount.get(a.id) ?? 0), 0);
+  // Balances are summed in a single currency rather than added as bare
+  // numbers: an account in ZAR and one in EUR are not the same unit, and
+  // totalling them raw produced a net worth that meant nothing.
+  const balances = accounts.map((a) => ({ amount: accountBalance(a, byAccount.get(a.id) ?? 0), currency: a.currency }));
+  const { converted: netWorth, unconvertible } = sumInBase(balances, rates);
   const thisMonthKey = new Date().toISOString().slice(0, 7);
   const monthDelta = transactions
     .filter((tx) => tx.booking_date.startsWith(thisMonthKey))
@@ -268,7 +274,16 @@ export default function Dashboard() {
 
   const widgetContent: Record<WidgetId, { headerExtra?: React.ReactNode; body: React.ReactNode }> = {
     netWorth: {
-      body: <NetWorthCard current={netWorth} delta={monthDelta} points={netWorthTrend} mode={config.modes.netWorth} />,
+      body: (
+        <NetWorthCard
+          current={netWorth}
+          delta={monthDelta}
+          points={netWorthTrend}
+          mode={config.modes.netWorth}
+          currency={rates?.base}
+          unconvertible={unconvertible}
+        />
+      ),
     },
     accounts: {
       headerExtra: (

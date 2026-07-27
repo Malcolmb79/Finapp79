@@ -14,6 +14,8 @@ import { NavLink } from "react-router-dom";
 import { api, type Account, type Transaction } from "../../api/client.js";
 import { useAuth } from "../../contexts/AuthContext.js";
 import { accountBalance } from "../../utils/accountBalance.js";
+import { formatCurrency } from "../../utils/formatCurrency.js";
+import { sumInBase, useFxRates } from "../../utils/fx.js";
 
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -35,13 +37,21 @@ export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onC
     api.listAccounts().then(setAccounts);
   }, []);
 
+  const rates = useFxRates("EUR");
+
   const byAccount = new Map<string, number>();
   for (const tx of transactions) {
     byAccount.set(tx.account_id, (byAccount.get(tx.account_id) ?? 0) + tx.amount);
   }
   // Linked accounts contribute their real bank balance rather than a sum
   // of the 90-day synced transaction window — see accountBalance.ts.
-  const netWorth = accounts.reduce((sum, a) => sum + accountBalance(a, byAccount.get(a.id) ?? 0), 0);
+  // Converted rather than added raw — accounts in different currencies are
+  // not the same unit, and the sidebar figure has to agree with the
+  // dashboard's.
+  const { converted: netWorth } = sumInBase(
+    accounts.map((a) => ({ amount: accountBalance(a, byAccount.get(a.id) ?? 0), currency: a.currency })),
+    rates
+  );
   const thisMonth = new Date().toISOString().slice(0, 7);
   const monthDelta = transactions
     .filter((tx) => tx.booking_date.startsWith(thisMonth))
@@ -64,7 +74,9 @@ export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onC
         <div className="sidebar__user">
           <p className="sidebar__greeting">👋 Welcome back, {firstName}</p>
           <p className="sidebar__net-worth-label">Net worth</p>
-          <p className="sidebar__net-worth-value">{netWorth.toFixed(2)}</p>
+          <p className="sidebar__net-worth-value">
+            {rates ? formatCurrency(netWorth, rates.base) : netWorth.toFixed(2)}
+          </p>
           <p className="sidebar__net-worth-delta">
             {monthDelta >= 0 ? "↗" : "↘"} {monthDelta.toFixed(2)} this month
           </p>

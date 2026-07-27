@@ -11,6 +11,7 @@ import { bankLinkRouter } from "./routes/bankLink.js";
 import { budgetsRouter } from "./routes/budgets.js";
 import { categoriesRouter } from "./routes/categories.js";
 import { debtsRouter } from "./routes/debts.js";
+import { fxRouter } from "./routes/fx.js";
 import { importStatementRouter } from "./routes/importStatement.js";
 import { savingsRouter } from "./routes/savings.js";
 import { transactionsRouter } from "./routes/transactions.js";
@@ -82,6 +83,7 @@ app.use("/api/budgets", budgetsRouter);
 app.use("/api/debts", debtsRouter);
 app.use("/api/savings", savingsRouter);
 app.use("/api/import/statement", importStatementRouter);
+app.use("/api/fx", fxRouter);
 app.use("/api/bank-link", bankLinkRouter);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));

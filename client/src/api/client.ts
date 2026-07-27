@@ -104,6 +104,14 @@ export interface Aspsp {
   logo?: string;
 }
 
+export interface FxRates {
+  base: string;
+  /** The ECB publication date these rates come from. */
+  date: string;
+  /** Units of each currency per one unit of base; the base itself is 1. */
+  rates: Record<string, number>;
+}
+
 export interface Category {
   id: number;
   name: string;
@@ -204,6 +212,10 @@ export const api = {
     request<{ deleted: number }>(`/accounts/${accountId}/transactions${source ? `?source=${source}` : ""}`, {
       method: "DELETE",
     }),
+
+  // ECB daily reference rates, so balances in different currencies can be
+  // totalled into one figure.
+  fxRates: (base = "EUR") => request<FxRates>(`/fx?base=${base}`),
 
   listCategories: () => request<Category[]>("/categories"),
   createCategory: (name: string, parentId?: number | null) =>
