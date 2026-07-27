@@ -25,8 +25,36 @@ describe("pickBalance", () => {
   });
 
   it("prefers the most specific type over one later in the order", () => {
-    const balances = [balance("XPCD", "999.00"), balance("CLBD", "500.00")];
+    const balances = [balance("ITAV", "999.00"), balance("CLBD", "500.00")];
     expect(pickBalance(balances, BOOKED_BALANCE_TYPES)).toBe(500);
+  });
+
+  // The exact payload AIB returns. It sends no booked balance at all, and the
+  // figure its own app displays as the account balance arrives as ITAV --
+  // so the balance has to be willing to fall back to it.
+  describe("a bank that reports no booked balance", () => {
+    const aib = [
+      balance("XPCD", "8255.35"), // "composed of booked entries and pending items"
+      balance("ITAV", "3099.26"), // what AIB's app calls the balance
+      balance("OPAV", "-2862.61"),
+    ];
+
+    it("falls back to the interim available figure as the balance", () => {
+      expect(pickBalance(aib, BOOKED_BALANCE_TYPES)).toBe(3099.26);
+    });
+
+    // Taking XPCD as booked overstated this account by 5,156.09 -- silently,
+    // and in the direction that flatters. Never pick it.
+    it("never treats the pending-items forecast as a balance", () => {
+      expect(pickBalance(aib, BOOKED_BALANCE_TYPES)).not.toBe(8255.35);
+      expect(pickBalance(aib, AVAILABLE_BALANCE_TYPES)).not.toBe(8255.35);
+      expect(pickBalance([balance("XPCD", "8255.35")], BOOKED_BALANCE_TYPES)).toBeNull();
+    });
+
+    // An opening balance is where the day started, not where it stands.
+    it("never treats the opening balance as available", () => {
+      expect(pickBalance(aib, AVAILABLE_BALANCE_TYPES)).not.toBe(-2862.61);
+    });
   });
 
   it("returns null rather than a balance of zero when nothing matches", () => {

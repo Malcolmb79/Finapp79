@@ -115,8 +115,19 @@ function transactionId(accountUid: string, tx: RemoteTransaction): string {
 // back rather than requiring an exact match. The Berlin Group camelCase
 // spellings are kept as aliases only because they cost nothing; Enable
 // Banking returns the four-letter codes.
-export const BOOKED_BALANCE_TYPES = ["CLBD", "ITBD", "OPBD", "PRCD", "XPCD", "closingBooked", "interimBooked"];
-export const AVAILABLE_BALANCE_TYPES = ["ITAV", "CLAV", "FWAV", "OPAV", "XPCD", "interimAvailable", "closingAvailable"];
+//
+// The interim-available codes sit at the end of the *balance* list on
+// purpose: some banks report no booked balance whatsoever, and the figure
+// their own app calls the account balance arrives as ITAV. AIB sends exactly
+// three types — XPCD, ITAV, OPAV — and its ITAV is the balance on screen.
+//
+// XPCD is excluded from both lists deliberately. "Balance, composed of booked
+// entries and pending items" is a forecast rather than a balance: on the
+// account this was built against it read 8,255.35 against a real balance of
+// 3,099.26. Treating it as booked overstated the account by five thousand
+// euro, which is worse than having no balance at all.
+export const BOOKED_BALANCE_TYPES = ["CLBD", "ITBD", "OPBD", "PRCD", "closingBooked", "interimBooked", "ITAV", "CLAV"];
+export const AVAILABLE_BALANCE_TYPES = ["ITAV", "CLAV", "FWAV", "interimAvailable", "closingAvailable"];
 
 export function pickBalance(balances: enableBanking.AccountBalance[], types: string[]): number | null {
   for (const type of types) {
@@ -169,7 +180,15 @@ bankLinkRouter.post("/accounts/:accountId/sync", async (req, res) => {
     const balances = await enableBanking.getAccountBalances(accountId);
     console.log(`Balances for account ${accountId}:`, JSON.stringify(balances));
     const booked = pickBalance(balances, BOOKED_BALANCE_TYPES);
-    const available = pickBalance(balances, AVAILABLE_BALANCE_TYPES);
+    const reported = pickBalance(balances, AVAILABLE_BALANCE_TYPES);
+    // When a bank sends only one usable figure it lands in both lists, and
+    // storing it twice renders as "€3,099.26 available" under a balance of
+    // €3,099.26 — noise dressed up as information. It is not the bank's own
+    // available funds either: AIB's app shows €6,599.26 there, the balance
+    // plus the overdraft, a number the API never sends. So this is kept only
+    // when it says something the balance doesn't, and what's spendable is
+    // otherwise reconstructed from the overdraft (see accountAvailable).
+    const available = reported !== null && reported !== booked ? reported : null;
     if (booked !== null || available !== null) {
       // A balance set by hand is a deliberate correction, so a sync leaves it
       // alone — clearing it in the UI is what hands the account back to the
@@ -194,6 +213,7 @@ bankLinkRouter.post("/accounts/:accountId/sync", async (req, res) => {
   // user's own statement about their facility and outranks the bank's.
   try {
     const details = await enableBanking.getAccountDetails(accountId);
+    console.log(`Credit limit for account ${accountId}:`, JSON.stringify(details.credit_limit ?? null));
     const limit = details.credit_limit ? Number(details.credit_limit.amount) : null;
     if (limit !== null && Number.isFinite(limit)) {
       await db
