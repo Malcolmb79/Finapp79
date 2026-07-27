@@ -3,6 +3,7 @@ import { api, type Account, type Transaction } from "../api/client.js";
 import { accountTypeLabel, amountDrawn, facilityLabel, isBorrowing } from "../utils/accountBalance.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { sumInBase, useFxRates } from "../utils/fx.js";
+import DebtAdvisor from "../components/DebtAdvisor.js";
 import StatTile from "../components/dashboard/StatTile.js";
 import { monthsToPayoff } from "../utils/payoff.js";
 
@@ -97,6 +98,8 @@ export default function DebtPlanner() {
           <p className="page-header__subtitle">Track balances and see payoff time at your minimum payment</p>
         </div>
       </div>
+
+      {borrowing.length > 0 && <DebtAdvisor />}
 
       {borrowing.length === 0 && (
         <div className="card">

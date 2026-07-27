@@ -32,6 +32,17 @@ export interface PendingTransaction extends Transaction {
 
 export type AccountType = "current" | "savings" | "credit_card" | "loan";
 
+export interface AdvisorMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/** One payoff simulation behind an answer: what was asked for, and what it gave. */
+export interface AdvisorWorking {
+  input: unknown;
+  result: unknown;
+}
+
 /** A figure read from a loan agreement, with the sentence it came from. */
 export interface ExtractedField<T> {
   value: T;
@@ -261,6 +272,18 @@ export const api = {
       /** "directory" for a PSD2 match, otherwise the domain the logo came from. */
       source: string;
     } | null>(`/accounts/${id}/detect-bank`, { method: "POST" }),
+
+  /**
+   * Asks about paying down debt. Reads the user's accounts; writes nothing.
+   *
+   * `workings` is every payoff calculation the answer was built from, so a
+   * figure in the reply can be checked against the simulation that produced it.
+   */
+  askDebtAdvisor: (messages: AdvisorMessage[]) =>
+    request<{ reply: string; workings: AdvisorWorking[] }>("/debt-advisor", {
+      method: "POST",
+      body: JSON.stringify({ messages }),
+    }),
 
   /** Reads a loan agreement. Writes nothing — the terms come back for review. */
   previewLoanContract: (id: string, contentBase64: string) =>
