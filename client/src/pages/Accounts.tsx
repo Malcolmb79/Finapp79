@@ -382,7 +382,9 @@ export default function Accounts() {
                     </button>
                   )}
                   {editingBalanceId === a.id ? (
-                    <div style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
+                    // Wraps because four fields don't fit a phone in one line,
+                    // and a row that overflows puts Save off-screen.
+                    <div style={{ display: "flex", gap: "0.35rem", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
                       <label style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
                         Type
                         <select
@@ -480,11 +482,23 @@ export default function Accounts() {
                     </div>
                   ) : (
                     <div style={{ textAlign: "right" }}>
+                      {/* The number itself stays clickable, but a bare figure
+                          is not an obvious control — the pencil is what makes
+                          it findable, matching the one on the account name. */}
                       <button
                         onClick={() => startEditingBalance(a, byAccount.get(a.id) ?? 0)}
-                        title="Set balance and overdraft"
-                        aria-label={`Set balance and overdraft for ${a.name}`}
-                        style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", display: "block", marginLeft: "auto" }}
+                        title="Set balance, type and facility"
+                        aria-label={`Set balance for ${a.name}`}
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          padding: 0,
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.35rem",
+                          marginLeft: "auto",
+                        }}
                       >
                         <span className="account-row__balance">
                           {/* Debts read as what's owed rather than as a
@@ -496,6 +510,7 @@ export default function Accounts() {
                           )}
                           {isLiability(a) && <span style={{ fontSize: "0.7rem", fontWeight: 400 }}> owed</span>}
                         </span>
+                        <Pencil size={12} color="var(--text-muted)" />
                       </button>
                       {/* Always sits under the balance, so the two figures can
                           be read against each other the way the bank's own app
