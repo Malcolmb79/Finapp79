@@ -40,9 +40,63 @@ export function textToRows(text: string): string[][] {
   const byPosition = columnsByPosition(lines);
   if (byPosition) return byPosition;
 
-  // Fallback for text that isn't column-aligned: two or more spaces is a
-  // boundary, a single space stays inside a value.
-  return lines.map((line) => line.split(/ {2,}/).map((cell) => cell.trim())).filter((row) => row.some((cell) => cell !== ""));
+  if (lines.some((line) => / {2,}/.test(line))) {
+    // Text that keeps its gaps but isn't consistently aligned: two or more
+    // spaces is a boundary, a single space stays inside a value.
+    return lines.map((line) => line.split(/ {2,}/).map((cell) => cell.trim())).filter((row) => row.some((cell) => cell !== ""));
+  }
+
+  return columnsByShape(lines);
+}
+
+// Leading date on a transaction line: "08 Jun", "8 June", "01/07/2026",
+// "2026-07-01".
+const LEADING_DATE = /^(\d{1,2}[\s-]+[A-Za-z]{3,9}\.?(?:[\s-]+\d{2,4})?|\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{4}-\d{1,2}-\d{1,2})\s+/;
+// A money token at the end of a line, optionally carrying a Cr/Dr direction
+// marker. Deliberately allows no spaces inside the number: with a space
+// permitted, "203.17 37,119.71" matches as one token and the amount and the
+// running balance are read as a single value.
+const TRAILING_AMOUNT = /(-?\d[\d,]*(?:[.,]\d{2})?\s*(?:Cr|Dr)?\.?)$/i;
+
+/**
+ * Rebuilds columns from lines that have no whitespace structure left at all.
+ *
+ * Some PDF extractors join every text item with a single space, so a row
+ * arrives as one run of words and numbers. There are no gaps to slice on and
+ * no delimiter to split on — but a statement line still has a fixed shape: a
+ * date at the front, a running balance at the end, the amount just before it,
+ * and the description in between. Reading it by that shape recovers the grid
+ * the rest of the pipeline expects, and lines that don't match (headings,
+ * addresses, page furniture) are left as single cells that fall out later
+ * because they carry no parseable date.
+ */
+function columnsByShape(lines: string[]): string[][] {
+  return lines.map((line) => {
+    const dateMatch = LEADING_DATE.exec(line);
+    if (!dateMatch) return [line];
+
+    const date = dateMatch[1].trim();
+    let rest = line.slice(dateMatch[0].length).trim();
+
+    // Pull the trailing money tokens off the end, right to left.
+    const trailing: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const match = TRAILING_AMOUNT.exec(rest);
+      if (!match) break;
+      const token = match[1].trim();
+      // A bare year or a card fragment isn't money — require a decimal part,
+      // which every amount on a statement has.
+      if (!/[.,]\d{2}(?:\s*(?:Cr|Dr)\.?)?$/i.test(token)) break;
+      trailing.unshift(token);
+      rest = rest.slice(0, match.index).trim();
+    }
+
+    if (trailing.length === 0) return [line];
+    // Two trailing numbers means amount then running balance; one means the
+    // statement prints no balance column.
+    const [amount, balance] = trailing.length === 2 ? trailing : [trailing[0], ""];
+    return [date, rest, amount, balance];
+  });
 }
 
 /**

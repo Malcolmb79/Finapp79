@@ -50,6 +50,21 @@ export interface StatementMapping {
    * decision made in the confirmation step.
    */
   invertAmounts: boolean;
+  /**
+   * Year to use for rows whose date has none ("08 Jun"). Statements that
+   * write dates that way state the year once in the header instead, so it's
+   * read from the document rather than assumed to be the current year — a
+   * statement imported in January covering December would otherwise land a
+   * year out.
+   */
+  defaultYear: number | null;
+  /**
+   * The amount column is unsigned and direction is written as a marker: a
+   * trailing "Cr" means money in, anything else means money out. Common on
+   * South African and UK statements, where reading the numbers alone makes
+   * every row look like income.
+   */
+  signFromMarker: boolean;
   /** How the mapping was arrived at — surfaced to the user after an import. */
   source: "ai" | "heuristic";
   /**
@@ -174,16 +189,45 @@ function stripPreamble(rows: string[][]): string[][] {
 
 const ISO_DATE = /^(\d{4})-(\d{1,2})-(\d{1,2})/;
 const SPLIT_DATE = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})/;
+// "08 Jun", "8 June 2026", "08-Jun-26" — common on PDF statements, and the
+// year is frequently absent because it's stated once at the top instead.
+const MONTH_NAME_DATE = /^(\d{1,2})[\s-]+([A-Za-z]{3,9})\.?(?:[\s-]+(\d{2,4}))?$/;
+const MONTHS: Record<string, number> = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+  jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
 
 function pad(value: string): string {
   return value.padStart(2, "0");
 }
 
-export function normaliseDate(raw: string, format: DateFormat): string | null {
+// Whether a cell is shaped like a date, regardless of whether it can be fully
+// resolved yet. Detection has to use this rather than normaliseDate: a row
+// dated "08 Jun" doesn't resolve until the document's year is known, and
+// treating it as "not a date" makes the first transaction look like a header
+// row and picks the wrong date column.
+export function hasDateShape(raw: string): boolean {
+  const value = raw.trim();
+  return ISO_DATE.test(value) || SPLIT_DATE.test(value) || MONTH_NAME_DATE.test(value);
+}
+
+export function normaliseDate(raw: string, format: DateFormat, defaultYear: number | null = null): string | null {
   const value = raw.trim();
 
   const iso = ISO_DATE.exec(value);
   if (iso) return `${iso[1]}-${pad(iso[2])}-${pad(iso[3])}`;
+
+  const named = MONTH_NAME_DATE.exec(value);
+  if (named) {
+    const month = MONTHS[named[2].slice(0, 3).toLowerCase()];
+    if (!month) return null;
+    // A statement that writes "08 Jun" states the year once at the top
+    // instead of on every row; without it the row can't be dated at all, so
+    // the year found elsewhere in the document is carried in here.
+    const year = named[3] ? (named[3].length === 2 ? `20${named[3]}` : named[3]) : defaultYear ? String(defaultYear) : null;
+    if (!year) return null;
+    return `${year}-${pad(String(month))}-${pad(named[1])}`;
+  }
 
   const parts = SPLIT_DATE.exec(value);
   if (!parts) return null;
@@ -313,9 +357,9 @@ const HEADER_PATTERNS: { key: keyof StatementMapping; pattern: RegExp }[] = [
 // drops every row. So each field falls back to the shape of the data — which
 // column parses as dates, which parse as numbers — and that works regardless
 // of what language the headers are in.
-function heuristicMapping(rows: string[][]): StatementMapping {
+function heuristicMapping(rows: string[][], preamble: string[][] = []): StatementMapping {
   const header = rows[0] ?? [];
-  const looksLikeHeader = header.some((cell) => /[a-z]/i.test(cell)) && !normaliseDate(header[0] ?? "", "dmy");
+  const looksLikeHeader = header.some((cell) => /[a-z]/i.test(cell)) && !hasDateShape(header[0] ?? "");
 
   const hinted: Partial<Record<keyof StatementMapping, number>> = {};
   if (looksLikeHeader) {
@@ -329,7 +373,7 @@ function heuristicMapping(rows: string[][]): StatementMapping {
   const columnCount = Math.max(0, ...rows.map((r) => r.length));
   const share = (cells: string[], predicate: (cell: string) => boolean) =>
     cells.length === 0 ? 0 : cells.filter(predicate).length / cells.length;
-  const isDate = (cell: string) => normaliseDate(cell, "dmy") !== null;
+  const isDate = hasDateShape;
 
   // Date column: whichever column parses as a date on the most rows. A count,
   // not a ratio, because the grid still contains a title line, a header row
@@ -424,9 +468,33 @@ function heuristicMapping(rows: string[][]): StatementMapping {
     }
   }
 
+  // A statement that omits the year on each row states it once in its header;
+  // the latest 4-digit year anywhere in the document is that year. Preferring
+  // the latest matters because these headers often name a range ("8 June 2026
+  // to 8 July 2026") and occasionally a prior-year comparison.
+  let defaultYear: number | null = null;
+  if (body.some((row) => MONTH_NAME_DATE.test((row[dateColumn] ?? "").trim()))) {
+    // Scanned across the preamble too: the header lines are exactly where a
+    // statement states its period, and they're the lines split off from the
+    // table — so looking only at the table finds no year at all.
+    for (const match of [...preamble, ...rows].flat().join(" ").matchAll(/\b(19|20)\d{2}\b/g)) {
+      const year = Number(match[0]);
+      if (defaultYear == null || year > defaultYear) defaultYear = year;
+    }
+  }
+
+  // Direction written as a marker rather than a sign: only meaningful when
+  // some rows carry "Cr" and others don't. If every row carried it, or none
+  // did, the marker would say nothing about direction.
+  const amountCells = amountColumn != null ? columnCells(amountColumn) : [];
+  const markedCredit = amountCells.filter((c) => /cr\.?$/i.test(c)).length;
+  const signFromMarker = markedCredit > 0 && markedCredit < amountCells.length;
+
   return {
     hasHeader: looksLikeHeader,
     dateColumn,
+    defaultYear,
+    signFromMarker,
     // Day-first is the safe default: most non-US exports are DD/MM, and
     // normaliseDate overrides it whenever a day above 12 makes the real order
     // unambiguous either way.
@@ -448,7 +516,7 @@ function heuristicMapping(rows: string[][]): StatementMapping {
 }
 
 export async function inferMapping(rows: string[][], preamble: string[][] = []): Promise<StatementMapping> {
-  const fallback = heuristicMapping(rows);
+  const fallback = heuristicMapping(rows, preamble);
   if (!process.env.ANTHROPIC_API_KEY) return fallback;
 
   const sample = rows
@@ -504,7 +572,16 @@ export async function inferMapping(rows: string[][], preamble: string[][] = []):
     // every row would be dropped.
     if (parsed.amountColumn == null && parsed.debitColumn == null && parsed.creditColumn == null) return fallback;
 
-    return { ...parsed, invertAmounts: false, source: "ai" };
+    // defaultYear and signFromMarker are structural facts the heuristic
+    // derives from the whole document, not judgement calls — so they're taken
+    // from it rather than asked of the model.
+    return {
+      ...parsed,
+      invertAmounts: false,
+      defaultYear: fallback.defaultYear,
+      signFromMarker: fallback.signFromMarker,
+      source: "ai",
+    };
   } catch (err) {
     console.error("Statement mapping inference failed, falling back to header matching:", err);
     return fallback;
@@ -517,17 +594,26 @@ function cell(row: string[], index: number | null): string {
   return index == null ? "" : row[index] ?? "";
 }
 
+// "559.40Cr" is money in; a bare "203.17" on the same statement is money out.
+function markerSign(raw: string): number {
+  return /cr\.?$/i.test(raw.trim()) ? 1 : -1;
+}
+
 export function applyMapping(rows: string[][], mapping: StatementMapping): ParsedRow[] {
   const body = mapping.hasHeader ? rows.slice(1) : rows;
   const parsed: ParsedRow[] = [];
 
   for (const row of body) {
-    const date = normaliseDate(cell(row, mapping.dateColumn), mapping.dateFormat);
+    const date = normaliseDate(cell(row, mapping.dateColumn), mapping.dateFormat, mapping.defaultYear);
     if (!date) continue;
 
     let amount: number | null = null;
     if (mapping.amountColumn != null) {
-      amount = normaliseAmount(cell(row, mapping.amountColumn), mapping.decimalSeparator);
+      const raw = cell(row, mapping.amountColumn);
+      amount = normaliseAmount(raw, mapping.decimalSeparator);
+      // The magnitude comes from the number, the direction from the marker
+      // beside it — on these statements the number itself is always unsigned.
+      if (amount != null && mapping.signFromMarker) amount = Math.abs(amount) * markerSign(raw);
     } else {
       const debit = normaliseAmount(cell(row, mapping.debitColumn), mapping.decimalSeparator);
       const credit = normaliseAmount(cell(row, mapping.creditColumn), mapping.decimalSeparator);

@@ -150,4 +150,19 @@ describe("normaliseDate", () => {
   it("rejects an impossible date", () => {
     expect(normaliseDate("99/99/2026", "dmy")).toBeNull();
   });
+
+  // PDF statements commonly write "08 Jun" and state the year once at the top.
+  it("reads month names, using the document's year when the row omits it", () => {
+    expect(normaliseDate("08 Jun", "dmy", 2026)).toBe("2026-06-08");
+    expect(normaliseDate("8 June 2025", "dmy", 2026)).toBe("2025-06-08");
+    expect(normaliseDate("08-Jun-26", "dmy")).toBe("2026-06-08");
+  });
+
+  it("refuses an undated row rather than guessing the year", () => {
+    expect(normaliseDate("08 Jun", "dmy")).toBeNull();
+  });
+
+  it("rejects a month name that isn't one", () => {
+    expect(normaliseDate("08 Xyz 2026", "dmy")).toBeNull();
+  });
 });

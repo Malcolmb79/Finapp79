@@ -49,6 +49,58 @@ describe("textToRows", () => {
   });
 });
 
+// Some extractors join every text item with a single space, so a row arrives
+// as one run of words and numbers with no gaps to slice and no delimiter to
+// split. Shape is all that's left: date at the front, running balance at the
+// end, amount just before it, description in between. Lines from a real FNB
+// statement, which is what exposed this.
+describe("lines with no whitespace structure at all", () => {
+  const statement = [
+    "Transactions in RAND (ZAR)",
+    "Date Description Amount Balance",
+    "08 Jun POS Purchase Vinted 400738*1373 06 Jun 203.17 37,119.71",
+    "10 Jun Credit Voucher Vouch Vinted 400738******1373 559.40Cr 37,516.11",
+    "29 Jun 2.00 38,267.87",
+    "01 Jul Internal Debit Order Momentum 211456418 Jj6580 9,836.72 34,432.18",
+  ].join("\n");
+
+  it("recovers date, description, amount and balance by shape", () => {
+    const rows = textToRows(statement);
+    expect(rows[2]).toEqual(["08 Jun", "POS Purchase Vinted 400738*1373 06 Jun", "203.17", "37,119.71"]);
+    // The amount and the balance must not merge — a money token cannot
+    // contain a space, or "203.17 37,119.71" reads as one value.
+    expect(rows[3]).toEqual(["10 Jun", "Credit Voucher Vouch Vinted 400738******1373", "559.40Cr", "37,516.11"]);
+  });
+
+  it("handles a row with no description", () => {
+    expect(textToRows(statement)[4]).toEqual(["29 Jun", "", "2.00", "38,267.87"]);
+  });
+
+  it("leaves non-transaction lines as single cells so they drop out later", () => {
+    expect(textToRows(statement)[0]).toEqual(["Transactions in RAND (ZAR)"]);
+  });
+
+  // The statement writes its year once in the header and marks direction with
+  // a Cr suffix rather than a sign — read naively, every row is positive and
+  // undated.
+  it("dates rows from the document's year and signs them from the Cr marker", async () => {
+    const withHeader = ["Statement Period : 8 June 2026 to 8 July 2026", statement].join("\n");
+    const { preamble, table } = splitPreamble(textToRows(withHeader));
+    const mapping = await inferMapping(table, preamble);
+
+    expect(mapping.defaultYear).toBe(2026);
+    expect(mapping.signFromMarker).toBe(true);
+
+    const rows = applyMapping(table, mapping);
+    expect(rows).toEqual([
+      { date: "2026-06-08", amount: -203.17, description: "POS Purchase Vinted 400738*1373 06 Jun", counterparty: null },
+      { date: "2026-06-10", amount: 559.4, description: "Credit Voucher Vouch Vinted 400738******1373", counterparty: null },
+      { date: "2026-06-29", amount: -2, description: null, counterparty: null },
+      { date: "2026-07-01", amount: -9836.72, description: "Internal Debit Order Momentum 211456418 Jj6580", counterparty: null },
+    ]);
+  });
+});
+
 // The point of reconstructing a grid is that everything downstream — column
 // mapping, the confirmation dialog, the importer — works on a PDF without
 // knowing it was ever a PDF.
