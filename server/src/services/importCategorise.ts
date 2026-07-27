@@ -1,6 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { db } from "../db/client.js";
-import type { ParsedRow } from "./statementParser.js";
+
+/** Anything with a merchant on it — a parsed statement row or a stored transaction. */
+export interface Categorisable {
+  description: string | null;
+  counterparty: string | null;
+}
 
 /**
  * Suggests a category for every row of a statement about to be imported.
@@ -48,13 +53,13 @@ const SCHEMA = {
   additionalProperties: false,
 } as const;
 
-function merchantOf(row: ParsedRow): string {
+function merchantOf(row: Categorisable): string {
   return (row.counterparty ?? row.description ?? "").trim();
 }
 
 export async function categoriseImport(
   userId: string,
-  rows: ParsedRow[]
+  rows: Categorisable[]
 ): Promise<{ suggestions: RowSuggestion[]; proposed: string[] }> {
   const empty = rows.map(() => ({ categoryId: null, proposedCategory: null }));
   if (rows.length === 0) return { suggestions: empty, proposed: [] };

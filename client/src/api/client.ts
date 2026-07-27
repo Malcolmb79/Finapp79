@@ -93,6 +93,9 @@ export interface StatementPreview {
   // offered so the account can carry its real logo.
   detectedBank: { name: string; logo: string | null; country: string } | null;
   check: StatementCheck;
+  // Aligned with `sample` by index: null where the row is new, otherwise the
+  // transaction already on the account that it appears to repeat.
+  duplicates: ({ id: string; date: string; amount: number; description: string | null } | null)[];
 }
 
 export interface Aspsp {
@@ -169,6 +172,14 @@ export const api = {
   listTransactions: (accountId?: string) =>
     request<Transaction[]>(`/transactions${accountId ? `?accountId=${accountId}` : ""}`),
   listPendingTransactions: () => request<PendingTransaction[]>("/transactions?pending=true"),
+
+  // Keyed by transaction id, not position: the list can be re-fetched between
+  // asking and applying, and an index would attach a category to the wrong row.
+  categorisePending: () =>
+    request<{
+      suggestions: { id: string; categoryId: number | null; proposedCategory: string | null }[];
+      proposed: string[];
+    }>("/transactions/categorise-pending", { method: "POST" }),
   createTransaction: (tx: Partial<Transaction>) =>
     request<Transaction>("/transactions", { method: "POST", body: JSON.stringify(tx) }),
   updateTransaction: (id: string, patch: { category_id?: number | null; description?: string }) =>
@@ -231,18 +242,23 @@ export const api = {
     contentBase64: string,
     mapping: StatementMapping,
     applyBankLogo = false,
-    categories: (number | null)[] = []
+    categories: (number | null)[] = [],
+    skip: boolean[] = []
   ) =>
-    request<{ imported: number; duplicates: number; parsed: number; brandedAs: string | null }>("/import/statement", {
-      method: "POST",
-      body: JSON.stringify({
-        account_id: accountId,
-        content_base64: contentBase64,
-        mapping,
-        apply_bank_logo: applyBankLogo,
-        categories,
-      }),
-    }),
+    request<{ imported: number; skipped: number; duplicates: number; parsed: number; brandedAs: string | null }>(
+      "/import/statement",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          account_id: accountId,
+          content_base64: contentBase64,
+          mapping,
+          apply_bank_logo: applyBankLogo,
+          categories,
+          skip,
+        }),
+      }
+    ),
 
   categoriseStatement: (accountId: string, contentBase64: string, mapping: StatementMapping) =>
     request<{ suggestions: { categoryId: number | null; proposedCategory: string | null }[]; proposed: string[] }>(

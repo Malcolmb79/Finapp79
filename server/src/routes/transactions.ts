@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { db } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { suggestCategoriesWithAi, type MerchantSample } from "../services/aiCategorySuggestion.js";
+import { categoriseImport } from "../services/importCategorise.js";
 import { suggestCategoryId } from "../services/categorySuggestion.js";
 import type { Transaction } from "../types.js";
 
@@ -86,6 +87,37 @@ transactionsRouter.get("/", async (req, res) => {
       };
     })
   );
+});
+
+/**
+ * Category suggestions for everything awaiting review, on demand.
+ *
+ * The pending list already carries a suggestion per row, but that one runs
+ * unattended on every fetch, so it only ever matches categories that already
+ * exist. This is the same categoriser the import dialog uses: the user has
+ * asked for it, so it may also propose categories they don't have yet, which
+ * is what makes a first sync of unfamiliar merchants tractable.
+ *
+ * Suggestions only; nothing is approved or written here.
+ */
+transactionsRouter.post("/categorise-pending", async (req, res) => {
+  const rows = (await db
+    .prepare(
+      `SELECT id, description, counterparty FROM transactions
+       WHERE user_id = ? AND reviewed_at IS NULL
+       ORDER BY booking_date DESC`
+    )
+    .all(req.user!.id)) as unknown as { id: string; description: string | null; counterparty: string | null }[];
+
+  const { suggestions, proposed } = await categoriseImport(req.user!.id, rows);
+
+  // Keyed by transaction id rather than position: the list can be re-fetched
+  // or reordered between asking and applying, and an index would then attach
+  // a category to the wrong transaction.
+  res.json({
+    suggestions: rows.map((row, index) => ({ id: row.id, ...suggestions[index] })),
+    proposed,
+  });
 });
 
 transactionsRouter.post("/", async (req, res) => {

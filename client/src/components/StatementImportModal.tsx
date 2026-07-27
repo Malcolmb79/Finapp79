@@ -42,6 +42,16 @@ export default function StatementImportModal({
   const [rowCategories, setRowCategories] = useState<Record<number, number | null>>({});
   const [suggesting, setSuggesting] = useState(false);
   const [proposed, setProposed] = useState<string[]>([]);
+  // Rows the user has decided about explicitly. Duplicates default to skipped
+  // without appearing here, so flipping one back to "import" is recorded as a
+  // deliberate choice rather than an absence.
+  const [rowSkip, setRowSkip] = useState<Record<number, boolean>>({});
+
+  const isDuplicate = (index: number) => !!preview?.duplicates[index];
+  const isSkipped = (index: number) => rowSkip[index] ?? isDuplicate(index);
+  const duplicateCount = preview?.duplicates.filter(Boolean).length ?? 0;
+  const skipCount = preview ? preview.sample.filter((_, i) => isSkipped(i)).length : 0;
+  const importCount = (preview?.sample.length ?? 0) - skipCount;
 
   useEffect(() => {
     api.listCategories().then(setCategories);
@@ -123,12 +133,14 @@ export default function StatementImportModal({
     setError(null);
     try {
       const perRow = preview.sample.map((_, index) => rowCategories[index] ?? null);
+      const skip = preview.sample.map((_, index) => isSkipped(index));
       const result = await api.importStatement(
         accountId,
         contentBase64,
         mapping,
         applyLogo && !!preview.detectedBank,
-        perRow
+        perRow,
+        skip
       );
       onImported(result);
     } catch (e) {
@@ -424,18 +436,94 @@ export default function StatementImportModal({
                   </div>
                 )}
 
+                {duplicateCount > 0 && (
+                  <div
+                    role="status"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                      flexWrap: "wrap",
+                      marginBottom: "0.6rem",
+                      padding: "0.55rem 0.7rem",
+                      borderRadius: "var(--radius)",
+                      border: "1px solid var(--border)",
+                      background: "var(--surface-2)",
+                      fontSize: "0.85rem",
+                    }}
+                  >
+                    <AlertTriangle size={15} color="var(--warning)" />
+                    <span style={{ flex: 1, minWidth: 200 }}>
+                      <strong>{duplicateCount}</strong> row{duplicateCount === 1 ? "" : "s"} already appear on this account
+                      — skipped by default.
+                    </span>
+                    <button
+                      onClick={() =>
+                        setRowSkip((current) => {
+                          const next = { ...current };
+                          preview.duplicates.forEach((d, i) => {
+                            if (d) next[i] = false;
+                          });
+                          return next;
+                        })
+                      }
+                    >
+                      Import them anyway
+                    </button>
+                    <button
+                      onClick={() =>
+                        setRowSkip((current) => {
+                          const next = { ...current };
+                          preview.duplicates.forEach((d, i) => {
+                            if (d) delete next[i];
+                          });
+                          return next;
+                        })
+                      }
+                    >
+                      Skip all
+                    </button>
+                  </div>
+                )}
+
                 {/* Scrolls within the dialog so the whole statement is
                     reviewable without the controls above scrolling away. */}
                 <div style={{ maxHeight: "40vh", overflow: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius)" }}>
                   {preview.sample.map((row, i) => (
-                    <div className="tx-row" key={i}>
+                    <div className="tx-row" key={i} style={isSkipped(i) ? { opacity: 0.45 } : undefined}>
                       <div className="tx-row__info">
-                        <div className="tx-row__name">{row.description || row.counterparty || "—"}</div>
+                        <div className="tx-row__name">
+                          {row.description || row.counterparty || "—"}
+                          {isDuplicate(i) && (
+                            <span
+                              title={`Already on this account as "${preview.duplicates[i]?.description ?? "a transaction"}"`}
+                              style={{
+                                marginLeft: "0.4rem",
+                                padding: "0.05rem 0.3rem",
+                                borderRadius: 4,
+                                fontSize: "0.7rem",
+                                background: "color-mix(in srgb, var(--warning) 18%, transparent)",
+                                color: "var(--warning)",
+                              }}
+                            >
+                              Duplicate
+                            </span>
+                          )}
+                        </div>
                         <div className="tx-row__meta">
                           {row.date}
                           {row.counterparty && row.description ? ` · ${row.counterparty}` : ""}
                         </div>
                       </div>
+
+                      {isDuplicate(i) && (
+                        <button
+                          onClick={() => setRowSkip((current) => ({ ...current, [i]: !isSkipped(i) }))}
+                          style={{ fontSize: "0.78rem", whiteSpace: "nowrap" }}
+                        >
+                          {isSkipped(i) ? "Import" : "Skip"}
+                        </button>
+                      )}
 
                       <CategorySelect
                         categories={categories}
@@ -476,9 +564,10 @@ export default function StatementImportModal({
           <button onClick={onClose} disabled={importing}>
             Cancel
           </button>
-          <button className="btn-accent" onClick={confirm} disabled={importing || !preview || preview.parsed === 0}>
+          <button className="btn-accent" onClick={confirm} disabled={importing || !preview || importCount === 0}>
             {importing ? <Loader2 size={14} className="spin" /> : null}
-            {preview ? `Import ${preview.parsed} transaction${preview.parsed === 1 ? "" : "s"}` : "Import"}
+            {preview ? `Import ${importCount} transaction${importCount === 1 ? "" : "s"}` : "Import"}
+            {skipCount > 0 && ` (${skipCount} skipped)`}
           </button>
         </div>
       </div>

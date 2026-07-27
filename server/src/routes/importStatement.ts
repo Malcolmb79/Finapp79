@@ -6,7 +6,15 @@ import { resolveBank } from "../services/bankLogo.js";
 import { categoriseImport } from "../services/importCategorise.js";
 import { checkStatement } from "../services/statementMatch.js";
 import { extractPdfRows, looksLikePdf } from "../services/pdfStatement.js";
-import { applyMapping, hasDateShape, inferMapping, parseDelimited, splitPreamble, type StatementMapping } from "../services/statementParser.js";
+import {
+  applyMapping,
+  hasDateShape,
+  inferMapping,
+  parseDelimited,
+  splitPreamble,
+  type ParsedRow,
+  type StatementMapping,
+} from "../services/statementParser.js";
 
 export const importStatementRouter = Router();
 
@@ -52,6 +60,11 @@ interface StatementBody {
    * the client sends only the choices, never the transactions.
    */
   categories?: (number | null)[];
+  /**
+   * Rows to leave out, aligned by index. Used for duplicates the user chose
+   * to skip; a duplicate they chose to keep is simply not marked.
+   */
+  skip?: boolean[];
 }
 
 type Failure = { error: string; status: number };
@@ -105,6 +118,62 @@ async function gridFromBody(body: StatementBody): Promise<string[][] | Failure> 
   }
 
   return { error: "account_id and a file are required", status: 400 };
+}
+
+/**
+ * Finds rows that already exist on this account.
+ *
+ * Matched on date and amount rather than the content hash the importer
+ * dedupes with: a statement re-downloaded a month later often has the same
+ * transaction with its description reworded or padded differently, which
+ * changes the hash but is still plainly the same payment. Matching on the two
+ * fields that don't drift catches those, at the cost of occasionally flagging
+ * two genuinely identical purchases — which is the right trade, because the
+ * user decides per row and a missed duplicate is the more expensive mistake.
+ */
+async function findExisting(accountId: string, userId: string, rows: ParsedRow[]) {
+  if (rows.length === 0) return rows.map(() => null);
+
+  const dates = rows.map((r) => r.date).sort();
+  const existing = (await db
+    .prepare(
+      `SELECT id, booking_date, amount, description, counterparty
+       FROM transactions
+       WHERE account_id = ? AND user_id = ? AND booking_date BETWEEN ? AND ?`
+    )
+    .all(accountId, userId, dates[0], dates[dates.length - 1])) as unknown as {
+    id: string;
+    booking_date: string;
+    amount: number;
+    description: string | null;
+    counterparty: string | null;
+  }[];
+
+  const key = (date: string, amount: number) => `${date}|${amount.toFixed(2)}`;
+  const byKey = new Map<string, (typeof existing)[number][]>();
+  for (const row of existing) {
+    const k = key(row.booking_date, row.amount);
+    byKey.set(k, [...(byKey.get(k) ?? []), row]);
+  }
+
+  // Each existing transaction can only account for one incoming row, so a
+  // statement legitimately containing the same purchase twice only has its
+  // first occurrence flagged when the account holds one of them.
+  const used = new Map<string, number>();
+  return rows.map((row) => {
+    const k = key(row.date, row.amount);
+    const candidates = byKey.get(k) ?? [];
+    const taken = used.get(k) ?? 0;
+    if (taken >= candidates.length) return null;
+    used.set(k, taken + 1);
+    const match = candidates[taken];
+    return {
+      id: match.id,
+      date: match.booking_date,
+      amount: match.amount,
+      description: match.description ?? match.counterparty,
+    };
+  });
 }
 
 // Labels each column from the header row when there is one, falling back to a
@@ -213,6 +282,9 @@ importStatementRouter.post("/preview", async (req, res) => {
     // and what period it covers. Neither is visible in a row-by-row preview:
     // the right statement imported into the wrong account parses perfectly.
     check: checkStatement(mapping, rows, account),
+    // Aligned with sample by index: null where the row is new, otherwise the
+    // transaction already on the account that it appears to repeat.
+    duplicates: (await findExisting(body.account_id, req.user!.id, rows)).slice(0, PREVIEW_ROWS),
   });
 });
 
@@ -286,8 +358,10 @@ importStatementRouter.post("/", async (req, res) => {
     )
   );
   const chosenCategories = body.categories ?? [];
+  const skipRows = body.skip ?? [];
 
   let imported = 0;
+  let skipped = 0;
   await withTransaction(async (tx) => {
     const insert = tx.prepare(
       `INSERT INTO transactions (id, user_id, account_id, booking_date, amount, currency, description, counterparty, category_id, source)
@@ -295,25 +369,43 @@ importStatementRouter.post("/", async (req, res) => {
        ON CONFLICT (id) DO NOTHING`
     );
     for (const [index, row] of rows.entries()) {
+      if (skipRows[index]) {
+        skipped++;
+        continue;
+      }
       const chosen = chosenCategories[index];
       const categoryId = chosen != null && ownedCategories.has(chosen) ? chosen : null;
       // Content-hashed id: re-importing an overlapping statement is a no-op
       // rather than a pile of duplicates, which matters because exports
       // routinely overlap at the period boundary.
       const hashInput = `${body.account_id}:${row.date}:${row.amount}:${row.description ?? ""}:${row.counterparty ?? ""}`;
-      const id = createHash("sha256").update(hashInput).digest("hex");
-      const result = await insert.run(
-        id,
-        req.user!.id,
-        body.account_id,
-        row.date,
-        row.amount,
-        account.currency,
-        row.description,
-        row.counterparty,
-        categoryId
-      );
-      if (result.changes > 0) imported++;
+
+      // A row the user chose to keep despite it matching one already on the
+      // account hashes to the same id, so the insert would be swallowed and
+      // silently ignore their decision. Retry with a discriminator until it
+      // lands: they asked for a second copy, so a second copy is correct.
+      let inserted = false;
+      for (let attempt = 0; attempt < 10 && !inserted; attempt++) {
+        const id = createHash("sha256")
+          .update(attempt === 0 ? hashInput : `${hashInput}:${attempt + 1}`)
+          .digest("hex");
+        const result = await insert.run(
+          id,
+          req.user!.id,
+          body.account_id,
+          row.date,
+          row.amount,
+          account.currency,
+          row.description,
+          row.counterparty,
+          categoryId
+        );
+        inserted = result.changes > 0;
+        // Only a row the user actively kept should be retried. An untouched
+        // duplicate colliding on the first attempt is the dedupe working.
+        if (!inserted && skipRows[index] !== false) break;
+      }
+      if (inserted) imported++;
     }
   });
 
@@ -336,5 +428,5 @@ importStatementRouter.post("/", async (req, res) => {
 
   // Imported rows land unreviewed, so they go through the same approve-with-a-
   // category flow as a bank sync rather than straight into the totals.
-  res.json({ imported, duplicates: rows.length - imported, parsed: rows.length, brandedAs });
+  res.json({ imported, skipped, duplicates: rows.length - imported - skipped, parsed: rows.length, brandedAs });
 });
