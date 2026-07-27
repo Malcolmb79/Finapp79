@@ -1,10 +1,7 @@
 import { AlertTriangle, Loader2, Plus, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, type Category, type StatementMapping, type StatementPreview } from "../api/client.js";
-
-// Marker value for the "add a category" option in a row's dropdown. Not a
-// valid id, so it can never collide with a real category.
-const NEW_CATEGORY = "__new__";
+import CategorySelect from "./CategorySelect.js";
 
 /**
  * Confirms how a statement file will be read before anything is written.
@@ -45,9 +42,6 @@ export default function StatementImportModal({
   const [rowCategories, setRowCategories] = useState<Record<number, number | null>>({});
   const [suggesting, setSuggesting] = useState(false);
   const [proposed, setProposed] = useState<string[]>([]);
-  // Which row is mid-way through creating a category, and the name being typed.
-  const [creatingFor, setCreatingFor] = useState<number | null>(null);
-  const [newCategoryName, setNewCategoryName] = useState("");
 
   useEffect(() => {
     api.listCategories().then(setCategories);
@@ -110,16 +104,16 @@ export default function StatementImportModal({
     }
   }
 
-  async function createCategory(name: string, forRow: number | null) {
+  // The server matches case-insensitively and returns the existing category
+  // rather than creating a duplicate, so this is safe to call with a name
+  // that already exists.
+  async function createCategory(name: string, forRow: number | null = null) {
     const trimmed = name.trim();
     if (!trimmed) return;
-    const existing = categories.find((c) => c.name.toLowerCase() === trimmed.toLowerCase());
-    const category = existing ?? (await api.createCategory(trimmed));
-    if (!existing) setCategories((cs) => [...cs, category].sort((a, b) => a.name.localeCompare(b.name)));
+    const category = await api.createCategory(trimmed);
+    setCategories((cs) => (cs.some((c) => c.id === category.id) ? cs : [...cs, category].sort((a, b) => a.name.localeCompare(b.name))));
     setProposed((p) => p.filter((n) => n.toLowerCase() !== trimmed.toLowerCase()));
     if (forRow != null) setRowCategories((current) => ({ ...current, [forRow]: category.id }));
-    setCreatingFor(null);
-    setNewCategoryName("");
     return category;
   }
 
@@ -443,47 +437,12 @@ export default function StatementImportModal({
                         </div>
                       </div>
 
-                      {creatingFor === i ? (
-                        <input
-                          autoFocus
-                          value={newCategoryName}
-                          placeholder="New category"
-                          onChange={(e) => setNewCategoryName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") createCategory(newCategoryName, i);
-                            if (e.key === "Escape") {
-                              setCreatingFor(null);
-                              setNewCategoryName("");
-                            }
-                          }}
-                          onBlur={() => createCategory(newCategoryName, i)}
-                          style={{ maxWidth: 150, fontSize: "0.82rem" }}
-                        />
-                      ) : (
-                        <select
-                          value={rowCategories[i] ?? ""}
-                          onChange={(e) => {
-                            if (e.target.value === NEW_CATEGORY) {
-                              setNewCategoryName("");
-                              setCreatingFor(i);
-                              return;
-                            }
-                            setRowCategories((current) => ({
-                              ...current,
-                              [i]: e.target.value ? Number(e.target.value) : null,
-                            }));
-                          }}
-                          style={{ maxWidth: 150, fontSize: "0.82rem" }}
-                        >
-                          <option value="">Uncategorized</option>
-                          {categories.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                          <option value={NEW_CATEGORY}>+ New category…</option>
-                        </select>
-                      )}
+                      <CategorySelect
+                        categories={categories}
+                        value={rowCategories[i] ?? null}
+                        onChange={(id) => setRowCategories((current) => ({ ...current, [i]: id }))}
+                        onCreate={(name) => createCategory(name)}
+                      />
 
                       <span className={`tx-row__amount${row.amount >= 0 ? " tx-row__amount--positive" : ""}`}>
                         {row.amount >= 0 ? "+" : ""}

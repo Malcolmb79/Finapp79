@@ -1,6 +1,7 @@
 import { Check } from "lucide-react";
 import { useState } from "react";
 import { api, type Category, type PendingTransaction } from "../../api/client.js";
+import CategorySelect from "../CategorySelect.js";
 
 // Per-row category choice starts at the suggested category but the user can
 // override it before approving — a row only gets an entry in `selections`
@@ -78,18 +79,12 @@ export default function PendingReviewWidget({
               )}
             </div>
           </div>
-          <select
-            value={selectedCategory(t) ?? ""}
-            onChange={(e) => setSelections((s) => ({ ...s, [t.id]: e.target.value ? Number(e.target.value) : null }))}
-            style={{ maxWidth: 130, fontSize: "0.82rem" }}
-          >
-            <option value="">Uncategorized</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          <CategorySelect
+            categories={categories}
+            value={selectedCategory(t)}
+            onChange={(id) => setSelections((s) => ({ ...s, [t.id]: id }))}
+            width={130}
+          />
           <span className={`tx-row__amount${t.amount >= 0 ? " tx-row__amount--positive" : ""}`}>
             {t.amount >= 0 ? "+" : ""}
             {t.amount.toFixed(2)}

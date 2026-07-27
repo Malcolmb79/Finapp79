@@ -1,6 +1,7 @@
 import { Calendar, Landmark, Tag, Trash2, User, X } from "lucide-react";
 import { useState } from "react";
 import { api, type Account, type Category, type Transaction } from "../api/client.js";
+import CategorySelect from "./CategorySelect.js";
 import { cleanDescription } from "../utils/cleanDescription.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 
@@ -89,14 +90,12 @@ export default function TransactionDetailModal({
           </span>
           <div className="modal__field-body">
             <div className="modal__field-label">Category</div>
-            <select value={categoryId} onChange={(e) => handleCategoryChange(e.target.value)} style={{ width: "100%" }}>
-              <option value="">Uncategorized</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <CategorySelect
+              categories={categories}
+              value={categoryId === "" ? null : Number(categoryId)}
+              onChange={(id) => handleCategoryChange(id == null ? "" : String(id))}
+              width={220}
+            />
           </div>
         </div>
 

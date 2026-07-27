@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api, type Account, type Category } from "../api/client.js";
+import CategorySelect from "./CategorySelect.js";
 
 export default function TransactionForm({
   accounts,
@@ -41,14 +42,11 @@ export default function TransactionForm({
           </option>
         ))}
       </select>
-      <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-        <option value="">Uncategorized</option>
-        {categories.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.name}
-          </option>
-        ))}
-      </select>
+      <CategorySelect
+        categories={categories}
+        value={categoryId === "" ? null : Number(categoryId)}
+        onChange={(id) => setCategoryId(id == null ? "" : String(id))}
+      />
       <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
       <input
         type="number"
