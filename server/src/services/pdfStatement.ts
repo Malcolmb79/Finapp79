@@ -47,10 +47,25 @@ export function textToRows(text: string): string[][] {
   if (lines.some((line) => / {2,}/.test(line))) {
     // Text that keeps its gaps but isn't consistently aligned: two or more
     // spaces is a boundary, a single space stays inside a value.
-    return lines.map((line) => line.split(/ {2,}/).map((cell) => cell.trim())).filter((row) => row.some((cell) => cell !== ""));
+    return pad(lines.map((line) => line.split(/ {2,}/).map((cell) => cell.trim())).filter((row) => row.some((cell) => cell !== "")));
   }
 
-  return columnsByShape(lines);
+  return pad(columnsByShape(lines));
+}
+
+/**
+ * Squares off the grid so every row has the same number of cells.
+ *
+ * A statement's letterhead lines come back as one cell while its transaction
+ * rows come back as four, and that raggedness leaks: the column editor builds
+ * its dropdowns from the first row and offers a single column with no amount
+ * to choose, and the layout sample shows one column too. Padding every row to
+ * the widest makes the grid rectangular, so a column index means the same
+ * thing on every row.
+ */
+function pad(rows: string[][]): string[][] {
+  const width = Math.max(0, ...rows.map((r) => r.length));
+  return rows.map((row) => (row.length === width ? row : [...row, ...Array(width - row.length).fill("")]));
 }
 
 // Leading date on a transaction line: "08 Jun", "8 June", "01/07/2026",

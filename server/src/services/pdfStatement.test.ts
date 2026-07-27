@@ -76,8 +76,14 @@ describe("lines with no whitespace structure at all", () => {
     expect(textToRows(statement)[4]).toEqual(["29 Jun", "", "2.00", "38,267.87"]);
   });
 
-  it("leaves non-transaction lines as single cells so they drop out later", () => {
-    expect(textToRows(statement)[0]).toEqual(["Transactions in RAND (ZAR)"]);
+  // Non-transaction lines keep their text in the first cell and are padded to
+  // the table's width. The padding matters: a ragged grid makes the column
+  // editor label its dropdowns from a one-cell row, offering a single column
+  // with no amount to select whatever the mapping found.
+  it("pads non-transaction lines to the table's width", () => {
+    const rows = textToRows(statement);
+    expect(rows[0]).toEqual(["Transactions in RAND (ZAR)", "", "", ""]);
+    expect(new Set(rows.map((r) => r.length))).toEqual(new Set([4]));
   });
 
   // A real statement carries around fifty lines of letterhead, address block

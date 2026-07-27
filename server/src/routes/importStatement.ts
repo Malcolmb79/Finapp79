@@ -79,10 +79,37 @@ async function gridFromBody(body: StatementBody): Promise<string[][] | Failure> 
 
   if (typeof body.content === "string" && body.content.trim() !== "") {
     if (body.content.length > MAX_BYTES) return { error: "statement is too large", status: 413 };
+    // A PDF that arrives as text was read with file.text() by an old client
+    // bundle, which mangles the bytes beyond recovery. Parsed as delimited
+    // text it yields hundreds of rows of PDF internals and a date column of
+    // "%PDF-1.3" — technically a successful parse, which is exactly why it's
+    // confusing. Say what actually happened instead.
+    if (body.content.trimStart().startsWith("%PDF")) {
+      return {
+        error: "This PDF reached the server as text, which means the page is running an out-of-date version. Reload the page (pull down to refresh) and try again.",
+        status: 422,
+      };
+    }
     return parseDelimited(body.content);
   }
 
   return { error: "account_id and a file are required", status: 400 };
+}
+
+// Labels each column from the header row when there is one, falling back to a
+// sample value from the first data row so a column is still recognisable.
+function columnLabels(table: string[][], mapping: StatementMapping) {
+  const firstData = table.findIndex((row) => row.length > 1 && row.some((c) => hasDateShape(c)));
+  const dataRow = table[firstData] ?? table[0] ?? [];
+  const headerRow = firstData > 0 ? table[firstData - 1] : mapping.hasHeader ? table[0] : undefined;
+  const width = Math.max(dataRow.length, headerRow?.length ?? 0);
+
+  return Array.from({ length: width }, (_, index) => {
+    const heading = (headerRow?.[index] ?? "").trim();
+    const sample = (dataRow[index] ?? "").trim();
+    const label = heading || sample || "";
+    return { index, label: label ? `${index + 1}. ${label.slice(0, 40)}` : `Column ${index + 1}` };
+  });
 }
 
 async function ownedAccount(accountId: string, userId: string) {
@@ -142,10 +169,11 @@ importStatementRouter.post("/preview", async (req, res) => {
 
   res.json({
     mapping,
-    // Column labels for the editor's dropdowns: the header row when there is
-    // one, otherwise the first row's values so the columns are still
-    // recognisable rather than being bare indices.
-    columns: (table[0] ?? []).map((cell, index) => ({ index, label: mapping.hasHeader ? cell : `Column ${index + 1}: ${cell}` })),
+    // Column labels for the editor's dropdowns, taken from the first row that
+    // actually carries data — not table[0]. On a PDF the top of the grid is
+    // letterhead, and labelling from it offers a single unusable column with
+    // no amount to select, whatever the mapping underneath found.
+    columns: columnLabels(table, mapping),
     sample: rows.slice(0, PREVIEW_ROWS),
     parsed: rows.length,
     // Rows the mapping dropped — a large number here usually means the date
