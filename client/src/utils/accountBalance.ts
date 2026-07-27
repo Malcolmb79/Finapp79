@@ -22,5 +22,10 @@ export function accountBalance(account: Account, txSum: number): number {
  * money held — it belongs here and never in net worth.
  */
 export function accountAvailable(account: Account, txSum: number): number {
-  return accountBalance(account, txSum) + (account.overdraft_limit ?? 0);
+  // The bank's own available figure is the better base where there is one,
+  // since it already accounts for holds and pending items the balance
+  // doesn't. The sync stores it only when it differs from the balance, so
+  // reaching for it here means it genuinely says something extra.
+  const base = account.available_balance ?? accountBalance(account, txSum);
+  return base + (account.overdraft_limit ?? 0);
 }

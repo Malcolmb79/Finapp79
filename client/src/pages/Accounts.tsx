@@ -384,22 +384,14 @@ export default function Accounts() {
                           {formatCurrency(accountBalance(a, byAccount.get(a.id) ?? 0), a.currency)}
                         </span>
                       </button>
-                      {/* An arranged overdraft is borrowing, so it shows only in
-                          what's available to spend — never in the balance or in
-                          net worth. */}
-                      {a.overdraft_limit ? (
-                        <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                          {formatCurrency(accountAvailable(a, byAccount.get(a.id) ?? 0), a.currency)} available · incl.{" "}
-                          {formatCurrency(a.overdraft_limit, a.currency)} overdraft
-                        </span>
-                      ) : (
-                        a.source === "enablebanking" &&
-                        a.available_balance != null && (
-                          <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                            {formatCurrency(a.available_balance, a.currency)} available
-                          </span>
-                        )
-                      )}
+                      {/* Always sits under the balance, so the two figures can
+                          be read against each other the way the bank's own app
+                          shows them. An arranged overdraft is borrowing, so it
+                          lands here and never in the balance or in net worth. */}
+                      <span style={{ display: "block", fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                        {formatCurrency(accountAvailable(a, byAccount.get(a.id) ?? 0), a.currency)} available
+                        {a.overdraft_limit ? ` · incl. ${formatCurrency(a.overdraft_limit, a.currency)} overdraft` : ""}
+                      </span>
                       {a.balance_is_manual && a.balance != null && (
                         <span style={{ display: "block", fontSize: "0.7rem", color: "var(--text-muted)" }}>set by hand</span>
                       )}
