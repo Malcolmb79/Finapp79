@@ -280,8 +280,19 @@ accountsRouter.post("/:id/loan-contract/preview", async (req, res) => {
   let text: string;
 
   if (typeof content_base64 === "string") {
-    const bytes = Buffer.from(content_base64, "base64");
-    text = looksLikePdf(bytes) ? await extractPdfText(bytes) : bytes.toString("utf8");
+    const buffer = Buffer.from(content_base64, "base64");
+    // A Buffer is a Uint8Array, but unpdf checks the constructor and rejects
+    // it outright — so the conversion is not the formality it looks like.
+    const bytes = new Uint8Array(buffer);
+    try {
+      text = looksLikePdf(bytes) ? await extractPdfText(bytes) : buffer.toString("utf8");
+    } catch (err) {
+      // A PDF that won't open is the user's problem to solve — an encrypted
+      // or damaged file — so say that rather than returning a bare 500.
+      console.error("Contract text extraction failed:", err);
+      res.status(422).json({ error: "That PDF couldn't be opened. If it's password-protected, save an unlocked copy and try again." });
+      return;
+    }
   } else if (typeof content === "string") {
     text = content;
   } else {
@@ -296,13 +307,17 @@ accountsRouter.post("/:id/loan-contract/preview", async (req, res) => {
     return;
   }
 
-  const terms = await extractLoanTerms(text);
-  if (!terms) {
-    res.status(503).json({ error: "Contract reading is unavailable — the AI key is not configured." });
-    return;
+  try {
+    const terms = await extractLoanTerms(text);
+    if (!terms) {
+      res.status(503).json({ error: "Contract reading is unavailable — the AI key is not configured." });
+      return;
+    }
+    res.json(terms);
+  } catch (err) {
+    console.error("Contract reading failed:", err);
+    res.status(502).json({ error: "Reading the agreement failed part-way through. Worth trying again." });
   }
-
-  res.json(terms);
 });
 
 /**
