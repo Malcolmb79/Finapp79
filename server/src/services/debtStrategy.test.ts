@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assumedMinimum, compareStrategies, simulate, type DebtInput } from "./debtStrategy.js";
+import { ASSUMED_CARD_PAYMENT, assumedMinimum, compareStrategies, simulate, type DebtInput } from "./debtStrategy.js";
 
 const debt = (name: string, balance: number, rate: number, minimumPayment: number): DebtInput => ({
   id: name,
@@ -142,38 +142,33 @@ const card = (name: string, balance: number, rate: number, minimumPayment = 0): 
  * is why it is pinned here.
  */
 describe("assumed credit card minimums", () => {
-  it("covers the interest and then some, so an ordinary card still clears", () => {
-    // A flat 1% against a 20% card pays 1% while being charged 1.67% — it
-    // describes a debt that grows forever, and reported "never clears" for a
-    // card being paid perfectly normally.
+  it("uses the standing figure, in the account's own currency", () => {
+    expect(assumedMinimum(card("Visa", 5000, 24))).toBe(ASSUMED_CARD_PAYMENT);
+    expect(assumedMinimum({ ...card("Rand card", 5000, 24), currency: "ZAR" })).toBe(ASSUMED_CARD_PAYMENT);
+  });
+
+  it("never pays more than is left owing", () => {
+    // Nobody pays 300 against 40 outstanding.
+    expect(assumedMinimum(card("Nearly clear", 40, 20))).toBe(40);
+  });
+
+  it("clears an ordinary card rather than growing forever", () => {
+    // The failure this replaced: a flat 1% against a 20% card pays 1% while
+    // being charged 1.67%, and reported "never clears" for a card being paid
+    // perfectly normally.
     const result = simulate([card("Visa", 5000, 20)], 0, "avalanche");
     expect(result.neverClears).toBe(false);
     expect(result.months).not.toBeNull();
   });
 
-  it("is a percentage plus that month's interest", () => {
-    // 1% of 5,000 = 50, plus one month of 24% on 5,000 = 100.
-    expect(assumedMinimum(card("Visa", 5000, 24))).toBeCloseTo(150, 2);
-  });
-
-  it("takes far longer than a fixed payment would, because the minimum falls with the balance", () => {
-    // The trap the tool exists to show: paying only the minimum on a card
-    // takes decades, because the minimum shrinks as fast as the balance does.
-    // Holding it fixed at the opening figure would report a fraction of that.
-    const declining = simulate([card("Visa", 5000, 20)], 0, "avalanche");
-    const fixed = simulate([{ ...card("Visa", 5000, 20), minimumPayment: assumedMinimum(card("Visa", 5000, 20)) }], 0, "avalanche");
-    expect(declining.months!).toBeGreaterThan(fixed.months! * 3);
-  });
-
   it("leaves a stated payment alone", () => {
-    // Once the real figure is imported it wins outright — no recalculation.
+    // Once the real figure is imported it wins outright.
     const result = simulate([card("Visa", 5000, 20, 250)], 0, "avalanche");
     expect(result.monthlyOutlay).toBe(250);
   });
 
-  it("keeps the plain percentage for anything that isn't a card", () => {
-    // A loan or an overdraft has no conventional minimum to imitate, and an
-    // interest-covering assumption would flatter it.
+  it("keeps the percentage for anything that isn't a card", () => {
+    // A loan or an overdraft has no conventional card minimum to imitate.
     expect(assumedMinimum(debt("Overdraft", 5000, 24, 0))).toBeCloseTo(50, 2);
   });
 

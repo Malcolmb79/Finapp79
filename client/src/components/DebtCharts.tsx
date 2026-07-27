@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { api, type Account, type DebtProjection } from "../api/client.js";
-
 import { formatCurrency } from "../utils/formatCurrency.js";
 
 /**
@@ -20,6 +19,14 @@ const CHART_WIDTH = 320;
 const CHART_HEIGHT = 90;
 const PAD = 4;
 
+/** The month `offset` months from now, as "Mar 27". */
+function monthLabel(offset: number): string {
+  const date = new Date();
+  date.setDate(1);
+  date.setMonth(date.getMonth() + offset);
+  return date.toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+}
+
 function curvePath(series: number[], span: number, peak: number): string {
   return series
     .map((value, i) => {
@@ -30,14 +37,42 @@ function curvePath(series: number[], span: number, peak: number): string {
     .join(" ");
 }
 
-function months(count: number | null): string {
+function duration(count: number | null): string {
   if (count === null) return "never at this rate";
   if (count === 0) return "cleared";
   if (count < 24) return `${count} month${count === 1 ? "" : "s"}`;
   return `${Math.floor(count / 12)}y ${count % 12}m`;
 }
 
-function AccountChart({ projection, account }: { projection: DebtProjection; account: Account | undefined }) {
+/**
+ * Dates under the curve.
+ *
+ * A line falling to zero says nothing without them — "when am I free of this"
+ * is the question being asked, and the answer is a date rather than a shape.
+ * Four evenly spaced ticks, which is as many as fit on a phone.
+ */
+function Axis({ span }: { span: number }) {
+  const ticks = Array.from({ length: 4 }, (_, i) => Math.round((span / 3) * i));
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.68rem", color: "var(--text-muted)" }}>
+      {ticks.map((offset, i) => (
+        <span key={`${offset}-${i}`}>{monthLabel(offset)}</span>
+      ))}
+    </div>
+  );
+}
+
+function AccountChart({
+  projection,
+  account,
+  extra,
+  onExtraChange,
+}: {
+  projection: DebtProjection;
+  account: Account | undefined;
+  extra: string;
+  onExtraChange: (value: string) => void;
+}) {
   const baseline = projection.minimums.balanceByMonth;
   const faster = projection.withExtra?.balanceByMonth ?? null;
 
@@ -51,66 +86,97 @@ function AccountChart({ projection, account }: { projection: DebtProjection; acc
   const utilisation = limit > 0 ? Math.min(100, (projection.balance / limit) * 100) : null;
   // Past four-fifths of a facility is where lenders start treating an account
   // differently, so it earns a colour rather than just a number.
-  const tone = utilisation === null ? "var(--accent)" : utilisation >= 80 ? "var(--critical)" : utilisation >= 50 ? "var(--accent-3)" : "var(--accent)";
+  const tone =
+    utilisation === null
+      ? "var(--accent)"
+      : utilisation >= 80
+        ? "var(--critical)"
+        : utilisation >= 50
+          ? "var(--accent-3)"
+          : "var(--accent)";
 
+  const clearsIn = projection.minimums.months;
+  const fasterClearsIn = projection.withExtra?.months ?? null;
   const saved =
     projection.withExtra && !projection.withExtra.neverClears && !projection.minimums.neverClears
       ? projection.minimums.totalInterest - projection.withExtra.totalInterest
       : null;
 
   return (
-    <div style={{ padding: "0.6rem 0", borderTop: "1px solid var(--border)" }}>
+    <div style={{ padding: "0.7rem 0", borderTop: "1px solid var(--border)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" }}>
         <strong style={{ fontSize: "0.88rem" }}>{projection.name}</strong>
         <span style={{ fontSize: "0.85rem" }}>{formatCurrency(projection.balance, projection.currency)}</span>
       </div>
+
       <p style={{ fontSize: "0.73rem", color: "var(--text-muted)", margin: "0.15rem 0 0.4rem" }}>
         {[
           projection.rate > 0 ? `${projection.rate}% a year` : "no rate recorded",
           projection.minimumIsAssumed
             ? `${formatCurrency(projection.minimumPayment, projection.currency)}/mo assumed`
             : `${formatCurrency(projection.minimumPayment, projection.currency)}/mo`,
-          projection.minimums.neverClears ? "never clears at this payment" : `clear in ${months(projection.minimums.months)}`,
+          // The date as well as the count: a duration on its own still leaves
+          // you counting forward on your fingers.
+          projection.minimums.neverClears
+            ? "never clears at this payment"
+            : `clear by ${monthLabel(clearsIn ?? 0)} · ${duration(clearsIn)}`,
         ].join(" · ")}
       </p>
 
       {span > 0 && (
-        <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} width="100%" height={CHART_HEIGHT} preserveAspectRatio="none">
-          <path
-            d={`${curvePath(baseline, span, peak)} L${CHART_WIDTH},${CHART_HEIGHT} L0,${CHART_HEIGHT} Z`}
-            fill={tone}
-            opacity={0.12}
-          />
-          <path d={curvePath(baseline, span, peak)} fill="none" stroke={tone} strokeWidth={2} vectorEffect="non-scaling-stroke" />
-          {/* Dashed rather than a second colour, so the two lines stay
-              distinguishable however the theme renders them. */}
-          {faster && (
+        <>
+          <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} width="100%" height={CHART_HEIGHT} preserveAspectRatio="none">
             <path
-              d={curvePath(faster, span, peak)}
-              fill="none"
-              stroke="var(--good)"
-              strokeWidth={2}
-              strokeDasharray="5 4"
-              vectorEffect="non-scaling-stroke"
+              d={`${curvePath(baseline, span, peak)} L${CHART_WIDTH},${CHART_HEIGHT} L0,${CHART_HEIGHT} Z`}
+              fill={tone}
+              opacity={0.12}
             />
-          )}
-        </svg>
+            <path d={curvePath(baseline, span, peak)} fill="none" stroke={tone} strokeWidth={2} vectorEffect="non-scaling-stroke" />
+            {/* Dashed rather than a second colour, so the two lines stay
+                distinguishable however the theme renders them. */}
+            {faster && (
+              <path
+                d={curvePath(faster, span, peak)}
+                fill="none"
+                stroke="var(--good)"
+                strokeWidth={2}
+                strokeDasharray="5 4"
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
+          </svg>
+          <Axis span={span} />
+        </>
       )}
+
+      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.5rem", flexWrap: "wrap" }}>
+        <label style={{ fontSize: "0.73rem", color: "var(--text-muted)" }} htmlFor={`extra-${projection.accountId}`}>
+          Extra per month
+        </label>
+        <input
+          id={`extra-${projection.accountId}`}
+          inputMode="decimal"
+          value={extra}
+          onChange={(e) => onExtraChange(e.target.value)}
+          placeholder="0"
+          style={{ width: 90, fontSize: "0.8rem", padding: "0.25rem 0.4rem" }}
+        />
+        {projection.withExtra && (
+          <span style={{ fontSize: "0.73rem", color: "var(--good)" }}>
+            {projection.withExtra.neverClears
+              ? "still never clears"
+              : `clear by ${monthLabel(fasterClearsIn ?? 0)} · ${duration(fasterClearsIn)}`}
+            {saved !== null && saved > 0 ? ` · ${formatCurrency(saved, projection.currency)} less interest` : ""}
+          </span>
+        )}
+      </div>
 
       {/* A curve drawn from a stand-in payment is the one most worth
           doubting, so it says so rather than looking like the agreement. */}
       {projection.minimumIsAssumed && (
-        <p style={{ fontSize: "0.71rem", color: "var(--text-muted)", margin: "0.2rem 0 0" }}>
-          No payment imported yet, so this assumes a typical{" "}
-          {projection.rate > 0 ? "card minimum — 1% of the balance plus interest, falling as the balance does" : "minimum payment"}.
+        <p style={{ fontSize: "0.71rem", color: "var(--text-muted)", margin: "0.35rem 0 0" }}>
+          No payment imported yet, so this assumes {formatCurrency(projection.minimumPayment, projection.currency)} a month.
           Import a statement or the agreement to replace it.
-        </p>
-      )}
-
-      {projection.withExtra && (
-        <p style={{ fontSize: "0.73rem", color: "var(--good)", margin: "0.2rem 0 0" }}>
-          With the extra: {months(projection.withExtra.months)}
-          {saved !== null && saved > 0 ? ` · ${formatCurrency(saved, projection.currency)} less interest` : ""}
         </p>
       )}
 
@@ -133,18 +199,31 @@ function AccountChart({ projection, account }: { projection: DebtProjection; acc
 
 export default function DebtCharts({ accounts }: { accounts: Account[] }) {
   const [projections, setProjections] = useState<DebtProjection[] | null>(null);
-  const [extra, setExtra] = useState(0);
+  // Held as typed rather than as numbers, so a half-entered "2" of "250"
+  // isn't read as two hundred and fifty short of what's meant.
+  const [extras, setExtras] = useState<Record<string, string>>({});
 
   useEffect(() => {
+    const parsed: Record<string, number> = {};
+    for (const [id, value] of Object.entries(extras)) {
+      const amount = Number(value.replace(/,/g, ""));
+      if (Number.isFinite(amount) && amount > 0) parsed[id] = amount;
+    }
+
     let cancelled = false;
-    api
-      .debtProjection(extra)
-      .then((result) => !cancelled && setProjections(result))
-      .catch(() => !cancelled && setProjections([]));
+    // Debounced, since typing "250" would otherwise re-simulate three times.
+    const timer = setTimeout(() => {
+      api
+        .debtProjection(parsed)
+        .then((result) => !cancelled && setProjections(result))
+        .catch(() => !cancelled && setProjections([]));
+    }, 300);
+
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, [extra]);
+  }, [extras]);
 
   const accountsById = new Map(accounts.map((a) => [a.id, a]));
 
@@ -153,31 +232,20 @@ export default function DebtCharts({ accounts }: { accounts: Account[] }) {
       <div className="card__header">
         <h2 className="card__title">Each account, over time</h2>
         <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.2rem 0 0" }}>
-          Every account on its own payments. Move the slider to see what an extra payment aimed at each one would do.
+          Every account on its own payments. Add an extra monthly amount to any of them to see what it buys.
         </p>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", margin: "0.5rem 0" }}>
-        <label htmlFor="debt-extra" style={{ fontSize: "0.78rem", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
-          Extra per month
-        </label>
-        <input
-          id="debt-extra"
-          type="range"
-          min={0}
-          max={1000}
-          step={50}
-          value={extra}
-          onChange={(e) => setExtra(Number(e.target.value))}
-          style={{ flex: 1, maxWidth: 240 }}
-        />
-        <strong style={{ fontSize: "0.82rem", minWidth: 40 }}>{extra}</strong>
       </div>
 
       {projections === null && <p className="empty-state">Working it out…</p>}
       {projections?.length === 0 && <p className="empty-state">Nothing owed to chart.</p>}
       {projections?.map((p) => (
-        <AccountChart key={p.accountId} projection={p} account={accountsById.get(p.accountId)} />
+        <AccountChart
+          key={p.accountId}
+          projection={p}
+          account={accountsById.get(p.accountId)}
+          extra={extras[p.accountId] ?? ""}
+          onExtraChange={(value) => setExtras((current) => ({ ...current, [p.accountId]: value }))}
+        />
       ))}
     </div>
   );

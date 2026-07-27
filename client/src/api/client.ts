@@ -59,6 +59,8 @@ export interface DebtProjection {
   minimumPayment: number;
   /** True when no payment is recorded and a typical one is being assumed. */
   minimumIsAssumed: boolean;
+  /** The extra monthly payment this projection was run with. */
+  extra: number;
   minimums: PayoffResult;
   /** The same account with the extra payment aimed at it. Null when none was asked for. */
   withExtra: PayoffResult | null;
@@ -306,9 +308,12 @@ export const api = {
    * `workings` is every payoff calculation the answer was built from, so a
    * figure in the reply can be checked against the simulation that produced it.
    */
-  /** The payoff curve, from the same simulator the adviser quotes. */
-  debtProjection: (extraPerMonth = 0) =>
-    request<DebtProjection[]>(`/debt-advisor/projection?extra=${encodeURIComponent(String(extraPerMonth))}`),
+  /**
+   * The payoff curves, from the same simulator the adviser quotes.
+   * `extras` maps an account id to an extra monthly payment aimed at it.
+   */
+  debtProjection: (extras: Record<string, number> = {}) =>
+    request<DebtProjection[]>("/debt-advisor/projection", { method: "POST", body: JSON.stringify({ extras }) }),
 
   askDebtAdvisor: (messages: AdvisorMessage[]) =>
     request<{ reply: string; workings: AdvisorWorking[] }>("/debt-advisor", {

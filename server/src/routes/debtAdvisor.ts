@@ -168,9 +168,14 @@ function runTool(input: Record<string, unknown>, debts: DebtInput[]): unknown {
  * the browser, so the picture and the figures quoted beside it can never
  * disagree — and the arithmetic stays in the one place that has tests.
  */
-debtAdvisorRouter.get("/projection", async (req, res) => {
-  const extra = Number(req.query.extra);
-  const extraPerMonth = Number.isFinite(extra) && extra > 0 ? extra : 0;
+debtAdvisorRouter.post("/projection", async (req, res) => {
+  // Per account rather than one figure for everything: which debt the spare
+  // money goes to is the decision being made, so it has to be expressible.
+  const body = req.body as { extras?: Record<string, unknown> };
+  const extraFor = (accountId: string): number => {
+    const value = Number(body?.extras?.[accountId]);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  };
 
   const debts = await loadDebts(req.user!.id);
 
@@ -183,20 +188,24 @@ debtAdvisorRouter.get("/projection", async (req, res) => {
   // extra across every account at once would describe a plan nobody could
   // follow.
   res.json(
-    debts.map((debt) => ({
-      accountId: debt.id,
-      name: debt.name,
-      currency: debt.currency,
-      balance: debt.balance,
-      rate: debt.rate,
-      minimumPayment: debt.minimumPayment > 0 ? debt.minimumPayment : assumedMinimum(debt),
-      // Says whether the payment behind the curve is the real one or a stand-in
-      // — a projection built on an assumption should never be presented as
-      // though it came from the agreement.
-      minimumIsAssumed: debt.minimumPayment <= 0,
-      minimums: simulate([debt], 0, "avalanche"),
-      withExtra: extraPerMonth > 0 ? simulate([debt], extraPerMonth, "avalanche") : null,
-    }))
+    debts.map((debt) => {
+      const extra = extraFor(debt.id);
+      return {
+        accountId: debt.id,
+        name: debt.name,
+        currency: debt.currency,
+        balance: debt.balance,
+        rate: debt.rate,
+        minimumPayment: debt.minimumPayment > 0 ? debt.minimumPayment : assumedMinimum(debt),
+        // Says whether the payment behind the curve is the real one or a
+        // stand-in — a projection built on an assumption should never be
+        // presented as though it came from the agreement.
+        minimumIsAssumed: debt.minimumPayment <= 0,
+        extra,
+        minimums: simulate([debt], 0, "avalanche"),
+        withExtra: extra > 0 ? simulate([debt], extra, "avalanche") : null,
+      };
+    })
   );
 });
 

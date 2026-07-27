@@ -61,30 +61,36 @@ const MAX_MONTHS = 600;
 // behind that would otherwise keep a debt alive forever.
 const SETTLED = 0.005;
 
-// The smallest sum any lender bothers to ask for. Below this a card minimum
-// is the whole balance.
+// The smallest sum any lender bothers to ask for. Below this a minimum is
+// the whole balance.
 const MINIMUM_FLOOR = 25;
+
+/**
+ * What a card is assumed to be paid each month until its real payment is
+ * imported. A standing figure rather than a percentage, at the user's
+ * instruction.
+ *
+ * Stated in the account's own currency: 300 on a ZAR card means R300, not the
+ * rand equivalent of €300. Converting it would make the assumption depend on
+ * an exchange rate, which is a strange thing for "what I pay my card each
+ * month" to hinge on.
+ */
+export const ASSUMED_CARD_PAYMENT = 300;
 
 /**
  * What a debt is assumed to be paid each month when nothing has been imported
  * for it yet. A stated figure always wins.
  *
- * For a credit card this is deliberately not a flat percentage. Card minimums
- * are set as a small percentage *plus that month's interest*, and the
- * distinction decides the answer rather than refining it: 1% of the balance
- * against a 20% card is 1% paid versus 1.67% charged, so a flat percentage
- * describes a debt that grows forever and the chart reports "never clears" for
- * an ordinary card being paid normally. Adding the interest makes the
- * assumption behave the way a real minimum does — clearing, slowly.
+ * A card takes the standing figure above. Anything else takes one percent of
+ * the balance: a loan or an overdraft with no recorded payment has no
+ * conventional minimum to imitate, and inventing a larger one would flatter
+ * it.
  *
- * Anything else keeps the plain percentage: a loan or an overdraft with no
- * recorded payment has no conventional minimum to imitate, and inventing an
- * interest-covering one would flatter it.
+ * Either way the balance caps it — nobody pays 300 against 40 outstanding.
  */
 export function assumedMinimum(debt: DebtInput): number {
-  const monthlyInterest = debt.balance * (debt.rate / 100 / 12);
-  const base = debt.type === "credit_card" ? debt.balance * 0.01 + monthlyInterest : debt.balance * 0.01;
-  return Math.max(base, Math.min(debt.balance, MINIMUM_FLOOR));
+  const base = debt.type === "credit_card" ? ASSUMED_CARD_PAYMENT : Math.max(debt.balance * 0.01, MINIMUM_FLOOR);
+  return Math.min(base, debt.balance);
 }
 
 function minimumFor(debt: DebtInput): number {
@@ -106,12 +112,8 @@ export function simulate(
     balance: d.balance,
     monthlyRate: d.rate / 100 / 12,
     minimum: minimumFor(d),
-    // A card whose real payment isn't known yet is the one case where the
-    // minimum moves: card minimums are a percentage of the current balance,
-    // so they fall as it does. Holding it fixed would have the debt clearing
-    // years sooner than paying the actual minimum ever would — flattering, on
-    // the one number a debt planner exists to be honest about.
-    recalculates: d.type === "credit_card" && d.minimumPayment <= 0,
+    // Only ever recomputed to stop a payment exceeding what's left — the
+    // assumed figures are standing amounts, not percentages of the balance.
     input: d,
     interestPaid: 0,
     monthCleared: 0,
@@ -135,12 +137,6 @@ export function simulate(
       debt.balance += interest;
       debt.interestPaid += interest;
       totalInterest += interest;
-    }
-
-    // A recalculating minimum is re-read from the balance the month opens
-    // with, the way a card statement does it.
-    for (const debt of state) {
-      if (debt.recalculates) debt.minimum = assumedMinimum({ ...debt.input, balance: debt.balance });
     }
 
     // What's paid this month: what the live debts are asking for, plus the
