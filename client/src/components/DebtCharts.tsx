@@ -2,6 +2,17 @@ import { useEffect, useState } from "react";
 import { api, type Account, type DebtProjection } from "../api/client.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 
+const TYPE_LABELS: Record<string, string> = {
+  current: "Cheque account",
+  savings: "Savings account",
+  credit_card: "Credit card",
+  loan: "Personal loan",
+};
+
+function accountTypeLabel(type: string): string {
+  return TYPE_LABELS[type] ?? "Account";
+}
+
 /**
  * Each borrowing account, drawn: how its balance falls, when it clears, and
  * how much of its facility is in use.
@@ -110,17 +121,23 @@ function AccountChart({
       </div>
 
       <p style={{ fontSize: "0.73rem", color: "var(--text-muted)", margin: "0.15rem 0 0.4rem" }}>
-        {[
-          projection.rate > 0 ? `${projection.rate}% a year` : "no rate recorded",
-          projection.minimumIsAssumed
-            ? `${formatCurrency(projection.minimumPayment, projection.currency)}/mo assumed`
-            : `${formatCurrency(projection.minimumPayment, projection.currency)}/mo`,
-          // The date as well as the count: a duration on its own still leaves
-          // you counting forward on your fingers.
-          projection.minimums.neverClears
-            ? "never clears at this payment"
-            : `clear by ${monthLabel(clearsIn ?? 0)} · ${duration(clearsIn)}`,
-        ].join(" · ")}
+        {/* An account with a facility it hasn't touched still belongs here —
+            it is listed as borrowing on the page above, and leaving it out of
+            the charts reads as something missing. But there is no payoff to
+            describe, so it says that instead of drawing a flat line. */}
+        {projection.balance <= 0
+          ? `${accountTypeLabel(projection.accountType)} · nothing drawn`
+          : [
+              projection.rate > 0 ? `${projection.rate}% a year` : "no rate recorded",
+              projection.minimumIsAssumed
+                ? `${formatCurrency(projection.minimumPayment, projection.currency)}/mo assumed`
+                : `${formatCurrency(projection.minimumPayment, projection.currency)}/mo`,
+              // The date as well as the count: a duration on its own still
+              // leaves you counting forward on your fingers.
+              projection.minimums.neverClears
+                ? "never clears at this payment"
+                : `clear by ${monthLabel(clearsIn ?? 0)} · ${duration(clearsIn)}`,
+            ].join(" · ")}
       </p>
 
       {span > 0 && (
@@ -149,6 +166,7 @@ function AccountChart({
         </>
       )}
 
+      {projection.balance > 0 && (
       <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.5rem", flexWrap: "wrap" }}>
         <label style={{ fontSize: "0.73rem", color: "var(--text-muted)" }} htmlFor={`extra-${projection.accountId}`}>
           Extra per month
@@ -170,10 +188,11 @@ function AccountChart({
           </span>
         )}
       </div>
+      )}
 
       {/* A curve drawn from a stand-in payment is the one most worth
           doubting, so it says so rather than looking like the agreement. */}
-      {projection.minimumIsAssumed && (
+      {projection.minimumIsAssumed && projection.balance > 0 && (
         <p style={{ fontSize: "0.71rem", color: "var(--text-muted)", margin: "0.35rem 0 0" }}>
           No payment imported yet, so this assumes {formatCurrency(projection.minimumPayment, projection.currency)} a month —{" "}
           {projection.accountType === "credit_card" ? (

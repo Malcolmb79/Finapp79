@@ -87,8 +87,14 @@ interface AccountRow {
  * Mirrors the client's rule for what counts as borrowing: a negative balance
  * whatever the account is called. Balances come from the same place the
  * Accounts page reads them from, so the advisor and the screen can't disagree.
+ *
+ * @param includeUndrawnFacilities Keeps accounts that owe nothing but have an
+ *   overdraft or credit limit. The charts want those — the Debt Planner lists
+ *   them, and an account present in the table but absent from the charts reads
+ *   as a bug. The adviser does not: an account owing nothing is not something
+ *   to plan a payoff for, and listing it among the debts would be misleading.
  */
-async function loadDebts(userId: string): Promise<DebtInput[]> {
+async function loadDebts(userId: string, includeUndrawnFacilities = false): Promise<DebtInput[]> {
   // Converted once here rather than per simulation, so every projection and
   // every answer the adviser gives uses the same figure for a given card.
   const rates = await loadRates("EUR");
@@ -113,7 +119,7 @@ async function loadDebts(userId: string): Promise<DebtInput[]> {
             : derived;
       return { account: a, owed: Math.max(0, -balance) };
     })
-    .filter(({ owed }) => owed > 0)
+    .filter(({ account, owed }) => owed > 0 || (includeUndrawnFacilities && (account.overdraft_limit ?? 0) > 0))
     .map(({ account, owed }) => ({
       id: account.id,
       name: account.name,
@@ -187,7 +193,7 @@ debtAdvisorRouter.post("/projection", async (req, res) => {
     return Number.isFinite(value) && value > 0 ? value : 0;
   };
 
-  const debts = await loadDebts(req.user!.id);
+  const debts = await loadDebts(req.user!.id, true);
 
   // One simulation per account, each on its own payments — which is what
   // "when does this account clear" means. A combined curve answers a
