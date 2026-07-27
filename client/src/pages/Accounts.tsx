@@ -59,7 +59,7 @@ export default function Accounts() {
   const [detectingId, setDetectingId] = useState<string | null>(null);
   const [detected, setDetected] = useState<{
     accountId: string;
-    match: { name: string; logo: string | null; confidence: string } | null;
+    match: { name: string; logo: string | null; confidence: string; source: string } | null;
   } | null>(null);
 
   // One hidden input reused by every row's upload button — the account it
@@ -363,9 +363,17 @@ export default function Accounts() {
                         {detected.match?.logo ? (
                           <>
                             <img src={detected.match.logo} alt="" style={{ width: 20, height: 20, objectFit: "contain" }} />
+                            {/* Naming the source matters: a directory match is
+                                the same asset a linked account of that bank
+                                shows, while a domain is a best guess from the
+                                open internet. */}
                             <span style={{ fontSize: "0.78rem" }}>
                               {detected.match.name}
-                              <span style={{ color: "var(--text-muted)" }}> · {detected.match.confidence} confidence</span>
+                              <span style={{ color: "var(--text-muted)" }}>
+                                {" · "}
+                                {detected.match.source === "directory" ? "from your bank directory" : detected.match.source} ·{" "}
+                                {detected.match.confidence} confidence
+                              </span>
                             </span>
                             <button
                               onClick={() => applyDetectedBank(a.id, detected.match!)}

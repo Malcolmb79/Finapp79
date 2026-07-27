@@ -124,3 +124,71 @@ export async function matchBankToAccount(
     return null;
   }
 }
+
+function buildWebSchema() {
+  return {
+    type: "object",
+    properties: {
+      bank: { type: "string" },
+      // The bank's own primary domain — fnb.co.za, aib.ie. Only ever used as
+      // a query parameter to the icon service, never fetched directly, and
+      // validated before it goes anywhere. See webLogo.ts.
+      domain: { type: "string" },
+      confidence: { type: "string", enum: ["high", "medium", "low"] },
+    },
+    required: ["bank", "domain", "confidence"],
+    additionalProperties: false,
+  };
+}
+
+/**
+ * Identifies a bank outside the PSD2 directory, for the logo to be fetched
+ * from the open internet.
+ *
+ * There is no enumerable list to constrain the answer to here — that is the
+ * whole point, since the directory is exactly what didn't cover this account.
+ * What replaces the enum is that the model's answer is a *domain*, which is
+ * validated for shape and then used only as a parameter to a fixed icon
+ * service; and that the user sees the resulting image and accepts it before
+ * anything is stored.
+ */
+export async function matchBankFromWeb(
+  accountName: string,
+  currency: string
+): Promise<{ name: string; domain: string; confidence: "high" | "medium" | "low" } | null> {
+  if (!process.env.ANTHROPIC_API_KEY) return null;
+
+  try {
+    const client = new Anthropic();
+    const response = await client.messages.create({
+      model: MODEL,
+      max_tokens: 4000,
+      output_config: { effort: "low", format: { type: "json_schema", schema: buildWebSchema() } },
+      system:
+        "You identify the bank behind an account from the name its owner gave it, including banks outside Europe. Reply with the institution's usual public name and its primary website domain. If the name does not identify a bank, say so rather than guessing.",
+      messages: [
+        {
+          role: "user",
+          content: [
+            `Account name: ${accountName}`,
+            `Account currency: ${currency}`,
+            "",
+            "Which bank is this account with, and what is that bank's primary website domain?",
+            `If the name identifies no bank — "Current-053", "Joint savings", "Holiday money" — set bank to "${NO_MATCH}" and domain to "${NO_MATCH}". A wrong logo is worse than none.`,
+          ].join("\n"),
+        },
+      ],
+    });
+
+    const text = response.content.find((block) => block.type === "text");
+    if (!text || text.type !== "text") return null;
+
+    const parsed = JSON.parse(text.text) as { bank: string; domain: string; confidence: "high" | "medium" | "low" };
+    if (!parsed.bank || parsed.bank === NO_MATCH || !parsed.domain || parsed.domain === NO_MATCH) return null;
+
+    return { name: parsed.bank, domain: parsed.domain.trim().toLowerCase(), confidence: parsed.confidence ?? "medium" };
+  } catch (err) {
+    console.error("Web bank match failed:", err);
+    return null;
+  }
+}

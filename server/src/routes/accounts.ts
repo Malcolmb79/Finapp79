@@ -2,7 +2,8 @@ import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { db, withTransaction } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
-import { matchBankToAccount } from "../services/bankMatch.js";
+import { matchBankFromWeb, matchBankToAccount } from "../services/bankMatch.js";
+import { fetchLogoDataUri } from "../services/webLogo.js";
 
 export const accountsRouter = Router();
 
@@ -118,13 +119,19 @@ accountsRouter.patch("/:id", async (req, res) => {
     params.push(account_type);
   }
 
-  // Applied only after the user has confirmed a detected bank, so the value
-  // originates from the directory rather than from the request body's
-  // imagination — but it still has to be an https URL, because it ends up in
-  // an <img src>. null clears the branding.
+  // Applied only after the user has confirmed a detected bank. It still has
+  // to be checked here, because it ends up in an <img src>: an https URL (the
+  // directory's own asset) or an inline image (one fetched and stored by
+  // detect-bank, so the browser never re-requests it from a third party).
+  // Anything else — javascript:, data:text/html — is refused. null clears it.
   if (logo !== undefined) {
-    if (logo !== null && (typeof logo !== "string" || !/^https:\/\//.test(logo))) {
-      res.status(400).json({ error: "logo must be an https URL or null" });
+    const acceptable =
+      logo === null ||
+      (typeof logo === "string" &&
+        (/^https:\/\//.test(logo) || /^data:image\/(png|jpeg|gif|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(logo)) &&
+        logo.length <= 300_000);
+    if (!acceptable) {
+      res.status(400).json({ error: "logo must be an https URL, an inline image, or null" });
       return;
     }
     sets.push("logo = ?");
@@ -200,7 +207,19 @@ accountsRouter.post("/:id/detect-bank", async (req, res) => {
   for (const country of [...new Set(candidates.map((c) => c.toUpperCase()))]) {
     const match = await matchBankToAccount(account.name, account.institution_name, country);
     if (match?.logo) {
-      res.json(match);
+      res.json({ ...match, source: "directory" });
+      return;
+    }
+  }
+
+  // The directory is a PSD2 list, so anything outside Europe — a South
+  // African or US bank — is never in it however well the name matches. Falling
+  // back to the open internet is the only way those get a logo at all.
+  const web = await matchBankFromWeb(account.name, account.currency);
+  if (web) {
+    const logo = await fetchLogoDataUri(web.domain);
+    if (logo) {
+      res.json({ name: web.name, logo, country: null, confidence: web.confidence, source: web.domain });
       return;
     }
   }

@@ -219,10 +219,14 @@ export const api = {
    * Writes nothing — the result is for the user to confirm.
    */
   detectAccountBank: (id: string) =>
-    request<{ name: string; logo: string | null; country: string; confidence: "high" | "medium" | "low" } | null>(
-      `/accounts/${id}/detect-bank`,
-      { method: "POST" }
-    ),
+    request<{
+      name: string;
+      logo: string | null;
+      country: string | null;
+      confidence: "high" | "medium" | "low";
+      /** "directory" for a PSD2 match, otherwise the domain the logo came from. */
+      source: string;
+    } | null>(`/accounts/${id}/detect-bank`, { method: "POST" }),
 
   updateAccount: (
     id: string,
