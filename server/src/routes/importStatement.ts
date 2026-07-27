@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { db, withTransaction } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { resolveBank } from "../services/bankLogo.js";
+import { categoriseImport } from "../services/importCategorise.js";
 import { checkStatement } from "../services/statementMatch.js";
 import { extractPdfRows, looksLikePdf } from "../services/pdfStatement.js";
 import { applyMapping, hasDateShape, inferMapping, parseDelimited, splitPreamble, type StatementMapping } from "../services/statementParser.js";
@@ -15,7 +16,10 @@ importStatementRouter.use(requireAuth);
 // export and the failure would look like a server error rather than a size
 // problem. 8MB is far more than any realistic statement.
 const MAX_BYTES = 8 * 1024 * 1024;
-const PREVIEW_ROWS = 8;
+// The dialog lists every row rather than a sample — a statement you can only
+// see eight rows of isn't really being confirmed. The cap exists so a
+// pathological file can't produce an unbounded response.
+const PREVIEW_ROWS = 2000;
 
 /**
  * Statement import, in two steps.
@@ -42,6 +46,12 @@ interface StatementBody {
   mapping?: StatementMapping;
   /** Set the account's logo/institution from the bank detected in the file. */
   apply_bank_logo?: boolean;
+  /**
+   * Category per parsed row, aligned by index with the preview's rows. The
+   * rows themselves are re-derived here from the same content and mapping, so
+   * the client sends only the choices, never the transactions.
+   */
+  categories?: (number | null)[];
 }
 
 type Failure = { error: string; status: number };
@@ -177,6 +187,9 @@ importStatementRouter.post("/preview", async (req, res) => {
     // letterhead, and labelling from it offers a single unusable column with
     // no amount to select, whatever the mapping underneath found.
     columns: columnLabels(table, mapping),
+    // Every row, not a sample: the dialog is where the import is checked, and
+    // checking it means seeing all of what's about to land. Capped only to
+    // keep a pathological file from producing an unbounded response.
     sample: rows.slice(0, PREVIEW_ROWS),
     parsed: rows.length,
     // Rows the mapping dropped — a large number here usually means the date
@@ -201,6 +214,39 @@ importStatementRouter.post("/preview", async (req, res) => {
     // the right statement imported into the wrong account parses perfectly.
     check: checkStatement(mapping, rows, account),
   });
+});
+
+/**
+ * Suggested categories for every row, on demand.
+ *
+ * Separate from /preview because the dialog re-previews on every mapping
+ * tweak, and a model call per keystroke would be slow and wasteful. This runs
+ * once, when the user asks for suggestions.
+ */
+importStatementRouter.post("/categorise", async (req, res) => {
+  const body = req.body as StatementBody;
+  if (!body.account_id) {
+    res.status(400).json({ error: "account_id is required" });
+    return;
+  }
+
+  const account = await ownedAccount(body.account_id, req.user!.id);
+  if (!account) {
+    res.status(404).json({ error: "account not found" });
+    return;
+  }
+
+  const grid = await gridFromBody(body);
+  if (isFailure(grid)) {
+    res.status(grid.status).json({ error: grid.error });
+    return;
+  }
+
+  const { preamble, table } = splitPreamble(grid);
+  const mapping = body.mapping ?? (await inferMapping(table, preamble));
+  const rows = applyMapping(table, mapping);
+
+  res.json(await categoriseImport(req.user!.id, rows));
 });
 
 importStatementRouter.post("/", async (req, res) => {
@@ -231,14 +277,26 @@ importStatementRouter.post("/", async (req, res) => {
     return;
   }
 
+  // Only categories belonging to this user can be attached — an id from the
+  // request body is otherwise an open door to writing against someone else's
+  // category.
+  const ownedCategories = new Set(
+    ((await db.prepare("SELECT id FROM categories WHERE user_id = ?").all(req.user!.id)) as unknown as { id: number }[]).map(
+      (c) => c.id
+    )
+  );
+  const chosenCategories = body.categories ?? [];
+
   let imported = 0;
   await withTransaction(async (tx) => {
     const insert = tx.prepare(
-      `INSERT INTO transactions (id, user_id, account_id, booking_date, amount, currency, description, counterparty, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'csv')
+      `INSERT INTO transactions (id, user_id, account_id, booking_date, amount, currency, description, counterparty, category_id, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'csv')
        ON CONFLICT (id) DO NOTHING`
     );
-    for (const row of rows) {
+    for (const [index, row] of rows.entries()) {
+      const chosen = chosenCategories[index];
+      const categoryId = chosen != null && ownedCategories.has(chosen) ? chosen : null;
       // Content-hashed id: re-importing an overlapping statement is a no-op
       // rather than a pile of duplicates, which matters because exports
       // routinely overlap at the period boundary.
@@ -252,7 +310,8 @@ importStatementRouter.post("/", async (req, res) => {
         row.amount,
         account.currency,
         row.description,
-        row.counterparty
+        row.counterparty,
+        categoryId
       );
       if (result.changes > 0) imported++;
     }

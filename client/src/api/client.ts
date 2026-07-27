@@ -223,11 +223,35 @@ export const api = {
       body: JSON.stringify({ account_id: accountId, content_base64: contentBase64, mapping }),
     }),
 
-  importStatement: (accountId: string, contentBase64: string, mapping: StatementMapping, applyBankLogo = false) =>
+  // Categories are sent aligned by index with the preview's rows; the server
+  // re-derives the rows from the same content and mapping, so only the
+  // choices travel, never the transactions.
+  importStatement: (
+    accountId: string,
+    contentBase64: string,
+    mapping: StatementMapping,
+    applyBankLogo = false,
+    categories: (number | null)[] = []
+  ) =>
     request<{ imported: number; duplicates: number; parsed: number; brandedAs: string | null }>("/import/statement", {
       method: "POST",
-      body: JSON.stringify({ account_id: accountId, content_base64: contentBase64, mapping, apply_bank_logo: applyBankLogo }),
+      body: JSON.stringify({
+        account_id: accountId,
+        content_base64: contentBase64,
+        mapping,
+        apply_bank_logo: applyBankLogo,
+        categories,
+      }),
     }),
+
+  categoriseStatement: (accountId: string, contentBase64: string, mapping: StatementMapping) =>
+    request<{ suggestions: { categoryId: number | null; proposedCategory: string | null }[]; proposed: string[] }>(
+      "/import/statement/categorise",
+      {
+        method: "POST",
+        body: JSON.stringify({ account_id: accountId, content_base64: contentBase64, mapping }),
+      }
+    ),
 
   listInstitutions: (country: string) => request<Aspsp[]>(`/bank-link/institutions?country=${country}`),
   startBankLink: (aspspName: string, country: string, logo?: string) =>

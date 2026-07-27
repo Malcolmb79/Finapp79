@@ -1,6 +1,10 @@
-import { AlertTriangle, Loader2, Sparkles } from "lucide-react";
+import { AlertTriangle, Loader2, Plus, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { api, type StatementMapping, type StatementPreview } from "../api/client.js";
+import { api, type Category, type StatementMapping, type StatementPreview } from "../api/client.js";
+
+// Marker value for the "add a category" option in a row's dropdown. Not a
+// valid id, so it can never collide with a real category.
+const NEW_CATEGORY = "__new__";
 
 /**
  * Confirms how a statement file will be read before anything is written.
@@ -34,6 +38,20 @@ export default function StatementImportModal({
   // Defaults on: if a bank was confidently matched, branding the account is
   // almost always wanted — but it's visible and switchable before importing.
   const [applyLogo, setApplyLogo] = useState(true);
+
+  const [categories, setCategories] = useState<Category[]>([]);
+  // Per-row category, keyed by row index. Only rows the user (or a suggestion)
+  // has actually set appear here, so an untouched row imports uncategorised.
+  const [rowCategories, setRowCategories] = useState<Record<number, number | null>>({});
+  const [suggesting, setSuggesting] = useState(false);
+  const [proposed, setProposed] = useState<string[]>([]);
+  // Which row is mid-way through creating a category, and the name being typed.
+  const [creatingFor, setCreatingFor] = useState<number | null>(null);
+  const [newCategoryName, setNewCategoryName] = useState("");
+
+  useEffect(() => {
+    api.listCategories().then(setCategories);
+  }, []);
   // Guards against an earlier re-preview landing after a later one and
   // overwriting it with a stale sample.
   const requestId = useRef(0);
@@ -69,12 +87,55 @@ export default function StatementImportModal({
       .catch((e) => id === requestId.current && setError(e instanceof Error ? e.message : String(e)));
   }
 
+  async function suggestCategories() {
+    if (!mapping || !preview) return;
+    setSuggesting(true);
+    setError(null);
+    try {
+      const result = await api.categoriseStatement(accountId, contentBase64, mapping);
+      // Only fills rows the user hasn't already decided — a suggestion must
+      // never overwrite a choice they've made.
+      setRowCategories((current) => {
+        const next = { ...current };
+        result.suggestions.forEach((s, index) => {
+          if (s.categoryId != null && !(index in next)) next[index] = s.categoryId;
+        });
+        return next;
+      });
+      setProposed(result.proposed);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSuggesting(false);
+    }
+  }
+
+  async function createCategory(name: string, forRow: number | null) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const existing = categories.find((c) => c.name.toLowerCase() === trimmed.toLowerCase());
+    const category = existing ?? (await api.createCategory(trimmed));
+    if (!existing) setCategories((cs) => [...cs, category].sort((a, b) => a.name.localeCompare(b.name)));
+    setProposed((p) => p.filter((n) => n.toLowerCase() !== trimmed.toLowerCase()));
+    if (forRow != null) setRowCategories((current) => ({ ...current, [forRow]: category.id }));
+    setCreatingFor(null);
+    setNewCategoryName("");
+    return category;
+  }
+
   async function confirm() {
-    if (!mapping) return;
+    if (!mapping || !preview) return;
     setImporting(true);
     setError(null);
     try {
-      const result = await api.importStatement(accountId, contentBase64, mapping, applyLogo && !!preview?.detectedBank);
+      const perRow = preview.sample.map((_, index) => rowCategories[index] ?? null);
+      const result = await api.importStatement(
+        accountId,
+        contentBase64,
+        mapping,
+        applyLogo && !!preview.detectedBank,
+        perRow
+      );
       onImported(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -342,31 +403,96 @@ export default function StatementImportModal({
               </div>
             )}
 
-            <h3 style={{ marginBottom: "0.4rem", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-secondary)" }}>
-              Preview
-            </h3>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.4rem" }}>
+              <h3 style={{ margin: 0, fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-secondary)" }}>
+                {preview.parsed} transaction{preview.parsed === 1 ? "" : "s"} to import
+              </h3>
+              <button onClick={suggestCategories} disabled={suggesting || preview.parsed === 0}>
+                {suggesting ? <Loader2 size={13} className="spin" /> : <Sparkles size={13} />}
+                Suggest categories
+              </button>
+            </div>
             {preview.sample.length === 0 ? (
               <p className="empty-state">
                 No transactions read with this mapping — check the date column and format.
               </p>
             ) : (
-              <div>
-                {preview.sample.map((row, i) => (
-                  <div className="tx-row" key={i}>
-                    <div className="tx-row__info">
-                      <div className="tx-row__name">{row.description || row.counterparty || "—"}</div>
-                      <div className="tx-row__meta">
-                        {row.date}
-                        {row.counterparty && row.description ? ` · ${row.counterparty}` : ""}
-                      </div>
-                    </div>
-                    <span className={`tx-row__amount${row.amount >= 0 ? " tx-row__amount--positive" : ""}`}>
-                      {row.amount >= 0 ? "+" : ""}
-                      {row.amount.toFixed(2)} {preview.currency}
-                    </span>
+              <>
+                {proposed.length > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap", marginBottom: "0.6rem" }}>
+                    <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Suggested new categories:</span>
+                    {proposed.map((name) => (
+                      <button key={name} onClick={() => createCategory(name, null)} style={{ fontSize: "0.8rem" }}>
+                        <Plus size={12} />
+                        {name}
+                      </button>
+                    ))}
                   </div>
-                ))}
-              </div>
+                )}
+
+                {/* Scrolls within the dialog so the whole statement is
+                    reviewable without the controls above scrolling away. */}
+                <div style={{ maxHeight: "40vh", overflow: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius)" }}>
+                  {preview.sample.map((row, i) => (
+                    <div className="tx-row" key={i}>
+                      <div className="tx-row__info">
+                        <div className="tx-row__name">{row.description || row.counterparty || "—"}</div>
+                        <div className="tx-row__meta">
+                          {row.date}
+                          {row.counterparty && row.description ? ` · ${row.counterparty}` : ""}
+                        </div>
+                      </div>
+
+                      {creatingFor === i ? (
+                        <input
+                          autoFocus
+                          value={newCategoryName}
+                          placeholder="New category"
+                          onChange={(e) => setNewCategoryName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") createCategory(newCategoryName, i);
+                            if (e.key === "Escape") {
+                              setCreatingFor(null);
+                              setNewCategoryName("");
+                            }
+                          }}
+                          onBlur={() => createCategory(newCategoryName, i)}
+                          style={{ maxWidth: 150, fontSize: "0.82rem" }}
+                        />
+                      ) : (
+                        <select
+                          value={rowCategories[i] ?? ""}
+                          onChange={(e) => {
+                            if (e.target.value === NEW_CATEGORY) {
+                              setNewCategoryName("");
+                              setCreatingFor(i);
+                              return;
+                            }
+                            setRowCategories((current) => ({
+                              ...current,
+                              [i]: e.target.value ? Number(e.target.value) : null,
+                            }));
+                          }}
+                          style={{ maxWidth: 150, fontSize: "0.82rem" }}
+                        >
+                          <option value="">Uncategorized</option>
+                          {categories.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                          <option value={NEW_CATEGORY}>+ New category…</option>
+                        </select>
+                      )}
+
+                      <span className={`tx-row__amount${row.amount >= 0 ? " tx-row__amount--positive" : ""}`}>
+                        {row.amount >= 0 ? "+" : ""}
+                        {row.amount.toFixed(2)} {preview.currency}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
 
           </>
