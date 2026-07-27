@@ -126,7 +126,13 @@ function AccountChart({
             the charts reads as something missing. But there is no payoff to
             describe, so it says that instead of drawing a flat line. */}
         {projection.balance <= 0
-          ? `${accountTypeLabel(projection.accountType)} · nothing drawn`
+          ? // Two different situations that both read as zero, and they call
+            // for different things: an untouched facility is fine as it is,
+            // a card with no balance recorded is missing a figure only the
+            // user can supply.
+            (account?.overdraft_limit ?? 0) > 0
+            ? `${accountTypeLabel(projection.accountType)} · nothing drawn`
+            : `${accountTypeLabel(projection.accountType)} · no balance recorded — set what's owed on the Accounts page`
           : [
               projection.rate > 0 ? `${projection.rate}% a year` : "no rate recorded",
               projection.minimumIsAssumed

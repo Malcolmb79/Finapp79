@@ -97,7 +97,15 @@ export function amountDrawn(account: Account, txSum: number): number {
   return Math.max(0, -accountBalance(account, txSum));
 }
 
-/** Whether the account belongs in the borrowing picture at all. */
+/**
+ * Whether the account belongs in the borrowing picture at all.
+ *
+ * A card or a loan qualifies on what it is, not on what it currently reads.
+ * Requiring a negative balance made any liability with no balance recorded
+ * disappear from the Debt Planner entirely — no row, no chart, no explanation
+ * — which is indistinguishable from the app having lost it. Showing it with
+ * nothing owed is honest and points at the missing figure; hiding it is not.
+ */
 export function isBorrowing(account: Account, txSum: number): boolean {
-  return accountBalance(account, txSum) < 0 || (account.overdraft_limit ?? 0) > 0;
+  return isLiability(account) || accountBalance(account, txSum) < 0 || (account.overdraft_limit ?? 0) > 0;
 }

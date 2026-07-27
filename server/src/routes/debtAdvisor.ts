@@ -88,13 +88,17 @@ interface AccountRow {
  * whatever the account is called. Balances come from the same place the
  * Accounts page reads them from, so the advisor and the screen can't disagree.
  *
- * @param includeUndrawnFacilities Keeps accounts that owe nothing but have an
- *   overdraft or credit limit. The charts want those — the Debt Planner lists
- *   them, and an account present in the table but absent from the charts reads
- *   as a bug. The adviser does not: an account owing nothing is not something
- *   to plan a payoff for, and listing it among the debts would be misleading.
+ * @param everythingBorrowable Keeps accounts that currently owe nothing: those
+ *   with an untouched facility, and cards and loans regardless of balance. The
+ *   charts want those, because the Debt Planner lists them and an account
+ *   present in the table but absent from the charts reads as a bug — and
+ *   because a card with no balance recorded disappearing without explanation
+ *   is indistinguishable from the app having lost it.
+ *
+ *   The adviser does not: an account owing nothing is not something to plan a
+ *   payoff for, and listing it among the debts would mislead.
  */
-async function loadDebts(userId: string, includeUndrawnFacilities = false): Promise<DebtInput[]> {
+async function loadDebts(userId: string, everythingBorrowable = false): Promise<DebtInput[]> {
   // Converted once here rather than per simulation, so every projection and
   // every answer the adviser gives uses the same figure for a given card.
   const rates = await loadRates("EUR");
@@ -119,7 +123,12 @@ async function loadDebts(userId: string, includeUndrawnFacilities = false): Prom
             : derived;
       return { account: a, owed: Math.max(0, -balance) };
     })
-    .filter(({ account, owed }) => owed > 0 || (includeUndrawnFacilities && (account.overdraft_limit ?? 0) > 0))
+    .filter(({ account, owed }) => {
+      if (owed > 0) return true;
+      if (!everythingBorrowable) return false;
+      const type = account.account_type ?? "current";
+      return (account.overdraft_limit ?? 0) > 0 || type === "credit_card" || type === "loan";
+    })
     .map(({ account, owed }) => ({
       id: account.id,
       name: account.name,
