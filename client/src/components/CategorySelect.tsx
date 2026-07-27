@@ -54,16 +54,19 @@ export default function CategorySelect({
       const target = e.target as Node;
       if (!triggerRef.current?.contains(target) && !popoverRef.current?.contains(target)) setOpen(false);
     };
-    // Repositioning on scroll would be wrong here: the trigger can scroll out
-    // of view inside a list, so closing is the honest behaviour.
-    const onScroll = () => setOpen(false);
+    // Follow the trigger rather than closing. Closing on any scroll made the
+    // list unusable on touch: tapping an option produces a small scroll
+    // (momentum, rubber-banding, the keyboard settling), which closed the
+    // popover before the tap resolved — so only typing a name out in full and
+    // pressing Enter ever selected anything.
+    const reposition = () => setRect(triggerRef.current?.getBoundingClientRect() ?? null);
     document.addEventListener("pointerdown", close);
-    window.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", onScroll);
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
     return () => {
       document.removeEventListener("pointerdown", close);
-      window.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", onScroll);
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
     };
   }, [open]);
 
@@ -142,7 +145,18 @@ export default function CategorySelect({
           </div>
 
           <div style={{ maxHeight: 200, overflow: "auto" }}>
-            <button type="button" className="add-widget-menu__item" onClick={() => pick(null)} style={{ width: "100%", fontSize: "0.82rem" }}>
+            {/* Selecting on pointerdown, not click: the search input holds
+                focus, and on touch the blur/scroll that follows a tap could
+                tear the popover down before a click ever landed. */}
+            <button
+              type="button"
+              className="add-widget-menu__item"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                pick(null);
+              }}
+              style={{ width: "100%", fontSize: "0.82rem" }}
+            >
               {value == null && <Check size={12} />}
               {placeholder}
             </button>
@@ -151,7 +165,10 @@ export default function CategorySelect({
                 type="button"
                 key={c.id}
                 className="add-widget-menu__item"
-                onClick={() => pick(c.id)}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  pick(c.id);
+                }}
                 style={{ width: "100%", fontSize: "0.82rem" }}
               >
                 {c.id === value && <Check size={12} />}
@@ -164,7 +181,15 @@ export default function CategorySelect({
               </p>
             )}
             {canCreate && (
-              <button type="button" className="add-widget-menu__item" onClick={create} style={{ width: "100%", fontSize: "0.82rem", fontWeight: 600 }}>
+              <button
+                type="button"
+                className="add-widget-menu__item"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  create();
+                }}
+                style={{ width: "100%", fontSize: "0.82rem", fontWeight: 600 }}
+              >
                 <Plus size={12} />
                 Create “{query.trim()}”
               </button>
