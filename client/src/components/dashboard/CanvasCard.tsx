@@ -24,7 +24,9 @@ interface CanvasCardProps {
   onDraggingChange?: (dragging: boolean) => void;
   mode?: WidgetMode;
   onModeChange?: (mode: WidgetMode) => void;
-  onRemove: () => void;
+  /** Omitted where the widget is a fixed part of the page rather than one of
+   *  an optional set — a remove button that does nothing is worse than none. */
+  onRemove?: () => void;
   children: ReactNode;
 }
 
@@ -101,21 +103,23 @@ export default function CanvasCard({
               {mode === "chart" ? <Hash size={13} /> : <BarChart3 size={13} />}
             </button>
           )}
-          <button
-            type="button"
-            className="icon-button"
-            onClick={(e) => {
-              // Blur before removing - on iOS Safari, removing the still-
-              // focused button from the DOM makes focus fall back to <body>,
-              // which scrolls the page to the top rather than leaving the
-              // scroll position where it was.
-              e.currentTarget.blur();
-              onRemove();
-            }}
-            aria-label={`Remove ${title}`}
-          >
-            <X size={13} />
-          </button>
+          {onRemove && (
+            <button
+              type="button"
+              className="icon-button"
+              onClick={(e) => {
+                // Blur before removing - on iOS Safari, removing the still-
+                // focused button from the DOM makes focus fall back to <body>,
+                // which scrolls the page to the top rather than leaving the
+                // scroll position where it was.
+                e.currentTarget.blur();
+                onRemove();
+              }}
+              aria-label={`Remove ${title}`}
+            >
+              <X size={13} />
+            </button>
+          )}
         </div>
       </div>
 
