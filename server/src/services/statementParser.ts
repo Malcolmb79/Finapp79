@@ -519,9 +519,17 @@ export async function inferMapping(rows: string[][], preamble: string[][] = []):
   const fallback = heuristicMapping(rows, preamble);
   if (!process.env.ANTHROPIC_API_KEY) return fallback;
 
+  // Sampled from where the transactions actually start, not from row 0.
+  // A PDF statement opens with branch numbers, an address block and VAT
+  // registrations — on this file, 50-odd such lines before the first
+  // transaction. Handing the model the first N rows shows it none of the
+  // table, so it maps columns off letterhead and the import comes back empty.
+  // One row before the first data row is included, since that's the header.
+  const firstDataRow = rows.findIndex((row) => row.length > 1 && row.some((c) => hasDateShape(c)));
+  const sampleStart = firstDataRow > 0 ? firstDataRow - 1 : 0;
   const sample = rows
-    .slice(0, SAMPLE_ROWS)
-    .map((row, i) => `${i}: ${row.map((cell, c) => `[${c}] ${cell}`).join("  |  ")}`)
+    .slice(sampleStart, sampleStart + SAMPLE_ROWS)
+    .map((row, i) => `${sampleStart + i}: ${row.map((cell, c) => `[${c}] ${cell}`).join("  |  ")}`)
     .join("\n");
 
   // The lines above the table are where a statement names its bank and shows
@@ -575,13 +583,25 @@ export async function inferMapping(rows: string[][], preamble: string[][] = []):
     // defaultYear and signFromMarker are structural facts the heuristic
     // derives from the whole document, not judgement calls — so they're taken
     // from it rather than asked of the model.
-    return {
+    const inferred: StatementMapping = {
       ...parsed,
       invertAmounts: false,
       defaultYear: fallback.defaultYear,
       signFromMarker: fallback.signFromMarker,
       source: "ai",
     };
+
+    // The model sees a sample; the heuristic sees every row. When the model's
+    // mapping reads fewer transactions than the heuristic's, it has misread
+    // the layout — keep the one that actually parses the file. Without this,
+    // a bad inference silently produces an empty import even though the
+    // fallback would have worked.
+    if (applyMapping(rows, inferred).length < applyMapping(rows, fallback).length) {
+      console.warn("Inferred mapping parsed fewer rows than the heuristic; using the heuristic.");
+      return fallback;
+    }
+
+    return inferred;
   } catch (err) {
     console.error("Statement mapping inference failed, falling back to header matching:", err);
     return fallback;

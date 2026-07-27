@@ -80,6 +80,27 @@ describe("lines with no whitespace structure at all", () => {
     expect(textToRows(statement)[0]).toEqual(["Transactions in RAND (ZAR)"]);
   });
 
+  // A real statement carries around fifty lines of letterhead, address block
+  // and VAT registrations before the table starts. Anything that looks at
+  // only the first handful of rows sees none of the transactions.
+  it("still parses when the table starts far down the page", async () => {
+    const junk = [
+      "Branch Number Account Number Date DDA 06/94/HX/KM",
+      "665 62104109716 2026/07/08 FNB ASPIRE CURRENT ACCOUNT",
+      "MR MALCOLM D BARSKE",
+      "2 CHRISTOPHER S PLACE",
+      "Customer VAT Registration Number Not Provided",
+      "Statement Period : 8 June 2026 to 8 July 2026",
+      "Opening Balance 36,916.54 Dr",
+      ...Array.from({ length: 40 }, (_, i) => `Filler line ${i}`),
+    ].join("\n");
+
+    const { preamble, table } = splitPreamble(textToRows([junk, statement].join("\n")));
+    const rows = applyMapping(table, await inferMapping(table, preamble));
+    expect(rows).toHaveLength(4);
+    expect(rows.map((r) => r.amount)).toEqual([-203.17, 559.4, -2, -9836.72]);
+  });
+
   // The statement writes its year once in the header and marks direction with
   // a Cr suffix rather than a sign — read naively, every row is positive and
   // undated.
