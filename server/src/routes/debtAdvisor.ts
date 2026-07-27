@@ -166,22 +166,26 @@ debtAdvisorRouter.get("/projection", async (req, res) => {
   const extraPerMonth = Number.isFinite(extra) && extra > 0 ? extra : 0;
 
   const debts = await loadDebts(req.user!.id);
-  const currencies = [...new Set(debts.map((d) => d.currency))];
 
+  // One simulation per account, each on its own payments — which is what
+  // "when does this account clear" means. A combined curve answers a
+  // different question, and the two are easy to confuse.
+  //
+  // The extra is modelled as going to this account alone: that is the choice
+  // actually being weighed when looking at one debt, and spreading the same
+  // extra across every account at once would describe a plan nobody could
+  // follow.
   res.json(
-    currencies.map((currency) => {
-      const scoped = debts.filter((d) => d.currency === currency);
-      const minimums = simulate(scoped, 0, "avalanche");
-      // Only worth returning when it differs from the baseline, which it
-      // doesn't at zero extra.
-      const withExtra = extraPerMonth > 0 ? simulate(scoped, extraPerMonth, "avalanche") : null;
-      return {
-        currency,
-        debts: scoped.map((d) => ({ name: d.name, balance: d.balance, rate: d.rate })),
-        minimums,
-        withExtra,
-      };
-    })
+    debts.map((debt) => ({
+      accountId: debt.id,
+      name: debt.name,
+      currency: debt.currency,
+      balance: debt.balance,
+      rate: debt.rate,
+      minimumPayment: debt.minimumPayment,
+      minimums: simulate([debt], 0, "avalanche"),
+      withExtra: extraPerMonth > 0 ? simulate([debt], extraPerMonth, "avalanche") : null,
+    }))
   );
 });
 

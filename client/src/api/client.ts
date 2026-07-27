@@ -49,11 +49,16 @@ export interface PayoffResult {
   order: { name: string; monthCleared: number; interestPaid: number }[];
 }
 
+/** One account's payoff, simulated on its own payments. */
 export interface DebtProjection {
+  accountId: string;
+  name: string;
   currency: string;
-  debts: { name: string; balance: number; rate: number }[];
+  balance: number;
+  rate: number;
+  minimumPayment: number;
   minimums: PayoffResult;
-  /** Only present when an extra payment was asked for. */
+  /** The same account with the extra payment aimed at it. Null when none was asked for. */
   withExtra: PayoffResult | null;
 }
 

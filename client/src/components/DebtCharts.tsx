@@ -1,183 +1,156 @@
 import { useEffect, useState } from "react";
 import { api, type Account, type DebtProjection } from "../api/client.js";
-import { accountBalance, amountDrawn } from "../utils/accountBalance.js";
+
 import { formatCurrency } from "../utils/formatCurrency.js";
 
 /**
- * The debt picture, drawn.
+ * Each borrowing account, drawn: how its balance falls, when it clears, and
+ * how much of its facility is in use.
  *
- * Three things a table doesn't show well: how the total falls over time and
- * when it reaches zero, how much of each facility is used, and which debts
- * make up the balance.
+ * One chart per account rather than one across all of them. "When does this
+ * clear" is a question about a particular debt, and a combined curve answers
+ * something different — they look alike and are easy to confuse.
  *
- * The payoff curve comes from the server's simulator rather than being
- * recomputed here, so the chart and the figures the adviser quotes are the
- * same arithmetic — and it stays in the one place that has tests.
+ * The curves are served from the same simulator the adviser quotes rather than
+ * recomputed here, so a chart and the figures beside it cannot disagree, and
+ * the arithmetic stays in the one place that has tests.
  */
 
-const CHART_WIDTH = 560;
-const CHART_HEIGHT = 150;
+const CHART_WIDTH = 320;
+const CHART_HEIGHT = 90;
 const PAD = 4;
 
-function PayoffCurve({ projection }: { projection: DebtProjection }) {
+function curvePath(series: number[], span: number, peak: number): string {
+  return series
+    .map((value, i) => {
+      const x = span > 0 ? (i / span) * CHART_WIDTH : 0;
+      const y = CHART_HEIGHT - PAD - (peak > 0 ? (value / peak) * (CHART_HEIGHT - PAD * 2) : 0);
+      return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+}
+
+function months(count: number | null): string {
+  if (count === null) return "never at this rate";
+  if (count === 0) return "cleared";
+  if (count < 24) return `${count} month${count === 1 ? "" : "s"}`;
+  return `${Math.floor(count / 12)}y ${count % 12}m`;
+}
+
+function AccountChart({ projection, account }: { projection: DebtProjection; account: Account | undefined }) {
   const baseline = projection.minimums.balanceByMonth;
   const faster = projection.withExtra?.balanceByMonth ?? null;
-  if (baseline.length < 2) return null;
 
   const span = Math.max(baseline.length, faster?.length ?? 0) - 1;
   const peak = Math.max(...baseline, ...(faster ?? [0]));
 
-  const path = (series: number[]) =>
-    series
-      .map((value, i) => {
-        const x = span > 0 ? (i / span) * CHART_WIDTH : 0;
-        const y = CHART_HEIGHT - PAD - (peak > 0 ? (value / peak) * (CHART_HEIGHT - PAD * 2) : 0);
-        return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
-      })
-      .join(" ");
+  // The server worked the balance out with the same rule the Accounts page
+  // uses, so it is the figure to measure the facility against — recomputing
+  // it here from transactions would risk the two disagreeing.
+  const limit = account?.overdraft_limit ?? 0;
+  const utilisation = limit > 0 ? Math.min(100, (projection.balance / limit) * 100) : null;
+  // Past four-fifths of a facility is where lenders start treating an account
+  // differently, so it earns a colour rather than just a number.
+  const tone = utilisation === null ? "var(--accent)" : utilisation >= 80 ? "var(--critical)" : utilisation >= 50 ? "var(--accent-3)" : "var(--accent)";
 
-  const clearsIn = projection.minimums.months;
+  const saved =
+    projection.withExtra && !projection.withExtra.neverClears && !projection.minimums.neverClears
+      ? projection.minimums.totalInterest - projection.withExtra.totalInterest
+      : null;
 
   return (
-    <div style={{ marginBottom: "1rem" }}>
-      <p className="stat-tile__label" style={{ marginBottom: "0.2rem" }}>
-        What you owe, month by month
-      </p>
-      <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", margin: "0 0 0.4rem" }}>
-        {projection.minimums.neverClears
-          ? "At these payments the balance never clears — the interest is outrunning them."
-          : `Clear in ${clearsIn} month${clearsIn === 1 ? "" : "s"} at the current payments`}
-        {faster && projection.withExtra?.months != null && !projection.withExtra.neverClears
-          ? ` · ${projection.withExtra.months} with the extra`
-          : ""}
-      </p>
-      <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} width="100%" height={CHART_HEIGHT} preserveAspectRatio="none">
-        <path d={`${path(baseline)} L${CHART_WIDTH},${CHART_HEIGHT} L0,${CHART_HEIGHT} Z`} fill="var(--accent)" opacity={0.12} />
-        <path d={path(baseline)} fill="none" stroke="var(--accent)" strokeWidth={2} vectorEffect="non-scaling-stroke" />
-        {faster && (
-          // Dashed so the two lines stay apart without relying on colour
-          // alone to tell them apart.
-          <path
-            d={path(faster)}
-            fill="none"
-            stroke="var(--good)"
-            strokeWidth={2}
-            strokeDasharray="5 4"
-            vectorEffect="non-scaling-stroke"
-          />
-        )}
-      </svg>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: "var(--text-muted)" }}>
-        <span>now</span>
-        <span>{span} months</span>
+    <div style={{ padding: "0.6rem 0", borderTop: "1px solid var(--border)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" }}>
+        <strong style={{ fontSize: "0.88rem" }}>{projection.name}</strong>
+        <span style={{ fontSize: "0.85rem" }}>{formatCurrency(projection.balance, projection.currency)}</span>
       </div>
-    </div>
-  );
-}
-
-/**
- * How much of each facility is in use.
- *
- * The bar is the limit and the fill is what's drawn, so a card near its
- * ceiling is obvious at a glance in a way a pair of numbers isn't.
- */
-function Utilisation({ accounts, txSums }: { accounts: Account[]; txSums: Map<string, number> }) {
-  const withLimits = accounts.filter((a) => (a.overdraft_limit ?? 0) > 0);
-  if (withLimits.length === 0) return null;
-
-  return (
-    <div style={{ marginBottom: "1rem" }}>
-      <p className="stat-tile__label" style={{ marginBottom: "0.4rem" }}>
-        How much of each facility is used
+      <p style={{ fontSize: "0.73rem", color: "var(--text-muted)", margin: "0.15rem 0 0.4rem" }}>
+        {[
+          projection.rate > 0 ? `${projection.rate}% a year` : "no rate recorded",
+          projection.minimumPayment > 0 ? `${formatCurrency(projection.minimumPayment, projection.currency)}/mo` : "no payment recorded",
+          projection.minimums.neverClears ? "never clears at this payment" : `clear in ${months(projection.minimums.months)}`,
+        ].join(" · ")}
       </p>
-      {withLimits.map((a) => {
-        const drawn = amountDrawn(a, txSums.get(a.id) ?? 0);
-        const limit = a.overdraft_limit ?? 0;
-        const pct = limit > 0 ? Math.min(100, (drawn / limit) * 100) : 0;
-        // Past four-fifths of a facility is where lenders start treating an
-        // account differently, so it earns a colour rather than a number.
-        const tone = pct >= 80 ? "var(--critical)" : pct >= 50 ? "var(--warn, var(--accent-3))" : "var(--accent)";
-        return (
-          <div className="bar-list__row" key={a.id}>
-            <div className="bar-list__meta">
-              <span>{a.name}</span>
-              <strong style={{ fontSize: "0.8rem" }}>
-                {formatCurrency(drawn, a.currency)} / {formatCurrency(limit, a.currency)} · {Math.round(pct)}%
-              </strong>
-            </div>
-            <div className="bar-list__track">
-              <div className="bar-list__fill" style={{ width: `${pct}%`, background: tone }} />
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
-/** What the balance is made of, largest first. */
-function Composition({ projection }: { projection: DebtProjection }) {
-  const debts = [...projection.debts].sort((a, b) => b.balance - a.balance);
-  const total = debts.reduce((sum, d) => sum + d.balance, 0);
-  if (debts.length < 2 || total <= 0) return null;
+      {span > 0 && (
+        <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} width="100%" height={CHART_HEIGHT} preserveAspectRatio="none">
+          <path
+            d={`${curvePath(baseline, span, peak)} L${CHART_WIDTH},${CHART_HEIGHT} L0,${CHART_HEIGHT} Z`}
+            fill={tone}
+            opacity={0.12}
+          />
+          <path d={curvePath(baseline, span, peak)} fill="none" stroke={tone} strokeWidth={2} vectorEffect="non-scaling-stroke" />
+          {/* Dashed rather than a second colour, so the two lines stay
+              distinguishable however the theme renders them. */}
+          {faster && (
+            <path
+              d={curvePath(faster, span, peak)}
+              fill="none"
+              stroke="var(--good)"
+              strokeWidth={2}
+              strokeDasharray="5 4"
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
+        </svg>
+      )}
 
-  return (
-    <div>
-      <p className="stat-tile__label" style={{ marginBottom: "0.4rem" }}>
-        What the {formatCurrency(total, projection.currency)} is made of
-      </p>
-      {debts.map((d) => (
-        <div className="bar-list__row" key={d.name}>
-          <div className="bar-list__meta">
-            <span>
-              {d.name}
-              {d.rate > 0 && <span style={{ color: "var(--text-muted)" }}> · {d.rate}%</span>}
-            </span>
-            <strong style={{ fontSize: "0.8rem" }}>{formatCurrency(d.balance, projection.currency)}</strong>
+      {projection.withExtra && (
+        <p style={{ fontSize: "0.73rem", color: "var(--good)", margin: "0.2rem 0 0" }}>
+          With the extra: {months(projection.withExtra.months)}
+          {saved !== null && saved > 0 ? ` · ${formatCurrency(saved, projection.currency)} less interest` : ""}
+        </p>
+      )}
+
+      {utilisation !== null && (
+        <div style={{ marginTop: "0.45rem" }}>
+          <div className="bar-list__meta" style={{ fontSize: "0.72rem" }}>
+            <span style={{ color: "var(--text-muted)" }}>Facility used</span>
+            <strong>
+              {Math.round(utilisation)}% of {formatCurrency(limit, projection.currency)}
+            </strong>
           </div>
           <div className="bar-list__track">
-            <div className="bar-list__fill" style={{ width: `${(d.balance / total) * 100}%` }} />
+            <div className="bar-list__fill" style={{ width: `${utilisation}%`, background: tone }} />
           </div>
         </div>
-      ))}
+      )}
     </div>
   );
 }
 
-export default function DebtCharts({ accounts, txSums }: { accounts: Account[]; txSums: Map<string, number> }) {
+export default function DebtCharts({ accounts }: { accounts: Account[] }) {
   const [projections, setProjections] = useState<DebtProjection[] | null>(null);
   const [extra, setExtra] = useState(0);
 
   useEffect(() => {
-    api.debtProjection(extra).then(setProjections).catch(() => setProjections([]));
+    let cancelled = false;
+    api
+      .debtProjection(extra)
+      .then((result) => !cancelled && setProjections(result))
+      .catch(() => !cancelled && setProjections([]));
+    return () => {
+      cancelled = true;
+    };
   }, [extra]);
 
-  const drawn = accounts.filter((a) => accountBalance(a, txSums.get(a.id) ?? 0) < 0);
-  if (drawn.length === 0 && accounts.every((a) => !a.overdraft_limit)) return null;
+  const accountsById = new Map(accounts.map((a) => [a.id, a]));
 
   return (
     <div className="card" style={{ marginBottom: "1.25rem" }}>
       <div className="card__header">
-        <h2 className="card__title">The shape of it</h2>
+        <h2 className="card__title">Each account, over time</h2>
+        <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.2rem 0 0" }}>
+          Every account on its own payments. Move the slider to see what an extra payment aimed at each one would do.
+        </p>
       </div>
 
-      {projections === null && <p className="empty-state">Working it out…</p>}
-
-      {projections?.map((projection) => (
-        <div key={projection.currency} style={{ marginBottom: "1rem" }}>
-          {/* Each currency gets its own chart — they are paid from different
-              pockets, and one curve across them would be a fiction. */}
-          {projections.length > 1 && (
-            <p style={{ fontSize: "0.78rem", fontWeight: 600, margin: "0 0 0.4rem" }}>{projection.currency}</p>
-          )}
-          <PayoffCurve projection={projection} />
-          <Composition projection={projection} />
-        </div>
-      ))}
-
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", margin: "0.75rem 0" }}>
-        <label style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Extra per month</label>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", margin: "0.5rem 0" }}>
+        <label htmlFor="debt-extra" style={{ fontSize: "0.78rem", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+          Extra per month
+        </label>
         <input
+          id="debt-extra"
           type="range"
           min={0}
           max={1000}
@@ -186,10 +159,14 @@ export default function DebtCharts({ accounts, txSums }: { accounts: Account[]; 
           onChange={(e) => setExtra(Number(e.target.value))}
           style={{ flex: 1, maxWidth: 240 }}
         />
-        <strong style={{ fontSize: "0.82rem", minWidth: 48 }}>{extra}</strong>
+        <strong style={{ fontSize: "0.82rem", minWidth: 40 }}>{extra}</strong>
       </div>
 
-      <Utilisation accounts={accounts} txSums={txSums} />
+      {projections === null && <p className="empty-state">Working it out…</p>}
+      {projections?.length === 0 && <p className="empty-state">Nothing owed to chart.</p>}
+      {projections?.map((p) => (
+        <AccountChart key={p.accountId} projection={p} account={accountsById.get(p.accountId)} />
+      ))}
     </div>
   );
 }
