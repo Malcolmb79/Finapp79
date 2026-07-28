@@ -35,10 +35,14 @@ import { budgetStatus } from "../utils/budgetStatus.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { monthsToPayoff } from "../utils/payoff.js";
 
+/** How far back a widget looks, where that is a choice rather than a fixed span. */
+type WidgetRange = "month" | "all";
+
 interface DashboardConfig {
   enabled: WidgetId[];
   rects: Partial<Record<WidgetId, CanvasRect>>;
   modes: Partial<Record<WidgetId, WidgetMode>>;
+  ranges: Partial<Record<WidgetId, WidgetRange>>;
 }
 
 const STORAGE_KEY = "dashboard.config.v2";
@@ -91,6 +95,7 @@ function defaultConfig(): DashboardConfig {
     enabled,
     rects: autoLayout(enabled),
     modes: Object.fromEntries(WIDGET_IDS.filter((id) => WIDGET_META[id].defaultMode).map((id) => [id, WIDGET_META[id].defaultMode])),
+    ranges: {},
   };
 }
 
@@ -109,7 +114,7 @@ function loadConfig(): DashboardConfig {
       // autoLayout fills in anything without a stored rect, so a widget added
       // by a later release lands somewhere sensible instead of at 0,0 on top
       // of an existing one.
-      return { enabled, rects: autoLayout(enabled, stored.rects ?? {}), modes: stored.modes ?? {} };
+      return { enabled, rects: autoLayout(enabled, stored.rects ?? {}), modes: stored.modes ?? {}, ranges: stored.ranges ?? {} };
     }
   } catch {
     // fall through
@@ -123,7 +128,7 @@ function loadConfig(): DashboardConfig {
       const stored = JSON.parse(localStorage.getItem(key) ?? "null");
       const enabled = readEnabled(stored) ?? (Array.isArray(stored) ? (stored.filter((id: string) => (WIDGET_IDS as readonly string[]).includes(id)) as WidgetId[]) : null);
       if (enabled && enabled.length > 0) {
-        return { enabled, rects: autoLayout(enabled), modes: stored?.modes ?? defaultConfig().modes };
+        return { enabled, rects: autoLayout(enabled), modes: stored?.modes ?? defaultConfig().modes, ranges: {} };
       }
     } catch {
       // fall through
@@ -196,6 +201,10 @@ export default function Dashboard() {
     setConfig((c) => ({ ...c, modes: { ...c.modes, [id]: mode } }));
   }
 
+  function setRange(id: WidgetId, range: WidgetRange) {
+    setConfig((c) => ({ ...c, ranges: { ...c.ranges, [id]: range } }));
+  }
+
   async function handleSyncAll() {
     const linked = accounts.filter((a) => a.source === "enablebanking");
     if (linked.length === 0) return;
@@ -260,8 +269,13 @@ export default function Dashboard() {
   })();
 
   const categoryNames = new Map(categories.map((c) => [c.id, c.name]));
+  // All time by default: a fresh dashboard on the 1st of the month would
+  // otherwise show an empty chart and look broken.
+  const categoryRange = config.ranges.category ?? "all";
+  const categoryTx = categoryRange === "month" ? convertedTx.filter((tx) => tx.booking_date.startsWith(thisMonthKey)) : convertedTx;
+
   const spendByCategory = new Map<string, number>();
-  for (const tx of convertedTx) {
+  for (const tx of categoryTx) {
     if (tx.amount >= 0) continue;
     const name = tx.category_id != null ? (categoryNames.get(tx.category_id) ?? "Unknown") : "Uncategorized";
     spendByCategory.set(name, (spendByCategory.get(name) ?? 0) + Math.abs(tx.amount));
@@ -426,7 +440,31 @@ export default function Dashboard() {
           </div>
         ),
     },
-    category: { body: <MagnitudeBarList data={categoryRows} currency={rates?.base ?? null} mode={config.modes.category} /> },
+    category: {
+      headerExtra: (
+        <div style={{ display: "flex", gap: "0.2rem" }}>
+          {/* Which span is being totalled changes the meaning of every figure
+              below it, so it is stated on the card rather than assumed. */}
+          {(["month", "all"] as const).map((range) => (
+            <button
+              key={range}
+              type="button"
+              onClick={() => setRange("category", range)}
+              aria-pressed={categoryRange === range}
+              style={{
+                fontSize: "0.7rem",
+                padding: "0.15rem 0.4rem",
+                fontWeight: categoryRange === range ? 600 : 400,
+                opacity: categoryRange === range ? 1 : 0.6,
+              }}
+            >
+              {range === "month" ? "This month" : "All time"}
+            </button>
+          ))}
+        </div>
+      ),
+      body: <MagnitudeBarList data={categoryRows} currency={rates?.base ?? null} mode={config.modes.category} />,
+    },
     budgets: {
       headerExtra: (
         <Link to="/budgets" className="card__link">
