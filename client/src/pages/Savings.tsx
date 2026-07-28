@@ -1,3 +1,5 @@
+import { PiggyBank, Plus } from "lucide-react";
+import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useCallback, useEffect, useState } from "react";
 import { api, type SavingsGoal } from "../api/client.js";
 
@@ -74,19 +76,15 @@ export default function Savings() {
     refresh();
   }
 
-  return (
-    <div>
-      <div className="page-header">
-        <div>
-          <h1>Savings</h1>
-          <p className="page-header__subtitle">Set goals and track progress toward them</p>
-        </div>
-      </div>
-
-      <div className="card" style={{ marginBottom: "1.25rem" }}>
-        <div className="card__header">
-          <h2 className="card__title">Add a goal</h2>
-        </div>
+  const widgets: WidgetSpec[] = [
+    {
+      id: "addGoal",
+      title: "Add a goal",
+      icon: Plus,
+      accentVar: "--accent-3",
+      defaultWidth: 672,
+      defaultHeight: 180,
+      render: () => (
         <form onSubmit={handleCreate} style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
           <input placeholder="Goal name (e.g. Vacation)" value={name} onChange={(e) => setName(e.target.value)} />
           <input type="number" step="0.01" min="0" placeholder="Target amount" value={target} onChange={(e) => setTarget(e.target.value)} />
@@ -95,18 +93,38 @@ export default function Savings() {
             Add goal
           </button>
         </form>
-      </div>
-
-      <div className="card">
-        <div className="card__header">
-          <h2 className="card__title">Your goals</h2>
-        </div>
-        {goals.length === 0 ? (
+      ),
+    },
+    {
+      id: "goals",
+      title: "Your goals",
+      icon: PiggyBank,
+      accentVar: "--accent",
+      defaultWidth: 672,
+      defaultHeight: 400,
+      render: () =>
+        goals.length === 0 ? (
           <p className="empty-state">No savings goals yet.</p>
         ) : (
-          goals.map((g) => <GoalRow key={g.id} goal={g} onChanged={refresh} />)
-        )}
+          <>
+            {goals.map((g) => (
+              <GoalRow key={g.id} goal={g} onChanged={refresh} />
+            ))}
+          </>
+        ),
+    },
+  ];
+
+  return (
+    <div>
+      <div className="page-header">
+        <div>
+          <h1>Savings</h1>
+          <p className="page-header__subtitle">Set goals and track progress toward them · hold a card to move or resize it</p>
+        </div>
       </div>
+
+      <WidgetCanvas storageKey="savings.layout.v1" widgets={widgets} />
     </div>
   );
 }

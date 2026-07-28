@@ -1,3 +1,5 @@
+import { Landmark, LineChart, Sparkles } from "lucide-react";
+import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useCallback, useEffect, useState } from "react";
 import { api, type Account, type Transaction } from "../api/client.js";
 import { accountTypeLabel, amountDrawn, facilityLabel, isBorrowing } from "../utils/accountBalance.js";
@@ -91,53 +93,70 @@ export default function DebtPlanner() {
     rates
   ).converted;
 
+  const widgets: WidgetSpec[] = [
+    {
+      id: "charts",
+      title: "Each account, over time",
+      icon: LineChart,
+      accentVar: "--accent",
+      defaultWidth: 672,
+      defaultHeight: 520,
+      render: () => (borrowing.length > 0 ? <DebtCharts accounts={borrowing} txSums={byAccount} /> : <p className="empty-state">Nothing borrowed.</p>),
+    },
+    {
+      id: "advisor",
+      title: "Ask about your debt",
+      icon: Sparkles,
+      accentVar: "--accent-2",
+      defaultWidth: 672,
+      defaultHeight: 480,
+      render: () => (borrowing.length > 0 ? <DebtAdvisor /> : <p className="empty-state">Nothing borrowed to plan against.</p>),
+    },
+    {
+      id: "borrowing",
+      title: "Borrowing on your accounts",
+      icon: Landmark,
+      accentVar: "--accent-3",
+      defaultWidth: 672,
+      defaultHeight: 400,
+      render: () =>
+        borrowing.length === 0 ? (
+          <p className="empty-state">
+            Nothing borrowed. Anything overdrawn, or with an overdraft or credit limit set on the Accounts page, appears here.
+          </p>
+        ) : (
+          <>
+            {rates && (
+              <div className="stat-row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                <StatTile label="Currently drawn" value={formatCurrency(drawnTotal, rates.base)} />
+                <StatTile label="Total facilities" value={formatCurrency(facilityTotal, rates.base)} />
+              </div>
+            )}
+            {unconvertible.length > 0 && (
+              <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", margin: "0 0 0.5rem" }}>
+                Left out of the totals — no exchange rate for {unconvertible.join(", ")}.
+              </p>
+            )}
+            {borrowing.map((a) => (
+              <AccountDebtRow key={a.id} account={a} txSum={byAccount.get(a.id) ?? 0} />
+            ))}
+          </>
+        ),
+    },
+  ];
+
   return (
     <div>
       <div className="page-header">
         <div>
           <h1>Debt Planner</h1>
-          <p className="page-header__subtitle">Track balances and see payoff time at your minimum payment</p>
+          <p className="page-header__subtitle">
+            Track balances and see payoff time at your minimum payment · hold a card to move or resize it
+          </p>
         </div>
       </div>
 
-      {borrowing.length > 0 && <DebtCharts accounts={borrowing} txSums={byAccount} />}
-
-      {borrowing.length > 0 && <DebtAdvisor />}
-
-      {borrowing.length === 0 && (
-        <div className="card">
-          <p className="empty-state">
-            Nothing borrowed. Anything overdrawn, or with an overdraft or credit limit set on the Accounts page, appears
-            here.
-          </p>
-        </div>
-      )}
-
-      {borrowing.length > 0 && (
-        <div className="card" style={{ marginBottom: "1.25rem" }}>
-          <div className="card__header">
-            <h2 className="card__title">Borrowing on your accounts</h2>
-            <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.2rem 0 0" }}>
-              Anything overdrawn or with a facility. Balances and terms are edited on the Accounts page.
-            </p>
-          </div>
-          {rates && (
-            <div className="stat-row" style={{ gridTemplateColumns: "1fr 1fr" }}>
-              <StatTile label="Currently drawn" value={formatCurrency(drawnTotal, rates.base)} />
-              <StatTile label="Total facilities" value={formatCurrency(facilityTotal, rates.base)} />
-            </div>
-          )}
-          {unconvertible.length > 0 && (
-            <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", margin: "0 0 0.5rem" }}>
-              Left out of the totals — no exchange rate for {unconvertible.join(", ")}.
-            </p>
-          )}
-          {borrowing.map((a) => (
-            <AccountDebtRow key={a.id} account={a} txSum={byAccount.get(a.id) ?? 0} />
-          ))}
-        </div>
-      )}
-
+      <WidgetCanvas storageKey="debtPlanner.layout.v1" widgets={widgets} />
     </div>
   );
 }

@@ -1,3 +1,7 @@
+import { ArrowLeftRight, BarChart3, Calculator, PieChart, PiggyBank, Receipt, Repeat, Store, Table, TrendingUp } from "lucide-react";
+import DonutChart from "../components/dashboard/DonutChart.js";
+import TrendLine from "../components/dashboard/TrendLine.js";
+import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useEffect, useState } from "react";
 import CashFlowCard, { type MonthFlow } from "../components/dashboard/CashFlowCard.js";
 import MagnitudeBarList from "../components/dashboard/MagnitudeBarList.js";
@@ -114,6 +118,250 @@ export default function Analytics() {
     .sort((a, b) => a.amount - b.amount)
     .slice(0, 8);
 
+  // Each entry is a widget the page offers: what it is called, how big it
+  // starts, and what it draws. Adding a report here is all it takes for it to
+  // appear in the Add widget menu.
+  const widgets: WidgetSpec[] = [
+    {
+      id: "cashflow",
+      title: "Income vs. expenses",
+      icon: ArrowLeftRight,
+      accentVar: "--accent",
+      defaultWidth: 672,
+      defaultHeight: 340,
+      render: () => <CashFlowCard income={totalIncome} expenses={totalExpenses} months={monthFlows} currency={rates?.base ?? null} />,
+    },
+    {
+      id: "savingsRate",
+      title: "Savings rate",
+      icon: PiggyBank,
+      accentVar: "--accent-2",
+      defaultWidth: 328,
+      defaultHeight: 320,
+      render: () =>
+        savingsRate == null ? (
+          <p className="empty-state">No income recorded yet.</p>
+        ) : (
+          <>
+            <p className="stat-tile__value" style={{ fontSize: "1.8rem", color: savingsRate >= 0 ? "var(--good)" : "var(--critical)" }}>
+              {savingsRate.toFixed(1)}%
+            </p>
+            <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", margin: "0 0 0.5rem" }}>
+              {money(totalIncome - totalExpenses)} kept of {money(totalIncome)}
+              {bestMonth?.rate != null && ` · best ${bestMonth.label} at ${bestMonth.rate.toFixed(0)}%`}
+            </p>
+            <TrendLine points={monthlySavings.map((m) => ({ label: m.label.slice(5), value: m.rate }))} format={(v) => `${v.toFixed(1)}%`} />
+          </>
+        ),
+    },
+    {
+      id: "categoryShare",
+      title: "Share of spending",
+      icon: PieChart,
+      accentVar: "--accent-3",
+      defaultWidth: 328,
+      defaultHeight: 320,
+      render: () => <DonutChart data={categoryRows.map(([label, s]) => ({ label, value: s.total }))} currency={rates?.base ?? null} />,
+    },
+    {
+      id: "categoryBars",
+      title: "Spend by category",
+      icon: BarChart3,
+      accentVar: "--accent-4",
+      defaultWidth: 328,
+      defaultHeight: 320,
+      render: () => <MagnitudeBarList data={categoryRows.map(([label, s]) => ({ label, value: s.total }))} currency={rates?.base ?? null} />,
+    },
+    {
+      id: "movers",
+      title: "What moved this month",
+      icon: TrendingUp,
+      accentVar: "--accent-2",
+      defaultWidth: 328,
+      defaultHeight: 320,
+      render: () =>
+        movers.length === 0 ? (
+          <p className="empty-state">Nothing to compare yet.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>Now</th>
+                <th>Was</th>
+                <th>Change</th>
+              </tr>
+            </thead>
+            <tbody>
+              {movers.map((m) => (
+                <tr key={m.name}>
+                  <td>{m.name}</td>
+                  <td>{money(m.now)}</td>
+                  <td>{money(m.before)}</td>
+                  <td style={{ color: m.change > 0 ? "var(--critical)" : "var(--good)" }}>
+                    {m.change > 0 ? "+" : ""}
+                    {money(m.change)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ),
+    },
+    {
+      id: "recurring",
+      title: "Recurring payments",
+      icon: Repeat,
+      accentVar: "--accent",
+      defaultWidth: 672,
+      defaultHeight: 340,
+      render: () =>
+        recurring.length === 0 ? (
+          <p className="empty-state">Nothing charging on a regular rhythm yet.</p>
+        ) : (
+          <>
+            <p style={{ fontSize: "0.8rem", margin: "0 0 0.5rem" }}>
+              <strong>{money(recurringAnnual)}</strong> a year committed across {recurring.length}
+              {recurring.length === 1 ? " payment" : " payments"}
+            </p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Payment</th>
+                  <th>Every</th>
+                  <th>Amount</th>
+                  <th>A year</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recurring.map((r) => (
+                  <tr key={r.label}>
+                    <td>{r.label}</td>
+                    <td>{r.cadence}</td>
+                    <td>{money(r.amount)}</td>
+                    <td>{money(r.annualised)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        ),
+    },
+    {
+      id: "averages",
+      title: "Monthly averages",
+      icon: Calculator,
+      accentVar: "--accent-3",
+      defaultWidth: 328,
+      defaultHeight: 200,
+      render: () => (
+        <div className="stat-row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          <StatTile label="Avg income" value={money(avgMonthlyIncome)} />
+          <StatTile label="Avg expenses" value={money(avgMonthlyExpenses)} />
+        </div>
+      ),
+    },
+    {
+      id: "largest",
+      title: "Largest payments",
+      icon: Receipt,
+      accentVar: "--accent-4",
+      defaultWidth: 328,
+      defaultHeight: 320,
+      render: () =>
+        largest.length === 0 ? (
+          <p className="empty-state">Nothing to show yet.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Payment</th>
+                <th>Date</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {largest.map((tx) => (
+                <tr key={tx.id}>
+                  <td>{cleanDescription(tx.description) || tx.counterparty || "Transaction"}</td>
+                  <td>{tx.booking_date}</td>
+                  <td>{money(Math.abs(tx.amount))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ),
+    },
+    {
+      id: "categoryTable",
+      title: "Category breakdown",
+      icon: Table,
+      accentVar: "--accent-2",
+      defaultWidth: 672,
+      defaultHeight: 360,
+      // Offered rather than shown by default: the same figures as the chart,
+      // in a form for reading off rather than scanning.
+      optional: true,
+      render: () =>
+        categoryRows.length === 0 ? (
+          <p className="empty-state">Nothing to show yet.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>Transactions</th>
+                <th>Total</th>
+                <th>% of spend</th>
+              </tr>
+            </thead>
+            <tbody>
+              {categoryRows.map(([name, s]) => (
+                <tr key={name}>
+                  <td>{name}</td>
+                  <td>{s.count}</td>
+                  <td>{money(s.total)}</td>
+                  <td>{totalSpend > 0 ? ((s.total / totalSpend) * 100).toFixed(1) : "0.0"}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ),
+    },
+    {
+      id: "merchants",
+      title: "Top merchants",
+      icon: Store,
+      accentVar: "--accent-3",
+      defaultWidth: 328,
+      defaultHeight: 320,
+      optional: true,
+      render: () =>
+        topMerchants.length === 0 ? (
+          <p className="empty-state">Nothing to show yet.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Merchant</th>
+                <th>Count</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topMerchants.map(([name, s]) => (
+                <tr key={name}>
+                  <td>{cleanDescription(name)}</td>
+                  <td>{s.count}</td>
+                  <td>{money(s.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ),
+    },
+  ];
+
   return (
     <div>
       <div className="page-header">
@@ -125,241 +373,12 @@ export default function Analytics() {
             {/* Named rather than quietly omitted: a chart that silently drops
                 a currency under-reports without ever looking wrong. */}
             {dropped.length > 0 ? ` · excludes ${dropped.join(", ")}, no rate available` : ""}
+            {" · hold a card to move or resize it"}
           </p>
         </div>
       </div>
 
-      <div className="dashboard-grid">
-        <div className="card card--span-2">
-          <div className="card__header">
-            <h2 className="card__title">Income vs. expenses</h2>
-          </div>
-          <CashFlowCard income={totalIncome} expenses={totalExpenses} months={monthFlows} currency={rates?.base ?? null} />
-        </div>
-
-        <div className="card">
-          <div className="card__header">
-            <h2 className="card__title">Monthly averages</h2>
-          </div>
-          <div className="stat-row" style={{ gridTemplateColumns: "1fr 1fr" }}>
-            <StatTile label="Avg income" value={money(avgMonthlyIncome)} />
-            <StatTile label="Avg expenses" value={money(avgMonthlyExpenses)} />
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card__header">
-            <h2 className="card__title">Savings rate</h2>
-            <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.2rem 0 0" }}>
-              The share of what came in that stayed. A bigger month with bigger spending isn't a better one, and
-              neither total on its own shows that.
-            </p>
-          </div>
-          {savingsRate == null ? (
-            <p className="empty-state">No income recorded yet.</p>
-          ) : (
-            <>
-              <p className="stat-tile__value" style={{ fontSize: "2rem", color: savingsRate >= 0 ? "var(--good)" : "var(--critical)" }}>
-                {savingsRate.toFixed(1)}%
-              </p>
-              <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0 0 0.6rem" }}>
-                {money(totalIncome - totalExpenses)} kept of {money(totalIncome)}
-                {bestMonth?.rate != null && ` · best month ${bestMonth.label} at ${bestMonth.rate.toFixed(0)}%`}
-              </p>
-              {monthlySavings.map((m) => (
-                <div className="bar-list__row" key={m.label}>
-                  <div className="bar-list__meta" style={{ fontSize: "0.75rem" }}>
-                    <span>{m.label}</span>
-                    <strong>{m.rate == null ? "—" : `${m.rate.toFixed(0)}%`}</strong>
-                  </div>
-                  <div className="bar-list__track">
-                    {/* Negative months are drawn from the same baseline in a
-                        different colour: a month that spent more than it
-                        earned has no meaningful bar length, but it does need
-                        to be visible. */}
-                    <div
-                      className="bar-list__fill"
-                      style={{
-                        width: `${Math.min(100, Math.abs(m.rate ?? 0))}%`,
-                        background: (m.rate ?? 0) >= 0 ? undefined : "var(--critical)",
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-
-        <div className="card">
-          <div className="card__header">
-            <h2 className="card__title">Recurring payments</h2>
-            <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.2rem 0 0" }}>
-              Found by cadence and amount, not a list of known merchants — so it catches the gym and the accountant
-              as readily as a streaming service.
-            </p>
-          </div>
-          {recurring.length === 0 ? (
-            <p className="empty-state">Nothing charging on a regular rhythm yet.</p>
-          ) : (
-            <>
-              <p style={{ fontSize: "0.8rem", margin: "0 0 0.5rem" }}>
-                <strong>{money(recurringAnnual)}</strong> a year committed across {recurring.length}
-                {recurring.length === 1 ? " payment" : " payments"}
-              </p>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Payment</th>
-                    <th>Every</th>
-                    <th>Amount</th>
-                    <th>A year</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recurring.map((r) => (
-                    <tr key={r.label}>
-                      <td>{r.label}</td>
-                      <td>{r.cadence}</td>
-                      <td>{money(r.amount)}</td>
-                      <td>{money(r.annualised)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </>
-          )}
-        </div>
-
-        <div className="card">
-          <div className="card__header">
-            <h2 className="card__title">What moved this month</h2>
-            <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.2rem 0 0" }}>
-              {thisMonthKey} against {lastMonthKey}. A total says what you spent; the change says what to look at.
-            </p>
-          </div>
-          {movers.length === 0 ? (
-            <p className="empty-state">Nothing to compare yet.</p>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Category</th>
-                  <th>This month</th>
-                  <th>Last month</th>
-                  <th>Change</th>
-                </tr>
-              </thead>
-              <tbody>
-                {movers.map((m) => (
-                  <tr key={m.name}>
-                    <td>{m.name}</td>
-                    <td>{money(m.now)}</td>
-                    <td>{money(m.before)}</td>
-                    <td style={{ color: m.change > 0 ? "var(--critical)" : "var(--good)" }}>
-                      {m.change > 0 ? "+" : ""}
-                      {money(m.change)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        <div className="card">
-          <div className="card__header">
-            <h2 className="card__title">Largest payments</h2>
-          </div>
-          {largest.length === 0 ? (
-            <p className="empty-state">Nothing to show yet.</p>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Payment</th>
-                  <th>Date</th>
-                  <th>Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {largest.map((tx) => (
-                  <tr key={tx.id}>
-                    <td>{cleanDescription(tx.description) || tx.counterparty || "Transaction"}</td>
-                    <td>{tx.booking_date}</td>
-                    <td>{money(Math.abs(tx.amount))}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        <div className="card">
-          <div className="card__header">
-            <h2 className="card__title">Spend by category</h2>
-          </div>
-          <MagnitudeBarList data={categoryRows.map(([label, s]) => ({ label, value: s.total }))} currency={rates?.base ?? null} />
-        </div>
-
-        <div className="card">
-          <div className="card__header">
-            <h2 className="card__title">Category breakdown</h2>
-          </div>
-          {categoryRows.length === 0 ? (
-            <p className="empty-state">Nothing to show yet.</p>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Category</th>
-                  <th>Transactions</th>
-                  <th>Total</th>
-                  <th>% of spend</th>
-                </tr>
-              </thead>
-              <tbody>
-                {categoryRows.map(([name, s]) => (
-                  <tr key={name}>
-                    <td>{name}</td>
-                    <td>{s.count}</td>
-                    <td>{money(s.total)}</td>
-                    <td>{totalSpend > 0 ? ((s.total / totalSpend) * 100).toFixed(1) : "0.0"}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        <div className="card">
-          <div className="card__header">
-            <h2 className="card__title">Top merchants</h2>
-          </div>
-          {topMerchants.length === 0 ? (
-            <p className="empty-state">Nothing to show yet.</p>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Merchant</th>
-                  <th>Transactions</th>
-                  <th>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topMerchants.map(([name, s]) => (
-                  <tr key={name}>
-                    <td>{name}</td>
-                    <td>{s.count}</td>
-                    <td>{money(s.total)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
+      <WidgetCanvas storageKey="analytics.layout.v1" widgets={widgets} />
     </div>
   );
 }
