@@ -1,5 +1,5 @@
 import { Check, ChevronDown, Plus, Search } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { Category } from "../api/client.js";
 
 /**
@@ -48,6 +48,39 @@ export default function CategorySelect({
     if (open) setRect(triggerRef.current?.getBoundingClientRect() ?? null);
   }, [open]);
 
+  /**
+   * The area actually visible, which is not the window on a phone.
+   *
+   * An on-screen keyboard doesn't change window.innerHeight — it covers the
+   * bottom of it. Positioning against the window therefore put the list where
+   * the keyboard now is, and the "flip above when there's no room below" rule
+   * fired on a height that no longer existed, throwing the list off the top of
+   * the screen instead. visualViewport is the part the user can see.
+   */
+  const [viewport, setViewport] = useState(() => ({
+    width: window.innerWidth,
+    height: window.innerHeight,
+    offsetTop: 0,
+  }));
+
+  useEffect(() => {
+    if (!open) return;
+    const vv = window.visualViewport;
+    const update = () =>
+      setViewport({
+        width: vv?.width ?? window.innerWidth,
+        height: vv?.height ?? window.innerHeight,
+        offsetTop: vv?.offsetTop ?? 0,
+      });
+    update();
+    vv?.addEventListener("resize", update);
+    vv?.addEventListener("scroll", update);
+    return () => {
+      vv?.removeEventListener("resize", update);
+      vv?.removeEventListener("scroll", update);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const close = (e: PointerEvent) => {
@@ -84,6 +117,34 @@ export default function CategorySelect({
     setQuery("");
   }
 
+  // Below this a floating list anchored to a control has nowhere to go once
+  // the keyboard is up, so it becomes a sheet at the bottom of what's visible
+  // — full width, above the keyboard, which is where a phone expects it.
+  const asSheet = viewport.width < 560;
+  const viewportBottom = viewport.offsetTop + viewport.height;
+  const spaceBelow = rect ? viewportBottom - rect.bottom - 8 : 0;
+  const spaceAbove = rect ? rect.top - viewport.offsetTop - 8 : 0;
+  const dropUp = !!rect && spaceBelow < 220 && spaceAbove > spaceBelow;
+
+  const placement: CSSProperties = asSheet
+    ? {
+        left: 8,
+        right: 8,
+        // The gap the keyboard occupies: fixed positioning measures from the
+        // window, so the sheet has to be lifted clear of it explicitly.
+        bottom: Math.max(8, window.innerHeight - viewportBottom + 8),
+        maxHeight: Math.max(180, viewport.height * 0.6),
+      }
+    : {
+        top: dropUp ? undefined : (rect?.bottom ?? 0) + 4,
+        bottom: dropUp ? window.innerHeight - (rect?.top ?? 0) + 4 : undefined,
+        left: Math.max(8, Math.min(rect?.left ?? 0, viewport.width - Math.max(width, 220) - 8)),
+        width: Math.max(width, 220),
+        // Never taller than the room it actually has, so the list scrolls
+        // rather than running off an edge.
+        maxHeight: Math.max(160, (dropUp ? spaceAbove : spaceBelow) - 8),
+      };
+
   return (
     <>
       <button
@@ -114,16 +175,14 @@ export default function CategorySelect({
           style={{
             position: "fixed",
             zIndex: 80,
-            // Flips above the trigger when there isn't room below.
-            top: rect.bottom + 260 > window.innerHeight ? undefined : rect.bottom + 4,
-            bottom: rect.bottom + 260 > window.innerHeight ? window.innerHeight - rect.top + 4 : undefined,
-            left: Math.max(8, Math.min(rect.left, window.innerWidth - Math.max(width, 220) - 8)),
-            width: Math.max(width, 220),
+            ...placement,
             background: "var(--surface-1)",
             border: "1px solid var(--border)",
             borderRadius: "var(--radius)",
             boxShadow: "var(--shadow)",
             overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", padding: "0.4rem 0.5rem", borderBottom: "1px solid var(--border)" }}>
@@ -144,7 +203,7 @@ export default function CategorySelect({
             />
           </div>
 
-          <div style={{ maxHeight: 200, overflow: "auto" }}>
+          <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
             {/* Selecting on pointerdown, not click: the search input holds
                 focus, and on touch the blur/scroll that follows a tap could
                 tear the popover down before a click ever landed. */}
