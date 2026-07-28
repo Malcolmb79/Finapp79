@@ -78,6 +78,13 @@ function autoLayout(enabled: WidgetId[], existing: Partial<Record<WidgetId, Canv
   return rects;
 }
 
+/** "2026-07" as "Jul 26" — a month number alone is unreadable on an axis. */
+function monthLabel(key: string): string {
+  const [year, month] = key.split("-");
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, 1));
+  return date.toLocaleDateString(undefined, { month: "short", year: "2-digit", timeZone: "UTC" });
+}
+
 function defaultConfig(): DashboardConfig {
   const enabled = WIDGET_IDS.filter((id) => WIDGET_META[id].defaultEnabled);
   return {
@@ -235,7 +242,7 @@ export default function Dashboard() {
   const monthFlows: MonthFlow[] = monthKeys.map((key) => {
     const monthTx = convertedTx.filter((tx) => tx.booking_date.startsWith(key));
     return {
-      label: key.slice(5),
+      label: monthLabel(key),
       income: monthTx.filter((tx) => tx.amount > 0).reduce((s, tx) => s + tx.amount, 0),
       expenses: Math.abs(monthTx.filter((tx) => tx.amount < 0).reduce((s, tx) => s + tx.amount, 0)),
     };
@@ -248,7 +255,7 @@ export default function Dashboard() {
       .reduce((s, tx) => s + tx.amount, 0);
     return sorted.map((key) => {
       running += convertedTx.filter((tx) => tx.booking_date.startsWith(key)).reduce((s, tx) => s + tx.amount, 0);
-      return { label: key.slice(5), value: running };
+      return { label: monthLabel(key), value: running };
     });
   })();
 
