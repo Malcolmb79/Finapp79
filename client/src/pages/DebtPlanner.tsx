@@ -1,4 +1,5 @@
-import { Landmark, LineChart, Sparkles } from "lucide-react";
+import { Landmark, LineChart, Scale, Sparkles } from "lucide-react";
+import MonthlyPlan from "../components/MonthlyPlan.js";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useCallback, useEffect, useState } from "react";
 import { api, type Account, type Transaction } from "../api/client.js";
@@ -94,6 +95,15 @@ export default function DebtPlanner() {
   ).converted;
 
   const widgets: WidgetSpec[] = [
+    {
+      id: "plan",
+      title: "Monthly plan",
+      icon: Scale,
+      accentVar: "--accent-4",
+      defaultWidth: 672,
+      defaultHeight: 520,
+      render: () => <MonthlyPlan />,
+    },
     {
       id: "charts",
       title: "Each account, over time",

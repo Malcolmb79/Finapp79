@@ -231,6 +231,33 @@ export interface BudgetAdvice {
   dropped: string[];
 }
 
+export interface MonthlyPlanData {
+  currency: string;
+  monthsCovered: string[];
+  typicalIncome: number;
+  typicalSpend: number;
+  /** What a typical month doesn't spend — the amount there is to allocate. */
+  surplus: number;
+  committedDebt: number;
+  categories: { category: string; typical: number; volatility: number }[];
+  debts: { id: string; name: string; currency: string; balance: number; rate: number; minimumPayment: number }[];
+  goals: { id: number; name: string; target: number; saved: number; targetDate: string | null; remaining: number }[];
+  dropped: string[];
+}
+
+export interface PlanSimulation {
+  /** One entry per currency: debts in different ones are paid from different pockets. */
+  debt: {
+    currency: string;
+    now: { months: number | null; totalInterest: number; neverClears: boolean };
+    withExtra: { months: number | null; totalInterest: number; neverClears: boolean };
+    monthsSaved: number | null;
+    interestSaved: number;
+    focusOrder: string[];
+  }[];
+  savings: { perMonth: number; months: number; total: number };
+}
+
 export interface Budget {
   id: number;
   category_id: number;
@@ -400,6 +427,13 @@ export const api = {
    * applied until setBudget is called with a proposal the user accepted.
    */
   budgetAdvice: () => request<BudgetAdvice>("/budget-advisor"),
+
+  /** Income against outgoings, with what is owed and saved towards. */
+  monthlyPlan: () => request<MonthlyPlanData>("/plan"),
+
+  /** What a given split of the spare does to the debt and the savings. */
+  simulatePlan: (split: { toDebt: number; toSavings: number; months: number }) =>
+    request<PlanSimulation>("/plan/simulate", { method: "POST", body: JSON.stringify(split) }),
 
   /**
    * Talks the budget through. Any figure settled on comes back as a proposal
