@@ -1,6 +1,34 @@
 import { extractText, getDocumentProxy } from "unpdf";
 
 /**
+ * pdf.js (inside unpdf) calls Math.sumPrecise, which Node does not have yet —
+ * it is a very recent addition to the language and is absent from Node 24.
+ *
+ * Only some documents reach the code path that uses it, which is why most
+ * statements imported fine and one particular Barclays PDF failed with
+ * "Math.sumPrecise is not a function". That surfaced as "this PDF's text
+ * could not be read", pointing at the file when the fault was ours.
+ *
+ * Neumaier summation rather than a plain reduce: the function exists to be
+ * exact, and pdf.js uses it on glyph positions where accumulated error moves
+ * text between columns.
+ */
+if (typeof (Math as { sumPrecise?: unknown }).sumPrecise !== "function") {
+  (Math as unknown as { sumPrecise: (values: Iterable<number>) => number }).sumPrecise = (values) => {
+    let sum = 0;
+    let compensation = 0;
+    for (const value of values) {
+      const next = sum + value;
+      // Whichever operand is larger keeps its low-order bits; the other's are
+      // what gets lost, so that is what the compensation has to recover.
+      compensation += Math.abs(sum) >= Math.abs(value) ? sum - next + value : value - next + sum;
+      sum = next;
+    }
+    return sum + compensation;
+  };
+}
+
+/**
  * Turns a PDF statement into the same row grid a CSV produces, so everything
  * downstream — column mapping, the confirmation dialog, the importer — works
  * on PDFs without knowing they were ever PDFs.
@@ -35,14 +63,174 @@ export async function extractPdfText(bytes: Uint8Array): Promise<string> {
   return text;
 }
 
+/** A run of text with where it sits on the page. */
+interface PositionedItem {
+  str: string;
+  x: number;
+  y: number;
+  width: number;
+}
+
+// Two text runs within this many units of each other vertically belong to the
+// same line. Generous enough for the sub-point drift between cells of one row,
+// tight enough not to merge adjacent rows of a dense statement.
+const LINE_TOLERANCE = 2.5;
+
+// A gap this wide between runs is a column boundary rather than a space. A
+// space in a 9pt font is roughly 2 units; column padding is far wider.
+const COLUMN_GAP = 5;
+
+/**
+ * Rebuilds the page's rows from where its text actually sits.
+ *
+ * A PDF has no lines and no columns, only runs of text at coordinates. The
+ * newlines a text extractor inserts are its own guess, and on some documents
+ * that guess is badly wrong: one Barclays statement came back as fragments in
+ * the wrong order — "Null Malcolm Barske", "r £4.24", "rske" — with six dated
+ * lines in a whole statement, because the text is drawn in pieces that the
+ * extractor stitched by document order rather than by position.
+ *
+ * Grouping by vertical position recovers the real lines, and the horizontal
+ * gaps between runs give the columns. This works on the documents the
+ * whitespace heuristic handled too, so it is the primary path rather than a
+ * special case.
+ */
+async function extractPositionedRows(document: Awaited<ReturnType<typeof getDocumentProxy>>): Promise<string[][]> {
+  const pages: { y: number; items: PositionedItem[] }[][] = [];
+
+  for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
+    const page = await document.getPage(pageNumber);
+    const content = await page.getTextContent();
+
+    const items: PositionedItem[] = [];
+    for (const item of content.items) {
+      if (!("str" in item) || typeof item.str !== "string" || !item.str.trim()) continue;
+      const transform = (item as { transform?: number[] }).transform;
+      if (!transform || transform.length < 6) continue;
+      items.push({ str: item.str, x: transform[4], y: transform[5], width: (item as { width?: number }).width ?? 0 });
+    }
+    if (items.length === 0) continue;
+
+    // Group into lines by y, then order the page top to bottom. PDF y grows
+    // upwards, so the largest y is the top of the page.
+    const lines: { y: number; items: PositionedItem[] }[] = [];
+    for (const item of items.sort((a, b) => b.y - a.y)) {
+      const line = lines.find((l) => Math.abs(l.y - item.y) <= LINE_TOLERANCE);
+      if (line) line.items.push(item);
+      else lines.push({ y: item.y, items: [item] });
+    }
+    pages.push(lines);
+  }
+
+  // Columns are worked out across the whole document, not per page. A
+  // statement keeps one layout throughout, and deriving the columns separately
+  // for each page gave them different indices per page — the amount column
+  // being the third on one page and the fourth on the next, which reads
+  // downstream as amounts scattered across columns and no usable mapping.
+  const anchors = columnAnchors(pages.flat());
+
+  const rows: string[][] = [];
+  for (const lines of pages) {
+    for (const line of lines) {
+      const cells: string[] = new Array(anchors.length).fill("");
+      for (const item of line.items.sort((a, b) => a.x - b.x)) {
+        const column = columnFor(item, anchors);
+        // A single space between runs inside a cell: the extractor drops the
+        // spacing, so "TESCO" and "STORES" would otherwise fuse.
+        cells[column] += (cells[column] && !cells[column].endsWith(" ") ? " " : "") + item.str;
+      }
+      const trimmed = cells.map((cell) => cell.trim());
+      if (trimmed.some((cell) => cell !== "")) rows.push(trimmed);
+    }
+  }
+
+  return pad(rows);
+}
+
+// A column has to be used by at least this many lines to be a column rather
+// than something in the letterhead that happened to line up.
+const MIN_LINES_PER_COLUMN = 3;
+
+const MONEY = /^[-+(]?[£$€]?[\d,]+\.\d{2}\)?$/;
+
+/**
+ * The edge a run of text is lined up on.
+ *
+ * Money columns are right-aligned, so the left edge of an amount moves with
+ * the number's width — "1,159.83" starts further left than "2.99" in the same
+ * column. Clustering left edges therefore breaks one column into several and
+ * scatters amounts across them. Text is left-aligned and has the opposite
+ * property, so each kind is clustered on the edge that actually holds still.
+ */
+function anchorOf(item: PositionedItem): number {
+  return MONEY.test(item.str.trim()) ? item.x + item.width : item.x;
+}
+
+function columnAnchors(lines: { items: PositionedItem[] }[]): number[] {
+  const clusters: { anchor: number; count: number }[] = [];
+
+  for (const line of lines) {
+    for (const item of line.items) {
+      const anchor = anchorOf(item);
+      const cluster = clusters.find((c) => Math.abs(c.anchor - anchor) <= COLUMN_GAP);
+      if (cluster) cluster.count++;
+      else clusters.push({ anchor, count: 1 });
+    }
+  }
+
+  const kept = clusters.filter((c) => c.count >= MIN_LINES_PER_COLUMN).map((c) => c.anchor);
+  // Nothing recurred often enough to be a column — a single-column document.
+  return kept.length > 0 ? kept.sort((a, b) => a - b) : [0];
+}
+
+/** The column an item belongs to: the one whose anchor its own is nearest. */
+function columnFor(item: PositionedItem, anchors: number[]): number {
+  const anchor = anchorOf(item);
+  let best = 0;
+  let bestDistance = Infinity;
+  for (let i = 0; i < anchors.length; i++) {
+    const distance = Math.abs(anchors[i] - anchor);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/**
+ * Whether a grid actually separated its columns.
+ *
+ * A statement that parsed properly has amounts somewhere other than the first
+ * column. When every line has collapsed into one cell — "Start balance
+ * £2,555.05" — the grid is nominally several columns wide and carries no
+ * structure at all, which downstream reads as a table with no amount column.
+ */
+export function looksTabular(rows: string[][]): boolean {
+  const withAmountsBeyondFirst = rows.filter((row) => row.slice(1).some((cell) => MONEY.test(cell.trim())));
+  return withAmountsBeyondFirst.length >= 5;
+}
+
 export async function extractPdfRows(bytes: Uint8Array): Promise<string[][]> {
   const document = await getDocumentProxy(bytes);
+
+  // The whitespace path first, because it is the one verified against a real
+  // statement's own control totals. Position-based reconstruction is the
+  // rescue for documents it can't read rather than a replacement for it — no
+  // reason to change how a statement that already imports correctly is read.
   const { text } = await extractText(document, { mergePages: true });
+  const fromWhitespace = textToRows(text);
+  if (looksTabular(fromWhitespace)) {
+    console.log("[pdf extract]", JSON.stringify({ via: "whitespace", rows: fromWhitespace.length, columns: fromWhitespace[0]?.length ?? 0 }));
+    return fromWhitespace;
+  }
+
+  const positioned = await extractPositionedRows(document);
   // Extraction is the step most likely to behave differently on a serverless
-  // runtime than locally, and an empty or differently-joined result is
+  // runtime than locally, and an empty or differently-shaped result is
   // indistinguishable from a parsing failure downstream.
-  console.log("[pdf extract]", JSON.stringify({ chars: text.length, lines: text.split(/\r?\n/).length, head: text.slice(0, 200) }));
-  return textToRows(text);
+  console.log("[pdf extract]", JSON.stringify({ via: "position", rows: positioned.length, columns: positioned[0]?.length ?? 0 }));
+  return looksTabular(positioned) ? positioned : fromWhitespace;
 }
 
 export function textToRows(text: string): string[][] {

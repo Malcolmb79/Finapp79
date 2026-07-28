@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { looksLikePdf, textToRows } from "./pdfStatement.js";
+import { looksLikePdf, looksTabular, textToRows } from "./pdfStatement.js";
 import { applyMapping, inferMapping, splitPreamble } from "./statementParser.js";
 
 describe("looksLikePdf", () => {
@@ -154,5 +154,43 @@ describe("a PDF statement flows through the normal pipeline", () => {
       { date: "2026-07-27", amount: -42.15, description: "TESCO STORES 3288", counterparty: null },
       { date: "2026-07-25", amount: 3200, description: "SALARY BARSKE LTD", counterparty: null },
     ]);
+  });
+});
+
+/**
+ * The reconstruction that rescues statements the whitespace heuristic can't
+ * read. Its rules are what decide whether an amount lands in the right column,
+ * and getting that wrong imports a statement in the wrong direction.
+ */
+describe("column detection", () => {
+  it("treats a line with amounts beyond the first column as a real table", () => {
+    expect(
+      looksTabular([
+        ["01/01/2026", "TESCO", "12.00"],
+        ["02/01/2026", "ALDI", "8.50"],
+        ["03/01/2026", "SPAR", "3.20"],
+        ["04/01/2026", "LIDL", "9.99"],
+        ["05/01/2026", "M&S", "22.10"],
+      ])
+    ).toBe(true);
+  });
+
+  // What a collapsed extraction looks like: nominally several columns wide,
+  // every value crammed into the first one. Downstream this reads as a table
+  // with no amount column at all.
+  it("rejects a grid whose lines all collapsed into one cell", () => {
+    expect(
+      looksTabular([
+        ["Start balance £2,555.05", "", "", ""],
+        ["Money in £9,945.54", "", "", ""],
+        ["Money out £12,368.44", "", "", ""],
+        ["End balance £132.15", "", "", ""],
+        ["15 Jun Card Payment to £7.99", "", "", ""],
+      ])
+    ).toBe(false);
+  });
+
+  it("rejects a table too short to tell anything from", () => {
+    expect(looksTabular([["01/01/2026", "TESCO", "12.00"]])).toBe(false);
   });
 });
