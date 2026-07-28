@@ -86,8 +86,13 @@ function autoLayout(
   columnWidth: number
 ): Record<string, CanvasRect> {
   const rects = { ...existing };
+  // Below whatever is already arranged, not from the top. Placing from (0,0)
+  // put a widget added by a later release directly on top of one the user had
+  // already positioned there — it rendered, underneath, and read as not
+  // having shipped at all.
+  const placed = Object.values(existing);
   let cursorX = 0;
-  let rowY = 0;
+  let rowY = placed.length > 0 ? Math.max(...placed.map((rect) => rect.y + rect.height)) + gap : 0;
   let rowHeight = 0;
 
   for (const def of defs) {
