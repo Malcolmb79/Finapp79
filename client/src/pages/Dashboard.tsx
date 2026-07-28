@@ -36,7 +36,26 @@ import { formatCurrency } from "../utils/formatCurrency.js";
 import { monthsToPayoff } from "../utils/payoff.js";
 
 /** How far back a widget looks, where that is a choice rather than a fixed span. */
-type WidgetRange = "month" | "all";
+type WidgetRange = "month" | "3m" | "6m" | "1y" | "all";
+
+const RANGE_LABELS: Record<WidgetRange, string> = {
+  month: "1 month",
+  "3m": "3 months",
+  "6m": "6 months",
+  "1y": "1 year",
+  all: "All time",
+};
+
+/** The earliest date a range covers, or null for all of it. */
+function rangeStart(range: WidgetRange): string | null {
+  if (range === "all") return null;
+  const date = new Date();
+  if (range === "month") date.setMonth(date.getMonth() - 1);
+  if (range === "3m") date.setMonth(date.getMonth() - 3);
+  if (range === "6m") date.setMonth(date.getMonth() - 6);
+  if (range === "1y") date.setFullYear(date.getFullYear() - 1);
+  return date.toISOString().slice(0, 10);
+}
 
 interface DashboardConfig {
   enabled: WidgetId[];
@@ -257,15 +276,55 @@ export default function Dashboard() {
     };
   });
 
+  const netWorthRange = config.ranges.netWorth ?? "6m";
+
+  /**
+   * Net worth at each point in time, ending at today's figure.
+   *
+   * Anchored to the real net worth and worked backwards through the
+   * transactions, rather than accumulating them from zero: the headline number
+   * comes from account balances, and a line that starts at nothing ends
+   * somewhere else entirely and quietly contradicts the figure above it.
+   *
+   * Daily points over a short range, month-ends over a long one — a year of
+   * daily points is 365 dots of noise, and a month of month-ends is one.
+   */
   const netWorthTrend: TrendPoint[] = (() => {
-    const sorted = [...monthKeys];
-    let running = convertedTx
-      .filter((tx) => sorted.length > 0 && tx.booking_date < `${sorted[0]}-01`)
-      .reduce((s, tx) => s + tx.amount, 0);
-    return sorted.map((key) => {
-      running += convertedTx.filter((tx) => tx.booking_date.startsWith(key)).reduce((s, tx) => s + tx.amount, 0);
-      return { label: monthLabel(key), value: running };
-    });
+    if (convertedTx.length === 0) return [];
+
+    const sorted = [...convertedTx].sort((a, b) => a.booking_date.localeCompare(b.booking_date));
+    const total = sorted.reduce((sum, tx) => sum + tx.amount, 0);
+    // What the accounts held before any of this was recorded.
+    const opening = netWorth - total;
+
+    const cumulative = new Map<string, number>();
+    let running = opening;
+    for (const tx of sorted) {
+      running += tx.amount;
+      cumulative.set(tx.booking_date, running);
+    }
+
+    const start = rangeStart(netWorthRange);
+    const dates = [...cumulative.keys()].filter((date) => !start || date >= start);
+    if (dates.length === 0) return [];
+
+    const first = dates[0];
+    const last = dates[dates.length - 1];
+    const spanDays = (Date.parse(last) - Date.parse(first)) / 86_400_000;
+    const byMonth = spanDays > 100;
+
+    if (!byMonth) {
+      return dates.map((date) => ({
+        label: new Date(`${date}T00:00:00Z`).toLocaleDateString(undefined, { day: "numeric", month: "short", timeZone: "UTC" }),
+        value: cumulative.get(date) ?? opening,
+      }));
+    }
+
+    // One point per month, taking where it stood at the month's last
+    // recorded movement.
+    const months = new Map<string, number>();
+    for (const date of dates) months.set(date.slice(0, 7), cumulative.get(date) ?? opening);
+    return [...months.entries()].map(([key, value]) => ({ label: monthLabel(key), value }));
   })();
 
   const categoryNames = new Map(categories.map((c) => [c.id, c.name]));
@@ -321,6 +380,20 @@ export default function Dashboard() {
 
   const widgetContent: Record<WidgetId, { headerExtra?: React.ReactNode; body: React.ReactNode }> = {
     netWorth: {
+      headerExtra: (
+        <select
+          value={netWorthRange}
+          onChange={(e) => setRange("netWorth", e.target.value as WidgetRange)}
+          aria-label="Trend range"
+          style={{ fontSize: "0.72rem", padding: "0.1rem 0.3rem" }}
+        >
+          {(Object.keys(RANGE_LABELS) as WidgetRange[]).map((range) => (
+            <option key={range} value={range}>
+              {RANGE_LABELS[range]}
+            </option>
+          ))}
+        </select>
+      ),
       body: (
         <NetWorthCard
           current={netWorth}

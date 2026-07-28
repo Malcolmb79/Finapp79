@@ -166,11 +166,14 @@ export default function NetWorthCard({
               <path d={areaPath} fill="url(#netWorthFill)" stroke="none" />
               <path d={linePath} fill="none" stroke="var(--seq-450)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
 
-              {coords.map(([x, y], i) => (
-                <circle key={i} cx={x} cy={y} r={MARKER_RADIUS} fill="var(--surface-1)" stroke="var(--seq-450)" strokeWidth={1.5}>
-                  <title>{`${points[i].label}: ${currency ? formatCurrency(points[i].value, currency) : points[i].value.toFixed(2)}`}</title>
-                </circle>
-              ))}
+              {/* Dropped once there are too many to be individual points:
+                  ninety dots on a daily line is texture, not information. */}
+              {coords.length <= 20 &&
+                coords.map(([x, y], i) => (
+                  <circle key={i} cx={x} cy={y} r={MARKER_RADIUS} fill="var(--surface-1)" stroke="var(--seq-450)" strokeWidth={1.5}>
+                    <title>{`${points[i].label}: ${currency ? formatCurrency(points[i].value, currency) : points[i].value.toFixed(2)}`}</title>
+                  </circle>
+                ))}
             </svg>
 
             <div
