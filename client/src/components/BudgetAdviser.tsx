@@ -29,6 +29,9 @@ export default function BudgetAdviser({ onApplied }: { onApplied: () => void }) 
   const [applying, setApplying] = useState<string | null>(null);
   const [applied, setApplied] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  // A figure the user typed over the recommended one, per category. Held as
+  // typed so it can be cleared and half-entered without snapping back.
+  const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<AdvisorMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -46,11 +49,17 @@ export default function BudgetAdviser({ onApplied }: { onApplied: () => void }) 
     }
   }
 
+  /** What will actually be set: the typed figure where there is one. */
+  function limitFor(proposal: BudgetProposal): number {
+    const typed = Number((overrides[proposal.category] ?? "").replace(/,/g, "").trim());
+    return Number.isFinite(typed) && typed > 0 ? Math.round(typed) : proposal.monthlyLimit;
+  }
+
   async function apply(proposal: BudgetProposal) {
     if (proposal.categoryId == null) return;
     setApplying(proposal.category);
     try {
-      await api.setBudget(proposal.categoryId, proposal.monthlyLimit);
+      await api.setBudget(proposal.categoryId, limitFor(proposal));
       setApplied((current) => new Set(current).add(proposal.category));
       onApplied();
     } finally {
@@ -107,7 +116,13 @@ export default function BudgetAdviser({ onApplied }: { onApplied: () => void }) 
   // already taken — a total that includes what you've applied keeps promising
   // a saving you've already made.
   const outstanding = (advice?.proposals ?? []).filter((p) => !applied.has(p.category));
-  const totalSaving = outstanding.reduce((sum, p) => sum + Math.max(0, p.monthlySaving), 0);
+  // Against the figure that would actually be set, so overriding a
+  // recommendation updates what it is worth rather than still promising the
+  // saving from a number no longer on the button.
+  const totalSaving = outstanding.reduce(
+    (sum, p) => sum + Math.max(0, Math.max(p.typical, p.monthlyLimit + p.monthlySaving) - limitFor(p)),
+    0
+  );
 
   return (
     <div>
@@ -169,18 +184,32 @@ export default function BudgetAdviser({ onApplied }: { onApplied: () => void }) 
                     <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" }}>
                       <strong style={{ fontSize: "0.88rem" }}>{p.category}</strong>
                       <span style={{ fontSize: "0.85rem" }}>
-                        {p.currentLimit != null ? (
-                          <>
-                            {money(p.currentLimit)} → <strong>{money(p.monthlyLimit)}</strong>
-                          </>
-                        ) : (
-                          <>
-                            set to <strong>{money(p.monthlyLimit)}</strong>
-                          </>
+                        {p.currentLimit != null ? <>{money(p.currentLimit)} → </> : <>set to </>}
+                        {/* Editable rather than fixed: a recommendation is a
+                            starting figure, and someone who knows the month
+                            ahead is unusual shouldn't have to take it or
+                            leave it. */}
+                        <input
+                          inputMode="decimal"
+                          value={overrides[p.category] ?? String(p.monthlyLimit)}
+                          onChange={(e) => setOverrides((current) => ({ ...current, [p.category]: e.target.value }))}
+                          aria-label={`Monthly limit for ${p.category}`}
+                          style={{ width: 90, fontSize: "0.85rem", padding: "0.15rem 0.35rem", fontWeight: 600 }}
+                        />
+                        {limitFor(p) !== p.monthlyLimit && (
+                          <button
+                            onClick={() => setOverrides((current) => ({ ...current, [p.category]: String(p.monthlyLimit) }))}
+                            style={{ marginLeft: "0.3rem", fontSize: "0.7rem", padding: "0.1rem 0.35rem" }}
+                            title={`Back to the recommended ${money(p.monthlyLimit)}`}
+                          >
+                            reset
+                          </button>
                         )}
                       </span>
-                      {p.monthlySaving > 0 && (
-                        <span style={{ fontSize: "0.78rem", color: "var(--good)" }}>saves {money(p.monthlySaving)}/mo</span>
+                      {Math.max(p.typical, p.monthlyLimit + p.monthlySaving) - limitFor(p) > 0 && (
+                        <span style={{ fontSize: "0.78rem", color: "var(--good)" }}>
+                          saves {money(Math.max(p.typical, p.monthlyLimit + p.monthlySaving) - limitFor(p))}/mo
+                        </span>
                       )}
                       <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>{p.confidence} confidence</span>
                     </div>
@@ -193,7 +222,7 @@ export default function BudgetAdviser({ onApplied }: { onApplied: () => void }) 
                     <p style={{ fontSize: "0.73rem", color: "var(--text-muted)", margin: "0 0 0.35rem" }}>
                       Typically {money(p.typical)}/mo · worst month {money(p.highest)} · history alone suggests{" "}
                       {money(p.baseline)}
-                      {p.monthlyLimit < p.highest && tighter ? " · below your worst month, so expect some months to breach it" : ""}
+                      {limitFor(p) < p.highest && tighter ? " · below your worst month, so expect some months to breach it" : ""}
                     </p>
 
                     <button onClick={() => apply(p)} disabled={done || applying === p.category || p.categoryId == null}>
@@ -203,6 +232,8 @@ export default function BudgetAdviser({ onApplied }: { onApplied: () => void }) 
                         </>
                       ) : applying === p.category ? (
                         "Applying…"
+                      ) : limitFor(p) !== p.monthlyLimit ? (
+                        `Set ${money(limitFor(p))}`
                       ) : (
                         "Use this limit"
                       )}

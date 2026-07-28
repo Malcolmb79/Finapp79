@@ -1,4 +1,4 @@
-import { Plus, Sparkles, Target } from "lucide-react";
+import { Pencil, Plus, Sparkles, Target } from "lucide-react";
 import BudgetAdviser from "../components/BudgetAdviser.js";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useCallback, useEffect, useState } from "react";
@@ -30,6 +30,23 @@ export default function Budgets() {
 
   async function handleDelete(id: number) {
     await api.deleteBudget(id);
+    refresh();
+  }
+
+  // Which budget's limit is being edited, and the figure being typed. Held as
+  // a string so it can be cleared mid-edit without snapping back to the old
+  // value on every keystroke.
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [limitDraft, setLimitDraft] = useState("");
+
+  async function saveLimit(categoryId: number) {
+    const parsed = Number(limitDraft.replace(/,/g, "").trim());
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setEditingId(null);
+      return;
+    }
+    await api.setBudget(categoryId, parsed);
+    setEditingId(null);
     refresh();
   }
 
@@ -110,12 +127,51 @@ export default function Budgets() {
                   <div className="budget-row" key={b.id}>
                     <div className="budget-row__meta">
                       <span>{b.category_name}</span>
-                      <span className="budget-row__amounts">
-                        {b.spent.toFixed(2)} / {b.monthly_limit.toFixed(2)}
-                      </span>
-                      <button onClick={() => handleDelete(b.id)} style={{ padding: "0.1rem 0.5rem", fontSize: "0.75rem" }}>
-                        Remove
-                      </button>
+                      {/* The limit is editable in place: a figure agreed with
+                          the adviser is a starting point, and changing it
+                          shouldn't mean deleting the budget and setting it
+                          again from the form above. */}
+                      {editingId === b.id ? (
+                        <span className="budget-row__amounts" style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                          {b.spent.toFixed(2)} /
+                          <input
+                            autoFocus
+                            inputMode="decimal"
+                            value={limitDraft}
+                            onChange={(e) => setLimitDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") saveLimit(b.category_id);
+                              if (e.key === "Escape") setEditingId(null);
+                            }}
+                            aria-label={`Monthly limit for ${b.category_name}`}
+                            style={{ width: 90, fontSize: "0.8rem", padding: "0.1rem 0.35rem" }}
+                          />
+                          <button onClick={() => saveLimit(b.category_id)} style={{ padding: "0.1rem 0.5rem", fontSize: "0.75rem" }}>
+                            Save
+                          </button>
+                          <button onClick={() => setEditingId(null)} style={{ padding: "0.1rem 0.5rem", fontSize: "0.75rem" }}>
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <>
+                          <button
+                            className="budget-row__amounts"
+                            onClick={() => {
+                              setEditingId(b.id);
+                              setLimitDraft(String(b.monthly_limit));
+                            }}
+                            title="Change this limit"
+                            style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", font: "inherit" }}
+                          >
+                            {b.spent.toFixed(2)} / {b.monthly_limit.toFixed(2)}
+                            <Pencil size={11} style={{ marginLeft: "0.3rem", verticalAlign: "-1px", color: "var(--text-muted)" }} />
+                          </button>
+                          <button onClick={() => handleDelete(b.id)} style={{ padding: "0.1rem 0.5rem", fontSize: "0.75rem" }}>
+                            Remove
+                          </button>
+                        </>
+                      )}
                     </div>
                     <div className="budget-row__track">
                       <div className="budget-row__fill" data-status={status} style={{ width: `${pct}%` }} />

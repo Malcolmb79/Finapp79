@@ -78,6 +78,15 @@ async function loadSpending(userId: string) {
   return { analysis: analyseSpending(converted, BASE_CURRENCY), dropped: [...dropped] };
 }
 
+/** Every category the user has, so a proposal for one without a budget is still appliable. */
+async function loadCategoryIds(userId: string): Promise<Map<string, number>> {
+  const rows = (await db.prepare("SELECT id, name FROM categories WHERE user_id = ?").all(userId)) as unknown as {
+    id: number;
+    name: string;
+  }[];
+  return new Map(rows.map((row) => [row.name, row.id]));
+}
+
 function buildSchema(categoryNames: string[]) {
   return {
     type: "object",
@@ -217,14 +226,19 @@ const CHAT_PROMPT = [
 function toProposal(
   candidate: { category: string; monthly_limit: number; reason: string; confidence: string },
   byCategory: Map<string, CategorySpend>,
-  limitByCategory: Map<string, BudgetRow>
+  limitByCategory: Map<string, BudgetRow>,
+  categoryIds: Map<string, number>
 ) {
   const spend = byCategory.get(candidate.category)!;
   const existing = limitByCategory.get(candidate.category);
   const limit = Math.round(candidate.monthly_limit);
   return {
     category: candidate.category,
-    categoryId: existing?.category_id ?? null,
+    // From the categories table, not from the budgets that already exist:
+    // taking it from the latter meant a category with no budget yet had no
+    // id, so its proposal arrived unappliable — and a category with no budget
+    // is exactly the one a recommendation is most worth acting on.
+    categoryId: existing?.category_id ?? categoryIds.get(candidate.category) ?? null,
     monthlyLimit: limit,
     currentLimit: existing?.monthly_limit ?? null,
     // Against what is actually spent, not against the old limit: a category
@@ -273,6 +287,7 @@ budgetAdvisorRouter.post("/chat", async (req, res) => {
 
     const byCategory = new Map(analysis.categories.map((c) => [c.category, c]));
     const limitByCategory = new Map(budgets.map((b) => [b.category_name, b]));
+    const categoryIds = await loadCategoryIds(req.user!.id);
     const proposals: ReturnType<typeof toProposal>[] = [];
 
     const client = new Anthropic();
@@ -338,7 +353,7 @@ ${describe(analysis, budgets)}`,
           continue;
         }
 
-        const proposal = toProposal(candidate, byCategory, limitByCategory);
+        const proposal = toProposal(candidate, byCategory, limitByCategory, categoryIds);
         // Replaces rather than repeats: a figure argued down twice should
         // leave one button, showing where it landed.
         const index = proposals.findIndex((p) => p.category === proposal.category);
@@ -403,12 +418,13 @@ budgetAdvisorRouter.get("/", async (req, res) => {
 
     const byCategory = new Map(analysis.categories.map((c) => [c.category, c]));
     const limitByCategory = new Map(budgets.map((b) => [b.category_name, b]));
+    const categoryIds = await loadCategoryIds(req.user!.id);
 
     const proposals = (parsed.proposals ?? [])
       .filter((p: { category: string; monthly_limit: number; reason: string; confidence: string }) => usable(p, byCategory))
       .slice(0, MAX_PROPOSALS)
       .map((p: { category: string; monthly_limit: number; reason: string; confidence: string }) =>
-        toProposal(p, byCategory, limitByCategory)
+        toProposal(p, byCategory, limitByCategory, categoryIds)
       );
 
     res.json({ summary: parsed.summary ?? "", proposals, analysis, dropped });
