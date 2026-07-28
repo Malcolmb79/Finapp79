@@ -5,6 +5,7 @@ import CsvImport from "../components/CsvImport.js";
 import TransactionForm from "../components/TransactionForm.js";
 import TransactionTable from "../components/TransactionTable.js";
 import CanvasCard from "../components/dashboard/CanvasCard.js";
+import { STACK_BELOW } from "../dashboardWidgets.js";
 import PendingReviewWidget from "../components/dashboard/PendingReviewWidget.js";
 import { api, type Account, type Category, type PendingTransaction, type Transaction } from "../api/client.js";
 import { MIN_WIDGET_HEIGHT, MIN_WIDGET_WIDTH } from "../dashboardWidgets.js";
@@ -28,6 +29,15 @@ export default function Transactions() {
   // Stable identity so the layout hook doesn't re-seed on every render.
   const defs = useMemo(() => WIDGETS, []);
   const { rects, canvasRef, canvasWidth, height, move, resize } = useCanvasLayout("transactions.layout.v1", defs);
+  const stacked = canvasWidth < STACK_BELOW;
+  // Top to bottom then left to right, so a phone reads them in the order they
+  // sit in on a wide screen.
+  const ordered = [...defs].sort((a, b) => {
+    const ra = rects[a.id];
+    const rb = rects[b.id];
+    if (!ra || !rb) return 0;
+    return ra.y - rb.y || ra.x - rb.x;
+  });
 
   const refresh = useCallback(() => {
     api.listTransactions().then(setTransactions);
@@ -91,8 +101,11 @@ export default function Transactions() {
         </div>
       </div>
 
-      <div ref={canvasRef} className="dashboard-canvas" style={{ position: "relative", height }}>
-        {defs.map((def) => {
+      {/* Same rule as the dashboard: a canvas arrangement means nothing once
+          every widget is one column wide, and the stored positions only leave
+          gaps where the neighbours used to be. */}
+      <div ref={canvasRef} className="dashboard-canvas" style={{ position: "relative", height: stacked ? "auto" : height }}>
+        {ordered.map((def) => {
           const rect = rects[def.id];
           const widget = bodies[def.id];
           if (!rect || !widget) return null;
@@ -108,6 +121,7 @@ export default function Transactions() {
               availableWidth={canvasWidth}
               onMove={(x, y) => move(def.id, x, y)}
               onResize={(w, h) => resize(def.id, w, h)}
+              stacked={stacked}
             >
               {widget.body}
             </CanvasCard>

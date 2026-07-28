@@ -27,6 +27,17 @@ interface CanvasCardProps {
   /** Omitted where the widget is a fixed part of the page rather than one of
    *  an optional set — a remove button that does nothing is worse than none. */
   onRemove?: () => void;
+  /**
+   * Stack instead of positioning freely.
+   *
+   * A canvas is a poor fit for a phone: a rect chosen on a wide screen keeps
+   * its y position when the width collapses, so widgets end up separated by
+   * the empty space their old neighbours used to occupy, and a card sized for
+   * two columns is squeezed into one while still reserving the height of two.
+   * Stacking ignores the stored rect for rendering only — the arrangement is
+   * untouched and comes back at full width.
+   */
+  stacked?: boolean;
   children: ReactNode;
 }
 
@@ -45,6 +56,7 @@ export default function CanvasCard({
   mode,
   onModeChange,
   onRemove,
+  stacked = false,
   children,
 }: CanvasCardProps) {
   const { rect, handleDragPointerDown, handleResizePointerDown } = useCanvasItem({
@@ -68,24 +80,36 @@ export default function CanvasCard({
   const renderedWidth = Math.max(minWidth, Math.min(rect.width, availableWidth));
   const renderedX = Math.max(0, Math.min(rect.x, availableWidth - renderedWidth));
 
+  // Height is left to the content when stacked. A fixed height set on a wide
+  // screen either crops the content or leaves a gap under it once the widget
+  // is a single column wide.
+  const layout = stacked
+    ? ({ position: "relative", width: "100%", marginBottom: "1rem" } as const)
+    : ({ position: "absolute", left: renderedX, top: rect.y, width: renderedWidth, height: rect.height } as const);
+
   return (
     <div
       ref={ref}
       className="canvas-card"
       data-selected={selected || undefined}
-      style={{ position: "absolute", left: renderedX, top: rect.y, width: renderedWidth, height: rect.height }}
-      {...pressHandlers}
+      data-stacked={stacked || undefined}
+      style={layout}
+      {...(stacked ? {} : pressHandlers)}
     >
       <div className="canvas-card__header">
-        <div
-          className="canvas-card__drag"
-          onPointerDown={handleDragPointerDown}
-          role="button"
-          tabIndex={0}
-          aria-label={`Drag to move ${title}`}
-        >
-          ⠿
-        </div>
+        {/* Dragging a stacked card would move it somewhere it isn't being
+            positioned from, so the handle goes rather than misleading. */}
+        {!stacked && (
+          <div
+            className="canvas-card__drag"
+            onPointerDown={handleDragPointerDown}
+            role="button"
+            tabIndex={0}
+            aria-label={`Drag to move ${title}`}
+          >
+            ⠿
+          </div>
+        )}
         <span className="widget-icon" style={{ background: `var(${accentVar})` }}>
           <Icon size={13} />
         </span>
@@ -125,15 +149,19 @@ export default function CanvasCard({
 
       <div className="canvas-card__content">{children}</div>
 
-      <div
-        className="canvas-card__resize"
-        onPointerDown={handleResizePointerDown}
-        role="button"
-        tabIndex={0}
-        aria-label={`Drag to resize ${title}`}
-      >
-        ⌟
-      </div>
+      {/* Nothing to resize when the width is the screen's and the height is
+          the content's. */}
+      {!stacked && (
+        <div
+          className="canvas-card__resize"
+          onPointerDown={handleResizePointerDown}
+          role="button"
+          tabIndex={0}
+          aria-label={`Drag to resize ${title}`}
+        >
+          ⌟
+        </div>
+      )}
     </div>
   );
 }

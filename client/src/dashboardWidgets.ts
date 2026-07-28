@@ -22,6 +22,15 @@ export type WidgetId = (typeof WIDGET_IDS)[number];
 // before anyone starts moving things around.
 export const NARROW_WIDTH = 328;
 export const WIDE_WIDTH = 672;
+
+/**
+ * Below this the canvas stacks instead of positioning freely.
+ *
+ * Two columns of 240px plus the gap is the narrowest a canvas arrangement
+ * still means anything; under it every widget is one column wide anyway, and
+ * the stored y positions only leave gaps where the old neighbours were.
+ */
+export const STACK_BELOW = 560;
 export const LAYOUT_GAP = 16;
 export const MIN_WIDGET_WIDTH = 240;
 export const MIN_WIDGET_HEIGHT = 160;

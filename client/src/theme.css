@@ -903,6 +903,18 @@ th {
   overflow: auto;
 }
 
+/* A stacked widget is as wide as the screen and as tall as its content, so
+   the fixed height a canvas card carries is dropped and the content scrolls
+   the page rather than itself. Keyed off the attribute rather than a width
+   query, because the attribute is what actually means "stacked". */
+.canvas-card[data-stacked] {
+  height: auto;
+}
+
+.canvas-card[data-stacked] .canvas-card__content {
+  overflow: visible;
+}
+
 /* display:none (not opacity) so hidden chrome doesn't reserve header width
    at rest — otherwise the title fights it for space on every render, not
    just while the card is selected. */
@@ -967,9 +979,12 @@ th {
 
 /* Stat tiles */
 
+/* auto-fit rather than a fixed three, because three currency figures do not
+   fit across a phone: they ran into each other and the third was clipped.
+   Below the minimum the row wraps to two columns, then one. */
 .stat-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
   gap: 0.75rem;
 }
 
@@ -980,12 +995,14 @@ th {
   white-space: nowrap;
 }
 
+/* Scales with the viewport and is allowed to break: nowrap is what turned a
+   figure too wide for its column into one overlapping its neighbour. */
 .stat-tile__value {
-  font-size: 1.3rem;
+  font-size: clamp(1rem, 4.2vw, 1.3rem);
   font-weight: 600;
   font-variant-numeric: proportional-nums;
   margin: 0;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .stat-tile__value--good {
@@ -1377,4 +1394,5 @@ th {
   .stat-row {
     gap: 0.5rem;
   }
+
 }

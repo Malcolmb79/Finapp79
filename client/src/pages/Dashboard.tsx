@@ -19,6 +19,7 @@ import {
   LAYOUT_GAP,
   MIN_WIDGET_HEIGHT,
   MIN_WIDGET_WIDTH,
+  STACK_BELOW,
   WIDE_WIDTH,
   WIDGET_IDS,
   WIDGET_META,
@@ -285,6 +286,17 @@ export default function Dashboard() {
     borrowing.map((a) => ({ amount: amountDrawn(a, byAccount.get(a.id) ?? 0), currency: a.currency })),
     rates
   );
+
+  // Below the breakpoint the canvas stacks. Reading order follows the
+  // arrangement on a wide screen — top to bottom, then left to right — so the
+  // phone shows the same sequence rather than the order they were added in.
+  const stacked = canvasWidth < STACK_BELOW;
+  const orderedWidgets = [...config.enabled].sort((a, b) => {
+    const ra = config.rects[a];
+    const rb = config.rects[b];
+    if (!ra || !rb) return 0;
+    return ra.y - rb.y || ra.x - rb.x;
+  });
 
   const widgetContent: Record<WidgetId, { headerExtra?: React.ReactNode; body: React.ReactNode }> = {
     netWorth: {
@@ -577,9 +589,12 @@ export default function Dashboard() {
       <div
         ref={canvasRef}
         className="dashboard-canvas"
-        style={{ position: "relative", height: computeCanvasHeight(Object.values(config.rects).filter(Boolean) as CanvasRect[]) }}
+        style={{
+          position: "relative",
+          height: stacked ? "auto" : computeCanvasHeight(Object.values(config.rects).filter(Boolean) as CanvasRect[]),
+        }}
       >
-        {config.enabled.map((id) => {
+        {orderedWidgets.map((id) => {
           const meta = WIDGET_META[id];
           const rect = config.rects[id];
           if (!rect) return null;
@@ -599,6 +614,7 @@ export default function Dashboard() {
               mode={meta.defaultMode ? (config.modes[id] ?? meta.defaultMode) : undefined}
               onModeChange={meta.defaultMode ? (mode) => setMode(id, mode) : undefined}
               onRemove={() => removeWidget(id)}
+              stacked={stacked}
             >
               {widgetContent[id].body}
             </CanvasCard>
