@@ -1,6 +1,6 @@
-import { Check, Loader2, Sparkles } from "lucide-react";
+import { Check, Loader2, Send, Sparkles } from "lucide-react";
 import { useState } from "react";
-import { api, type BudgetAdvice, type BudgetProposal } from "../api/client.js";
+import { api, type AdvisorMessage, type BudgetAdvice, type BudgetProposal } from "../api/client.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 
 /**
@@ -20,6 +20,9 @@ export default function BudgetAdviser({ onApplied }: { onApplied: () => void }) 
   const [applying, setApplying] = useState<string | null>(null);
   const [applied, setApplied] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [messages, setMessages] = useState<AdvisorMessage[]>([]);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
 
   async function fetchAdvice() {
     setLoading(true);
@@ -43,6 +46,49 @@ export default function BudgetAdviser({ onApplied }: { onApplied: () => void }) 
       onApplied();
     } finally {
       setApplying(null);
+    }
+  }
+
+  /**
+   * A figure settled in conversation replaces the one recommended outright.
+   * Two buttons for the same category — one from the plan, one from talking
+   * it down — is the argument left visible on screen with no way to tell
+   * which is current.
+   */
+  async function send(text: string) {
+    const question = text.trim();
+    if (!question || sending) return;
+    const next = [...messages, { role: "user" as const, content: question }];
+    setMessages(next);
+    setDraft("");
+    setSending(true);
+    try {
+      const { reply, proposals } = await api.budgetChat(next);
+      setMessages([...next, { role: "assistant", content: reply }]);
+      if (proposals.length > 0) {
+        setAdvice((current) => {
+          const base = current ?? { summary: "", proposals: [], analysis: { monthsCovered: [], typicalIncome: 0, typicalSpend: 0, currency: "EUR" }, dropped: [] };
+          const merged = [...base.proposals];
+          for (const proposal of proposals) {
+            const index = merged.findIndex((p) => p.category === proposal.category);
+            if (index >= 0) merged[index] = proposal;
+            else merged.push(proposal);
+          }
+          return { ...base, proposals: merged };
+        });
+        // A category re-agreed after being applied is no longer applied.
+        setApplied((current) => {
+          const nextApplied = new Set(current);
+          for (const proposal of proposals) nextApplied.delete(proposal.category);
+          return nextApplied;
+        });
+      }
+    } catch (err) {
+      setMessages(messages);
+      setDraft(question);
+      setError(err instanceof Error ? err.message : "Couldn't reach the adviser.");
+    } finally {
+      setSending(false);
     }
   }
 
@@ -163,6 +209,65 @@ export default function BudgetAdviser({ onApplied }: { onApplied: () => void }) 
           </button>
         </>
       )}
+
+      {/* Available before a plan is built as well as after: "what am I
+          actually spending on groceries" is a fair first question, and
+          answering it doesn't need a full set of recommendations first. */}
+      <div style={{ borderTop: "1px solid var(--gridline)", marginTop: "0.8rem", paddingTop: "0.6rem" }}>
+        {messages.length === 0 ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.5rem" }}>
+            {["Where can I realistically cut?", "That's too tight — what else could give?", "Which limit should I set first?"].map((q) => (
+              <button key={q} onClick={() => send(q)} style={{ fontSize: "0.76rem" }} disabled={sending}>
+                {q}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: "0.5rem", maxHeight: 260, overflowY: "auto", marginBottom: "0.5rem" }}>
+            {messages.map((m, i) => (
+              <div
+                key={i}
+                style={{
+                  justifySelf: m.role === "user" ? "end" : "start",
+                  maxWidth: "90%",
+                  padding: "0.45rem 0.65rem",
+                  borderRadius: 10,
+                  background: m.role === "user" ? "var(--accent-soft, rgba(127,127,127,0.12))" : "var(--surface-2, rgba(127,127,127,0.06))",
+                  fontSize: "0.83rem",
+                  lineHeight: 1.5,
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {m.content}
+              </div>
+            ))}
+            {sending && (
+              <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                <Loader2 size={13} className="spin" /> Thinking it through…
+              </span>
+            )}
+          </div>
+        )}
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            send(draft);
+          }}
+          style={{ display: "flex", gap: "0.4rem" }}
+        >
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Talk it through — argue a number down, ask what a category costs…"
+            disabled={sending}
+            style={{ flex: 1, fontSize: "0.83rem" }}
+          />
+          <button type="submit" className="btn-accent" disabled={sending || !draft.trim()} aria-label="Send">
+            {sending ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

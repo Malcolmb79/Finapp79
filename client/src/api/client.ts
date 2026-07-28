@@ -401,6 +401,16 @@ export const api = {
    */
   budgetAdvice: () => request<BudgetAdvice>("/budget-advisor"),
 
+  /**
+   * Talks the budget through. Any figure settled on comes back as a proposal
+   * with a button — the chat never sets a limit itself.
+   */
+  budgetChat: (messages: AdvisorMessage[]) =>
+    request<{ reply: string; proposals: BudgetProposal[] }>("/budget-advisor/chat", {
+      method: "POST",
+      body: JSON.stringify({ messages }),
+    }),
+
   setBudget: (categoryId: number, monthlyLimit: number) =>
     request<Budget>("/budgets", { method: "POST", body: JSON.stringify({ category_id: categoryId, monthly_limit: monthlyLimit }) }),
   deleteBudget: (id: number) => request<void>(`/budgets/${id}`, { method: "DELETE" }),
