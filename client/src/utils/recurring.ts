@@ -15,6 +15,8 @@ import { cleanDescription } from "./cleanDescription.js";
 export type Cadence = "weekly" | "monthly" | "quarterly" | "yearly";
 
 export interface RecurringPayment {
+  /** Stable across renders and unique per merchant — for selection and keys. */
+  key: string;
   label: string;
   cadence: Cadence;
   /** The typical charge, as a positive number. */
@@ -24,6 +26,10 @@ export interface RecurringPayment {
   lastCharged: string;
   /** What it costs over a year at this cadence. */
   annualised: number;
+  /** What it costs in an average month, whatever its cadence. */
+  monthly: number;
+  /** The charges themselves, oldest first, so the history can be shown. */
+  charges: { date: string; amount: number }[];
 }
 
 interface Chargeable {
@@ -117,6 +123,7 @@ export function detectRecurring(transactions: Chargeable[]): RecurringPayment[] 
     if (!consistent) continue;
 
     found.push({
+      key,
       // The tidiest of the descriptions rather than the stripped key, which
       // is for matching and reads as a fragment.
       label: cleanDescription(ordered[ordered.length - 1].description) || ordered[ordered.length - 1].counterparty || key,
@@ -125,6 +132,10 @@ export function detectRecurring(transactions: Chargeable[]): RecurringPayment[] 
       occurrences: ordered.length,
       lastCharged: ordered[ordered.length - 1].booking_date,
       annualised: typical * match.perYear,
+      // What it costs in an average month whatever its cadence, so a yearly
+      // insurance and a monthly streaming bill can be added together.
+      monthly: (typical * match.perYear) / 12,
+      charges: ordered.map((tx) => ({ date: tx.booking_date, amount: Math.abs(tx.amount) })),
     });
   }
 

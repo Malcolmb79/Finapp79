@@ -1,5 +1,5 @@
 import { formatCurrency } from "../../utils/formatCurrency.js";
-import { useMeasuredWidth } from "../../utils/useMeasuredWidth.js";
+import { useMeasuredSize } from "../../utils/useMeasuredSize.js";
 import StatTile from "./StatTile.js";
 
 export interface MonthFlow {
@@ -10,6 +10,10 @@ export interface MonthFlow {
 
 const BAR_MAX_THICKNESS = 20;
 const CHART_HEIGHT = 130;
+// Room under the plot for the month labels, and a floor below which the bars
+// stop saying anything.
+const LABEL_ROW = 20;
+const MIN_CHART_HEIGHT = 60;
 
 /**
  * Grouped bar, two series (income vs expenses) -> categorical treatment,
@@ -35,7 +39,13 @@ export default function CashFlowCard({
   const saved = income - expenses;
   const max = Math.max(1, ...months.flatMap((m) => [m.income, m.expenses]));
 
-  const [plotRef, plotWidth] = useMeasuredWidth(560);
+  // Height as well as width: the chart has to leave room for the labels
+  // beneath it, and a fixed height inside a resizable card either crops them
+  // or leaves a gap. They disappeared entirely when the bars grew into the
+  // space they needed.
+  const [plotRef, plot] = useMeasuredSize(560, CHART_HEIGHT + LABEL_ROW);
+  const plotWidth = plot.width;
+  const chartHeight = Math.max(MIN_CHART_HEIGHT, plot.height - LABEL_ROW);
   const slot = months.length > 0 ? plotWidth / months.length : plotWidth;
   const barWidth = Math.max(2, Math.min(BAR_MAX_THICKNESS, (slot - 16) / 2));
   // Roughly one label per 56px, always keeping the last, so a year of months
@@ -43,8 +53,8 @@ export default function CashFlowCard({
   const labelStep = Math.max(1, Math.ceil(months.length / Math.max(2, Math.floor(plotWidth / 56))));
 
   return (
-    <div>
-      <div className="stat-row" style={{ marginBottom: "1.25rem" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+      <div className="stat-row" style={{ marginBottom: "1rem" }}>
         <StatTile label="Income" value={money(income)} />
         <StatTile label="Expenses" value={money(expenses)} />
         <div>
@@ -56,19 +66,19 @@ export default function CashFlowCard({
       {mode !== "chart" ? null : months.length === 0 ? (
         <p className="empty-state">Nothing to show yet.</p>
       ) : (
-        <div ref={plotRef} style={{ width: "100%" }}>
+        <div ref={plotRef} style={{ width: "100%", flex: 1, minHeight: MIN_CHART_HEIGHT + LABEL_ROW, overflow: "hidden" }}>
           {/* Drawn at the width it actually has. With preserveAspectRatio
               ="none" the viewBox stretches to fill, and everything in it
               stretches with it — the month labels were being pulled wide as
               the widget was resized, because they were text inside a
               distorted coordinate system. */}
-          <svg width={plotWidth} height={CHART_HEIGHT} style={{ display: "block" }}>
-            <line x1="0" y1={CHART_HEIGHT - 4} x2={plotWidth} y2={CHART_HEIGHT - 4} stroke="var(--gridline)" strokeWidth="1" />
+          <svg width={plotWidth} height={chartHeight} style={{ display: "block" }}>
+            <line x1="0" y1={chartHeight - 1} x2={plotWidth} y2={chartHeight - 1} stroke="var(--gridline)" strokeWidth="1" />
             {months.map((m, i) => {
               const slotX = i * slot;
-              const incomeH = (m.income / max) * (CHART_HEIGHT - 20);
-              const expenseH = (m.expenses / max) * (CHART_HEIGHT - 20);
-              const baseline = CHART_HEIGHT - 4;
+              const incomeH = (m.income / max) * (chartHeight - 8);
+              const expenseH = (m.expenses / max) * (chartHeight - 8);
+              const baseline = chartHeight - 1;
               const x1 = slotX + slot / 2 - barWidth - 2;
               const x2 = slotX + slot / 2 + 2;
               return (

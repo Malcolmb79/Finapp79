@@ -1,5 +1,6 @@
-import { ArrowLeftRight, BarChart3, Calculator, PieChart, PiggyBank, Receipt, Repeat, Store, Table, TrendingUp } from "lucide-react";
+import { ArrowLeftRight, BarChart3, Calculator, CreditCard, PieChart, PiggyBank, Receipt, Repeat, Store, Table, TrendingUp } from "lucide-react";
 import DonutChart from "../components/dashboard/DonutChart.js";
+import Subscriptions from "../components/dashboard/Subscriptions.js";
 import TrendLine from "../components/dashboard/TrendLine.js";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useEffect, useState } from "react";
@@ -149,7 +150,7 @@ export default function Analytics() {
 
   // Recurrence needs the full history to find a rhythm — three charges
   // inside one month is not a monthly subscription.
-  const recurring = detectRecurring(convertedTx).slice(0, 10);
+  const recurring = detectRecurring(convertedTx);
   const recurringAnnual = recurring.reduce((sum, r) => sum + r.annualised, 0);
 
   // The individual charges worth a second look. A category total hides a
@@ -251,12 +252,25 @@ export default function Analytics() {
         ),
     },
     {
+      id: "subscriptions",
+      title: "Subscriptions",
+      icon: CreditCard,
+      accentVar: "--accent-2",
+      defaultWidth: 672,
+      defaultHeight: 460,
+      render: () => <Subscriptions payments={recurring} currency={rates?.base ?? "EUR"} />,
+    },
+    {
       id: "recurring",
       title: "Recurring payments",
       icon: Repeat,
       accentVar: "--accent",
       defaultWidth: 672,
       defaultHeight: 340,
+      // The same findings as Subscriptions above, as a flat table. Offered
+      // rather than shown, since two views of one thing on by default is
+      // clutter.
+      optional: true,
       render: () =>
         recurring.length === 0 ? (
           <p className="empty-state">Nothing charging on a regular rhythm yet.</p>
