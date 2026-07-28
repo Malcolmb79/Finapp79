@@ -686,8 +686,19 @@ export default function Accounts() {
                         <span style={{ display: "block", fontSize: "0.72rem", color: "var(--text-muted)" }}>
                           {formatCurrency(accountAvailable(a, byAccount.get(a.id) ?? 0), a.currency)} available
                           {a.overdraft_limit
-                            ? ` · ${formatCurrency(a.overdraft_limit, a.currency)} ${facilityLabel(a)?.toLowerCase() ?? ""}`
+                            ? ` · incl. ${formatCurrency(a.overdraft_limit, a.currency)} ${facilityLabel(a)?.toLowerCase() ?? ""}`
                             : ""}
+                        </span>
+                      )}
+                      {/* The facility is a fixed contractual figure, but it
+                          can be entered by way of an available balance — and
+                          that is a snapshot of two moving numbers, so it goes
+                          stale as soon as the balance moves. Naming it plainly
+                          is what lets it be checked against the bank. */}
+                      {a.balance_synced_at && (
+                        <span style={{ display: "block", fontSize: "0.68rem", color: "var(--text-muted)" }}>
+                          synced{" "}
+                          {new Date(a.balance_synced_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}
                         </span>
                       )}
                       {a.balance_is_manual && a.balance != null && (

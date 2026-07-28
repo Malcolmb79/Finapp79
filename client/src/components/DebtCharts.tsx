@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type Account, type DebtProjection } from "../api/client.js";
-import { accountBalance, isLiability } from "../utils/accountBalance.js";
+import { accountAvailable, accountBalance, facilityLabel, isLiability } from "../utils/accountBalance.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -243,16 +243,36 @@ function AccountChart({
         </p>
       )}
 
-      {utilisation !== null && (
-        <div style={{ marginTop: "0.45rem" }}>
-          <div className="bar-list__meta" style={{ fontSize: "0.72rem" }}>
-            <span style={{ color: "var(--text-muted)" }}>Facility used</span>
-            <strong>
-              {Math.round(utilisation)}% of {formatCurrency(limit, projection.currency)}
-            </strong>
+      {/* Broken out the way the bank's own app presents it — balance, the
+          facility, and what those come to together. A single "0% of 3,540"
+          gives no way to notice that the facility itself is wrong, which is
+          exactly what happened here: it was derived from an available figure
+          entered when the balance was different, so it drifted. Three lines
+          against three lines can be checked in a glance. */}
+      {utilisation !== null && account && (
+        <div style={{ marginTop: "0.5rem", fontSize: "0.73rem" }}>
+          <div className="bar-list__meta">
+            <span style={{ color: "var(--text-muted)" }}>Balance</span>
+            <strong>{formatCurrency(accountBalance(account, txSum), projection.currency)}</strong>
           </div>
-          <div className="bar-list__track">
+          <div className="bar-list__meta">
+            <span style={{ color: "var(--text-muted)" }}>{facilityLabel(account) ?? "Facility"}</span>
+            <strong>{formatCurrency(limit, projection.currency)}</strong>
+          </div>
+          <div className="bar-list__meta">
+            <span style={{ color: "var(--text-muted)" }}>Available funds</span>
+            <strong>{formatCurrency(accountAvailable(account, txSum), projection.currency)}</strong>
+          </div>
+          <div className="bar-list__track" style={{ marginTop: "0.3rem" }}>
             <div className="bar-list__fill" style={{ width: `${utilisation}%`, background: tone }} />
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", fontSize: "0.7rem" }}>
+            <span>{Math.round(utilisation)}% of the facility used</span>
+            {/* A balance that hasn't been synced today explains a figure that
+                disagrees with the bank by a few euro. */}
+            {account.balance_synced_at && (
+              <span>synced {new Date(account.balance_synced_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}</span>
+            )}
           </div>
         </div>
       )}
