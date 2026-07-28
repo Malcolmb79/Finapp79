@@ -14,9 +14,28 @@ import { detectRecurring } from "../utils/recurring.js";
 
 const TREND_MONTHS = 12;
 
+const RANGES = [
+  { id: "month", label: "This month", months: 1 },
+  { id: "3m", label: "Last 3 months", months: 3 },
+  { id: "6m", label: "Last 6 months", months: 6 },
+  { id: "12m", label: "Last 12 months", months: 12 },
+  { id: "all", label: "All time", months: null },
+] as const;
+
+type RangeId = (typeof RANGES)[number]["id"];
+
+const RANGE_KEY = "analytics.range.v1";
+
 export default function Analytics() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  // Opens on the current month: the question this page usually answers is
+  // "how is this month going", and a twelve-month total buries it.
+  const [range, setRange] = useState<RangeId>(() => (localStorage.getItem(RANGE_KEY) as RangeId | null) ?? "month");
+
+  useEffect(() => {
+    localStorage.setItem(RANGE_KEY, range);
+  }, [range]);
 
   useEffect(() => {
     api.listTransactions().then(setTransactions);
@@ -29,6 +48,9 @@ export default function Analytics() {
   const { items: convertedTx, dropped } = inBase(transactions, rates);
   const money = (value: number) => (rates ? formatCurrency(value, rates.base) : value.toFixed(2));
 
+  // The twelve-month series the trend charts are drawn from. Deliberately not
+  // cut to the range: a line or a bar chart over a single month is one point,
+  // and the two trend widgets would go blank on the default view.
   const monthKeys = [...new Set(convertedTx.map((tx) => tx.booking_date.slice(0, 7)))].sort().slice(-TREND_MONTHS);
   const monthFlows: MonthFlow[] = monthKeys.map((key) => {
     const monthTx = convertedTx.filter((tx) => tx.booking_date.startsWith(key));
@@ -39,16 +61,24 @@ export default function Analytics() {
     };
   });
 
-  const totalIncome = monthFlows.reduce((s, m) => s + m.income, 0);
-  const totalExpenses = monthFlows.reduce((s, m) => s + m.expenses, 0);
-  const avgMonthlyIncome = monthFlows.length > 0 ? totalIncome / monthFlows.length : 0;
-  const avgMonthlyExpenses = monthFlows.length > 0 ? totalExpenses / monthFlows.length : 0;
+  const selectedRange = RANGES.find((r) => r.id === range) ?? RANGES[0];
+  // Everything that is a total — spend, share, largest, recurring — is cut to
+  // the chosen span. Trends keep their full series and say so.
+  const rangeMonths = selectedRange.months == null ? monthKeys : monthKeys.slice(-selectedRange.months);
+  const inRange = (date: string) => selectedRange.months == null || rangeMonths.includes(date.slice(0, 7));
+  const rangedTx = convertedTx.filter((tx) => inRange(tx.booking_date));
+  const rangedFlows = monthFlows.filter((m) => selectedRange.months == null || rangeMonths.includes(m.label));
+
+  const totalIncome = rangedFlows.reduce((s, m) => s + m.income, 0);
+  const totalExpenses = rangedFlows.reduce((s, m) => s + m.expenses, 0);
+  const avgMonthlyIncome = rangedFlows.length > 0 ? totalIncome / rangedFlows.length : 0;
+  const avgMonthlyExpenses = rangedFlows.length > 0 ? totalExpenses / rangedFlows.length : 0;
 
   const categoryNames = new Map(categories.map((c) => [c.id, c.name]));
-  const totalSpend = convertedTx.filter((tx) => tx.amount < 0).reduce((s, tx) => s + Math.abs(tx.amount), 0);
+  const totalSpend = rangedTx.filter((tx) => tx.amount < 0).reduce((s, tx) => s + Math.abs(tx.amount), 0);
 
   const categoryStats = new Map<string, { total: number; count: number }>();
-  for (const tx of convertedTx) {
+  for (const tx of rangedTx) {
     if (tx.amount >= 0) continue;
     const name = tx.category_id != null ? (categoryNames.get(tx.category_id) ?? "Unknown") : "Uncategorized";
     const entry = categoryStats.get(name) ?? { total: 0, count: 0 };
@@ -59,7 +89,7 @@ export default function Analytics() {
   const categoryRows = [...categoryStats.entries()].sort((a, b) => b[1].total - a[1].total);
 
   const merchantStats = new Map<string, { total: number; count: number }>();
-  for (const tx of convertedTx) {
+  for (const tx of rangedTx) {
     if (tx.amount >= 0 || !tx.description) continue;
     const entry = merchantStats.get(tx.description) ?? { total: 0, count: 0 };
     entry.total += Math.abs(tx.amount);
@@ -108,12 +138,14 @@ export default function Analytics() {
     .sort((a, b) => Math.abs(b.change) - Math.abs(a.change))
     .slice(0, 8);
 
+  // Recurrence needs the full history to find a rhythm — three charges
+  // inside one month is not a monthly subscription.
   const recurring = detectRecurring(convertedTx).slice(0, 10);
   const recurringAnnual = recurring.reduce((sum, r) => sum + r.annualised, 0);
 
   // The individual charges worth a second look. A category total hides a
   // single large payment inside a month of small ones.
-  const largest = [...convertedTx]
+  const largest = [...rangedTx]
     .filter((tx) => tx.amount < 0)
     .sort((a, b) => a.amount - b.amount)
     .slice(0, 8);
@@ -124,7 +156,7 @@ export default function Analytics() {
   const widgets: WidgetSpec[] = [
     {
       id: "cashflow",
-      title: "Income vs. expenses",
+      title: "Income vs. expenses — last 12 months",
       icon: ArrowLeftRight,
       accentVar: "--accent",
       defaultWidth: 672,
@@ -134,6 +166,7 @@ export default function Analytics() {
     {
       id: "savingsRate",
       title: "Savings rate",
+      headerExtra: <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{selectedRange.label.toLowerCase()}</span>,
       icon: PiggyBank,
       accentVar: "--accent-2",
       defaultWidth: 328,
@@ -368,7 +401,9 @@ export default function Analytics() {
         <div>
           <h1>Analytics</h1>
           <p className="page-header__subtitle">
-            Trends across the last {monthFlows.length || 0} month{monthFlows.length === 1 ? "" : "s"}
+            {/* The span is stated rather than assumed: the same chart means
+                something different over a month and over a year. */}
+            {selectedRange.label}
             {rates ? ` · converted to ${rates.base}` : ""}
             {/* Named rather than quietly omitted: a chart that silently drops
                 a currency under-reports without ever looking wrong. */}
@@ -376,6 +411,13 @@ export default function Analytics() {
             {" · hold a card to move or resize it"}
           </p>
         </div>
+        <select value={range} onChange={(e) => setRange(e.target.value as RangeId)} aria-label="Period">
+          {RANGES.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       <WidgetCanvas storageKey="analytics.layout.v1" widgets={widgets} />
