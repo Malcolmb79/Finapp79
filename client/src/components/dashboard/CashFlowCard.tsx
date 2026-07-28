@@ -1,4 +1,5 @@
 import { formatCurrency } from "../../utils/formatCurrency.js";
+import { useMeasuredWidth } from "../../utils/useMeasuredWidth.js";
 import StatTile from "./StatTile.js";
 
 export interface MonthFlow {
@@ -34,9 +35,12 @@ export default function CashFlowCard({
   const saved = income - expenses;
   const max = Math.max(1, ...months.flatMap((m) => [m.income, m.expenses]));
 
-  const width = 560;
-  const slot = months.length > 0 ? width / months.length : width;
-  const barWidth = Math.min(BAR_MAX_THICKNESS, (slot - 16) / 2);
+  const [plotRef, plotWidth] = useMeasuredWidth(560);
+  const slot = months.length > 0 ? plotWidth / months.length : plotWidth;
+  const barWidth = Math.max(2, Math.min(BAR_MAX_THICKNESS, (slot - 16) / 2));
+  // Roughly one label per 56px, always keeping the last, so a year of months
+  // on a narrow card thins out instead of overlapping.
+  const labelStep = Math.max(1, Math.ceil(months.length / Math.max(2, Math.floor(plotWidth / 56))));
 
   return (
     <div>
@@ -52,26 +56,51 @@ export default function CashFlowCard({
       {mode !== "chart" ? null : months.length === 0 ? (
         <p className="empty-state">Nothing to show yet.</p>
       ) : (
-        <svg viewBox={`0 0 ${width} ${CHART_HEIGHT}`} width="100%" height={CHART_HEIGHT} preserveAspectRatio="none">
-          <line x1="0" y1={CHART_HEIGHT - 16} x2={width} y2={CHART_HEIGHT - 16} stroke="var(--gridline)" strokeWidth="1" />
-          {months.map((m, i) => {
-            const slotX = i * slot;
-            const incomeH = (m.income / max) * (CHART_HEIGHT - 32);
-            const expenseH = (m.expenses / max) * (CHART_HEIGHT - 32);
-            const baseline = CHART_HEIGHT - 16;
-            const x1 = slotX + slot / 2 - barWidth - 2;
-            const x2 = slotX + slot / 2 + 2;
-            return (
-              <g key={m.label}>
-                <rect x={x1} y={baseline - incomeH} width={barWidth} height={incomeH} rx="4" fill="var(--seq-450)" />
-                <rect x={x2} y={baseline - expenseH} width={barWidth} height={expenseH} rx="4" fill="var(--text-muted)" opacity="0.55" />
-                <text x={slotX + slot / 2} y={CHART_HEIGHT} textAnchor="middle" fontSize="10" fill="var(--text-muted)">
-                  {m.label}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
+        <div ref={plotRef} style={{ width: "100%" }}>
+          {/* Drawn at the width it actually has. With preserveAspectRatio
+              ="none" the viewBox stretches to fill, and everything in it
+              stretches with it — the month labels were being pulled wide as
+              the widget was resized, because they were text inside a
+              distorted coordinate system. */}
+          <svg width={plotWidth} height={CHART_HEIGHT} style={{ display: "block" }}>
+            <line x1="0" y1={CHART_HEIGHT - 4} x2={plotWidth} y2={CHART_HEIGHT - 4} stroke="var(--gridline)" strokeWidth="1" />
+            {months.map((m, i) => {
+              const slotX = i * slot;
+              const incomeH = (m.income / max) * (CHART_HEIGHT - 20);
+              const expenseH = (m.expenses / max) * (CHART_HEIGHT - 20);
+              const baseline = CHART_HEIGHT - 4;
+              const x1 = slotX + slot / 2 - barWidth - 2;
+              const x2 = slotX + slot / 2 + 2;
+              return (
+                <g key={m.label}>
+                  <rect x={x1} y={baseline - incomeH} width={barWidth} height={incomeH} rx="4" fill="var(--seq-450)" />
+                  <rect x={x2} y={baseline - expenseH} width={barWidth} height={expenseH} rx="4" fill="var(--text-muted)" opacity="0.55" />
+                  <title>{`${m.label}: ${money(m.income)} in, ${money(m.expenses)} out`}</title>
+                </g>
+              );
+            })}
+          </svg>
+
+          {/* Labels as HTML beneath the plot rather than text inside it, so
+              they stay the size they are set at whatever the widget does.
+              Thinned when there are more months than there is room for. */}
+          <div style={{ display: "flex", fontSize: "0.68rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
+            {months.map((m, i) => (
+              <span
+                key={m.label}
+                style={{
+                  width: slot,
+                  textAlign: "center",
+                  visibility: i % labelStep === 0 || i === months.length - 1 ? "visible" : "hidden",
+                  overflow: "hidden",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {m.label}
+              </span>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

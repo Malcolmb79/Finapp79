@@ -14,6 +14,13 @@ import { detectRecurring } from "../utils/recurring.js";
 
 const TREND_MONTHS = 12;
 
+/** "2026-07" as "Jul 26" — a bare key is unreadable on an axis. */
+function monthLabel(key: string): string {
+  const [year, month] = key.split("-");
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, 1));
+  return date.toLocaleDateString(undefined, { month: "short", year: "2-digit", timeZone: "UTC" });
+}
+
 const RANGES = [
   { id: "month", label: "This month", months: 1 },
   { id: "3m", label: "Last 3 months", months: 3 },
@@ -55,7 +62,7 @@ export default function Analytics() {
   const monthFlows: MonthFlow[] = monthKeys.map((key) => {
     const monthTx = convertedTx.filter((tx) => tx.booking_date.startsWith(key));
     return {
-      label: key,
+      label: monthLabel(key),
       income: monthTx.filter((tx) => tx.amount > 0).reduce((s, tx) => s + tx.amount, 0),
       expenses: Math.abs(monthTx.filter((tx) => tx.amount < 0).reduce((s, tx) => s + tx.amount, 0)),
     };
@@ -67,7 +74,9 @@ export default function Analytics() {
   const rangeMonths = selectedRange.months == null ? monthKeys : monthKeys.slice(-selectedRange.months);
   const inRange = (date: string) => selectedRange.months == null || rangeMonths.includes(date.slice(0, 7));
   const rangedTx = convertedTx.filter((tx) => inRange(tx.booking_date));
-  const rangedFlows = monthFlows.filter((m) => selectedRange.months == null || rangeMonths.includes(m.label));
+  // Matched on the month keys rather than the labels, which are now formatted
+  // for reading and no longer look like "2026-07".
+  const rangedFlows = monthFlows.filter((_, i) => selectedRange.months == null || rangeMonths.includes(monthKeys[i]));
 
   const totalIncome = rangedFlows.reduce((s, m) => s + m.income, 0);
   const totalExpenses = rangedFlows.reduce((s, m) => s + m.expenses, 0);
@@ -183,7 +192,7 @@ export default function Analytics() {
               {money(totalIncome - totalExpenses)} kept of {money(totalIncome)}
               {bestMonth?.rate != null && ` · best ${bestMonth.label} at ${bestMonth.rate.toFixed(0)}%`}
             </p>
-            <TrendLine points={monthlySavings.map((m) => ({ label: m.label.slice(5), value: m.rate }))} format={(v) => `${v.toFixed(1)}%`} />
+            <TrendLine points={monthlySavings.map((m) => ({ label: m.label, value: m.rate }))} format={(v) => `${v.toFixed(1)}%`} />
           </>
         ),
     },
