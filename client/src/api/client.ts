@@ -202,6 +202,35 @@ export interface Category {
   parent_id: number | null;
 }
 
+export interface BudgetProposal {
+  category: string;
+  /** Null when the category has no budget yet — the proposal creates one. */
+  categoryId: number | null;
+  monthlyLimit: number;
+  currentLimit: number | null;
+  /** Against what is typically spent, not against the old limit. */
+  monthlySaving: number;
+  typical: number;
+  highest: number;
+  /** What the history alone suggests, before any advice. */
+  baseline: number;
+  reason: string;
+  confidence: "high" | "medium" | "low";
+}
+
+export interface BudgetAdvice {
+  summary: string;
+  proposals: BudgetProposal[];
+  analysis: {
+    monthsCovered: string[];
+    typicalIncome: number;
+    typicalSpend: number;
+    currency: string;
+  };
+  /** Currencies left out because no exchange rate was available. */
+  dropped: string[];
+}
+
 export interface Budget {
   id: number;
   category_id: number;
@@ -366,6 +395,12 @@ export const api = {
     request<Category>("/categories", { method: "POST", body: JSON.stringify({ name, parent_id: parentId ?? null }) }),
 
   listBudgets: () => request<Budget[]>("/budgets"),
+  /**
+   * Recommended monthly limits from spending history. Reads only — nothing is
+   * applied until setBudget is called with a proposal the user accepted.
+   */
+  budgetAdvice: () => request<BudgetAdvice>("/budget-advisor"),
+
   setBudget: (categoryId: number, monthlyLimit: number) =>
     request<Budget>("/budgets", { method: "POST", body: JSON.stringify({ category_id: categoryId, monthly_limit: monthlyLimit }) }),
   deleteBudget: (id: number) => request<void>(`/budgets/${id}`, { method: "DELETE" }),

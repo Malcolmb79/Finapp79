@@ -1,4 +1,5 @@
-import { Plus, Target } from "lucide-react";
+import { Plus, Sparkles, Target } from "lucide-react";
+import BudgetAdviser from "../components/BudgetAdviser.js";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useCallback, useEffect, useState } from "react";
 import { api, type Budget, type Category } from "../api/client.js";
@@ -37,6 +38,15 @@ export default function Budgets() {
   const availableCategories = categories.filter((c) => !budgetedCategoryIds.has(c.id));
 
   const widgets: WidgetSpec[] = [
+    {
+      id: "adviser",
+      title: "Budget adviser",
+      icon: Sparkles,
+      accentVar: "--accent-2",
+      defaultWidth: 672,
+      defaultHeight: 460,
+      render: () => <BudgetAdviser onApplied={refresh} />,
+    },
     {
       id: "setBudget",
       title: "Set a budget",
