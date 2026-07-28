@@ -1,12 +1,17 @@
 import { formatCurrency } from "../../utils/formatCurrency.js";
-import { useMeasuredWidth } from "../../utils/useMeasuredWidth.js";
+import { useMeasuredSize } from "../../utils/useMeasuredSize.js";
 
 export interface TrendPoint {
   label: string;
   value: number;
 }
 
-const CHART_HEIGHT = 150;
+// Below this the line has no room to show a shape, so the chart is dropped
+// rather than drawn as a scribble.
+const MIN_CHART_HEIGHT = 60;
+const MAX_CHART_HEIGHT = 220;
+// Room under the plot for the month labels.
+const LABEL_ROW = 20;
 const MARKER_RADIUS = 2.5;
 
 /** Short enough for an axis: 35,806 becomes -35.8k, 950 stays 950. */
@@ -48,10 +53,13 @@ export default function NetWorthCard({
   /** Currencies with no available rate — their balances are missing from the total. */
   unconvertible?: string[];
 }) {
-  // Drawn at the width it actually has rather than stretched to fit: a
-  // stretched SVG turns point markers into ellipses and thickens the line
-  // unevenly.
-  const [plotRef, plotWidth] = useMeasuredWidth(420);
+  // Drawn at the size it actually has rather than stretched to fit. Width
+  // matters because a stretched SVG turns round markers into ellipses;
+  // height matters because a fixed chart inside a resizable card runs off the
+  // bottom and takes the month labels with it — which is what it did.
+  const [plotRef, plot] = useMeasuredSize(420, 150);
+  const plotWidth = plot.width;
+  const chartHeight = Math.max(MIN_CHART_HEIGHT, Math.min(MAX_CHART_HEIGHT, plot.height - LABEL_ROW));
 
   const values = points.map((p) => p.value);
   const low = Math.min(...values);
@@ -63,11 +71,11 @@ export default function NetWorthCard({
   const range = max - min;
 
   const xFor = (i: number) => (points.length > 1 ? (i / (points.length - 1)) * plotWidth : plotWidth / 2);
-  const yFor = (value: number) => CHART_HEIGHT - ((value - min) / range) * CHART_HEIGHT;
+  const yFor = (value: number) => chartHeight - ((value - min) / range) * chartHeight;
 
   const coords = points.map((p, i) => [xFor(i), yFor(p.value)] as const);
   const linePath = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
-  const areaPath = coords.length > 0 ? `${linePath} L${plotWidth},${CHART_HEIGHT} L0,${CHART_HEIGHT} Z` : "";
+  const areaPath = coords.length > 0 ? `${linePath} L${plotWidth},${chartHeight} L0,${chartHeight} Z` : "";
 
   // Three labelled levels is as many as reads without crowding at this size.
   const levels = [max, (max + min) / 2, min];
@@ -78,7 +86,10 @@ export default function NetWorthCard({
   const labelStep = Math.max(1, Math.ceil(points.length / Math.max(2, Math.floor(plotWidth / 60))));
 
   return (
-    <div>
+    // A column filling the card, so the chart's share of the height comes
+    // from the card's size rather than from its own content — measuring a
+    // box that the chart itself grows would never settle.
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
       <p className="stat-tile__label" style={{ marginBottom: "0.2rem" }}>
         Net worth
       </p>
@@ -102,7 +113,7 @@ export default function NetWorthCard({
       )}
 
       {mode === "chart" && points.length > 1 ? (
-        <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.9rem" }}>
+        <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.9rem", flex: 1, minHeight: MIN_CHART_HEIGHT + LABEL_ROW }}>
           {/* Values as HTML beside the plot rather than text inside the SVG,
               so they stay crisp and readable at any card size. */}
           <div
@@ -110,7 +121,7 @@ export default function NetWorthCard({
               display: "flex",
               flexDirection: "column",
               justifyContent: "space-between",
-              height: CHART_HEIGHT,
+              height: chartHeight,
               fontSize: "0.68rem",
               color: "var(--text-muted)",
               textAlign: "right",
@@ -123,8 +134,10 @@ export default function NetWorthCard({
             ))}
           </div>
 
-          <div ref={plotRef} style={{ flex: 1, minWidth: 0 }}>
-            <svg width={plotWidth} height={CHART_HEIGHT} style={{ display: "block", overflow: "visible" }}>
+          {/* overflow hidden so an svg drawn a frame behind the resize can't
+              push the box it is measured against. */}
+          <div ref={plotRef} style={{ flex: 1, minWidth: 0, height: "100%", overflow: "hidden" }}>
+            <svg width={plotWidth} height={chartHeight} style={{ display: "block", overflow: "visible" }}>
               <defs>
                 <linearGradient id="netWorthFill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="var(--seq-450)" stopOpacity="0.22" />

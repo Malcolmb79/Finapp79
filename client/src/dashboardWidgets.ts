@@ -46,7 +46,10 @@ export interface WidgetMeta {
 }
 
 export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
-  netWorth: { title: "Net worth", module: "Dashboard", icon: TrendingUp, defaultEnabled: true, defaultWidth: WIDE_WIDTH, defaultHeight: 280, defaultMode: "chart" },
+  // Taller than the other widgets because it carries a figure, three lines of
+  // context and a chart with its own labels — at 280 the chart had nowhere to
+  // go and lost its month labels off the bottom.
+  netWorth: { title: "Net worth", module: "Dashboard", icon: TrendingUp, defaultEnabled: true, defaultWidth: WIDE_WIDTH, defaultHeight: 340, defaultMode: "chart" },
   accounts: { title: "Accounts", module: "Accounts", icon: Landmark, defaultEnabled: true, defaultWidth: NARROW_WIDTH, defaultHeight: 264 },
   balances: { title: "Account balances", module: "Accounts", icon: Wallet, defaultEnabled: true, defaultWidth: NARROW_WIDTH, defaultHeight: 264 },
   cashflow: { title: "Monthly cash flow", module: "Dashboard", icon: ArrowLeftRight, defaultEnabled: true, defaultWidth: WIDE_WIDTH, defaultHeight: 280, defaultMode: "chart" },
