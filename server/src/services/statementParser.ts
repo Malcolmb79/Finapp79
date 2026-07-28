@@ -493,8 +493,18 @@ function heuristicMapping(rows: string[][], preamble: string[][] = []): Statemen
     // Scanned across the preamble too: the header lines are exactly where a
     // statement states its period, and they're the lines split off from the
     // table — so looking only at the table finds no year at all.
-    for (const match of [...preamble, ...rows].flat().join(" ").matchAll(/\b(19|20)\d{2}\b/g)) {
-      const year = Number(match[0]);
+    const years = [...[...preamble, ...rows].flat().join(" ").matchAll(/\b(19|20)\d{2}\b/g)].map((m) => Number(m[0]));
+
+    // A statement covers the past, so a year later than this one is not the
+    // period — it is small print about something upcoming. Taking the latest
+    // year outright dated a June–July 2026 Barclays statement to 2027 because
+    // a notice elsewhere on the page mentioned that year, putting every
+    // transaction a year into the future where it skews every trend.
+    const thisYear = new Date().getUTCFullYear();
+    const plausible = years.filter((year) => year <= thisYear);
+    const candidates = plausible.length > 0 ? plausible : years;
+
+    for (const year of candidates) {
       if (defaultYear == null || year > defaultYear) defaultYear = year;
     }
   }

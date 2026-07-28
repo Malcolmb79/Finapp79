@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyMapping, inferMapping, normaliseAmount, normaliseDate, parseDelimited, splitPreamble } from "./statementParser.js";
+import { applyMapping, inferMapping, normaliseAmount, normaliseDate, parseDelimited, parseStatement, splitPreamble } from "./statementParser.js";
 
 // These run without ANTHROPIC_API_KEY, so they exercise the heuristic
 // fallback — the path that has to work on its own when no key is configured,
@@ -164,5 +164,40 @@ describe("normaliseDate", () => {
 
   it("rejects a month name that isn't one", () => {
     expect(normaliseDate("08 Xyz 2026", "dmy")).toBeNull();
+  });
+});
+
+/**
+ * Rows that give a day and month but no year take it from the document. Which
+ * year is picked decides every date in the import, so the rule matters more
+ * than it looks.
+ */
+describe("year for dates that omit one", () => {
+  it("takes the period's year from the header", async () => {
+    const { rows } = await parseStatement(
+      ["Statement 13 June 2026 to 14 July 2026", "Date,Description,Amount", "15 Jun,TESCO,-12.00", "16 Jun,ALDI,-8.50"].join("\n")
+    );
+    expect(rows.map((r) => r.date)).toEqual(["2026-06-15", "2026-06-16"]);
+  });
+
+  // The failure this guards: a Barclays statement covering June-July 2026
+  // carried a 2027 in its small print, and the latest-year-wins rule dated
+  // every transaction a year into the future.
+  it("ignores a later year mentioned in the small print", async () => {
+    const { rows } = await parseStatement(
+      [
+        "Statement 13 June 2026 to 14 July 2026",
+        "Your overdraft rate is fixed until 31 March 2027",
+        "Date,Description,Amount",
+        "15 Jun,TESCO,-12.00",
+      ].join("\n")
+    );
+    expect(rows[0].date).toBe("2026-06-15");
+  });
+
+  it("falls back to a future year when that is all the document offers", async () => {
+    // Better a date the document actually states than none at all.
+    const { rows } = await parseStatement(["Statement for 2027", "Date,Description,Amount", "15 Jun,TESCO,-12.00"].join("\n"));
+    expect(rows[0].date).toBe("2027-06-15");
   });
 });
