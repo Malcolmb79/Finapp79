@@ -2,6 +2,7 @@ import { Check, Loader2, Plus, Search, Sparkles, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, type Account, type Category, type PendingTransaction } from "../../api/client.js";
 import CategorySelect from "../CategorySelect.js";
+import { cleanDescription } from "../../utils/cleanDescription.js";
 import { formatCurrency } from "../../utils/formatCurrency.js";
 
 // Per-row category choice starts at the suggested category but the user can
@@ -197,7 +198,11 @@ export default function PendingReviewWidget({
       {visible.map((t) => (
         <div className="tx-row" key={t.id}>
           <div className="tx-row__info">
-            <div className="tx-row__name">{t.description || t.counterparty || "Transaction"}</div>
+            {/* Same cleaning the transactions table does, and titled so the
+                full bank text is still reachable when the row clips it. */}
+            <div className="tx-row__name" title={t.description ?? undefined}>
+              {cleanDescription(t.description) || t.counterparty || "Transaction"}
+            </div>
             <div className="tx-row__meta">
               {t.booking_date}
               {/* Named only when more than one account has rows waiting —

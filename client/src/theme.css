@@ -1187,14 +1187,24 @@ th {
   min-width: 0;
 }
 
+/* Bank descriptions run long — "VDP-VERCEL INC. 24.60 USD@ 1.136258 INCL FX
+   FEE E0.45" is one payee — and wrapping turned a row into an eight-line
+   tower with the controls stranded beside it. One line, clipped, with the
+   full text on hover and in the detail view. */
 .tx-row__name {
   font-weight: 600;
   font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tx-row__meta {
   font-size: 0.78rem;
   color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tx-row__amount {
@@ -1395,4 +1405,20 @@ th {
     gap: 0.5rem;
   }
 
+  /* A category picker, an amount and an approve button cannot share a line
+     with a payee name on a phone — the name was squeezed to a couple of
+     characters and the picker sat on top of it. The name takes the first
+     line, the controls the second. */
+  .tx-row {
+    flex-wrap: wrap;
+    gap: 0.4rem 0.6rem;
+  }
+
+  .tx-row__info {
+    flex: 1 0 100%;
+  }
+
+  .tx-row__amount {
+    margin-left: auto;
+  }
 }
