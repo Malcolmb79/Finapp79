@@ -105,6 +105,26 @@ export default function Accounts() {
     setLastEdited("overdraft");
   }
 
+  /**
+   * Changing the type mid-edit reinterprets the number already in the field,
+   * so the number has to change with it.
+   *
+   * The field is filled as a balance for a cheque account and as an amount
+   * owed for a card, and those are opposite signs. Without this, switching an
+   * overdrawn account to Credit card left -9,400 sitting under a label
+   * reading "Owed", and saving stored it as 9,400 held — the account then
+   * reads as money in hand and drops out of the debt view entirely.
+   */
+  function changeType(next: AccountType) {
+    const wasLiability = typeDraft === "credit_card" || typeDraft === "loan";
+    const nowLiability = next === "credit_card" || next === "loan";
+    if (wasLiability !== nowLiability) {
+      const parsed = parseDraft(balanceDraft);
+      if (typeof parsed === "number") setBalanceDraft(String(-parsed));
+    }
+    setTypeDraft(next);
+  }
+
   // "" and 0 are deliberately different: "" clears (handing the balance back
   // to the transaction history, or removing the overdraft), 0 is a real zero.
   // Anything unparseable leaves that field untouched rather than writing a
@@ -535,7 +555,7 @@ export default function Accounts() {
                         Type
                         <select
                           value={typeDraft}
-                          onChange={(e) => setTypeDraft(e.target.value as AccountType)}
+                          onChange={(e) => changeType(e.target.value as AccountType)}
                           style={{ display: "block", fontSize: "0.85rem", padding: "0.25rem 0.4rem" }}
                         >
                           {ACCOUNT_TYPES.map((t) => (
@@ -672,6 +692,22 @@ export default function Accounts() {
                       )}
                       {a.balance_is_manual && a.balance != null && (
                         <span style={{ display: "block", fontSize: "0.7rem", color: "var(--text-muted)" }}>set by hand</span>
+                      )}
+                      {/* A card or loan holding money is possible but rare —
+                          far more often the sign is inverted, which is silent
+                          and drops the account out of the debt view. Offering
+                          the flip is quicker than re-typing the figure and
+                          makes the problem legible either way. */}
+                      {isLiability(a) && (a.balance ?? 0) > 0 && (
+                        <span style={{ display: "block", fontSize: "0.7rem", color: "var(--critical)" }}>
+                          in credit, not owed —{" "}
+                          <button
+                            onClick={() => api.updateAccount(a.id, { balance: -(a.balance ?? 0) }).then(refresh)}
+                            style={{ padding: "0.1rem 0.3rem", fontSize: "0.7rem" }}
+                          >
+                            owe {formatCurrency(a.balance ?? 0, a.currency)} instead
+                          </button>
+                        </span>
                       )}
                       {(a.loan_rate != null || a.loan_monthly_payment != null || a.loan_end_date) && (
                         <span style={{ display: "block", fontSize: "0.7rem", color: "var(--text-muted)" }}>
