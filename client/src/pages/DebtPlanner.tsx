@@ -100,7 +100,7 @@ export default function DebtPlanner() {
         </div>
       </div>
 
-      {borrowing.length > 0 && <DebtCharts accounts={borrowing} />}
+      {borrowing.length > 0 && <DebtCharts accounts={borrowing} txSums={byAccount} />}
 
       {borrowing.length > 0 && <DebtAdvisor />}
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type Account, type DebtProjection } from "../api/client.js";
+import { accountBalance, isLiability } from "../utils/accountBalance.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -76,13 +77,17 @@ function Axis({ span }: { span: number }) {
 function AccountChart({
   projection,
   account,
+  txSum,
   extra,
   onExtraChange,
+  onFixSign,
 }: {
   projection: DebtProjection;
   account: Account | undefined;
+  txSum: number;
   extra: string;
   onExtraChange: (value: string) => void;
+  onFixSign: (account: Account) => void;
 }) {
   const baseline = projection.minimums.balanceByMonth;
   const faster = projection.withExtra?.balanceByMonth ?? null;
@@ -106,6 +111,14 @@ function AccountChart({
           ? "var(--accent-3)"
           : "var(--accent)";
 
+  // What the account actually holds, from the same rule the Accounts page
+  // uses. Nothing owed is not the same as nothing known — an account in
+  // credit has a balance, it just isn't a debt.
+  const held = account ? Math.max(0, accountBalance(account, txSum)) : 0;
+  // A card or loan holding money is possible but rare; far more often the
+  // sign is inverted, which reads here as an account with nothing owed.
+  const signLooksWrong = !!account && isLiability(account) && held > 0;
+
   const clearsIn = projection.minimums.months;
   const fasterClearsIn = projection.withExtra?.months ?? null;
   const saved =
@@ -126,12 +139,13 @@ function AccountChart({
             the charts reads as something missing. But there is no payoff to
             describe, so it says that instead of drawing a flat line. */}
         {projection.balance <= 0
-          ? // Two different situations that both read as zero, and they call
-            // for different things: an untouched facility is fine as it is,
-            // a card with no balance recorded is missing a figure only the
-            // user can supply.
-            (account?.overdraft_limit ?? 0) > 0
-            ? `${accountTypeLabel(projection.accountType)} · nothing drawn`
+          ? // Nothing owed can mean three different things, and calling them
+            // all "no balance recorded" was wrong for two of them: an account
+            // sitting in credit has a balance, it just isn't a debt.
+            held > 0
+            ? `${accountTypeLabel(projection.accountType)} · ${formatCurrency(held, projection.currency)} in credit${
+                (account?.overdraft_limit ?? 0) > 0 ? " · nothing drawn" : ""
+              }`
             : `${accountTypeLabel(projection.accountType)} · no balance recorded — set what's owed on the Accounts page`
           : [
               projection.rate > 0 ? `${projection.rate}% a year` : "no rate recorded",
@@ -170,6 +184,15 @@ function AccountChart({
           </svg>
           <Axis span={span} />
         </>
+      )}
+
+      {signLooksWrong && account && (
+        <p style={{ fontSize: "0.73rem", color: "var(--critical)", margin: "0 0 0.4rem" }}>
+          Recorded as money held rather than owed.{" "}
+          <button onClick={() => onFixSign(account)} style={{ padding: "0.1rem 0.35rem", fontSize: "0.72rem" }}>
+            Owe {formatCurrency(held, projection.currency)} instead
+          </button>
+        </p>
       )}
 
       {projection.balance > 0 && (
@@ -237,7 +260,7 @@ function AccountChart({
   );
 }
 
-export default function DebtCharts({ accounts }: { accounts: Account[] }) {
+export default function DebtCharts({ accounts, txSums }: { accounts: Account[]; txSums: Map<string, number> }) {
   const [projections, setProjections] = useState<DebtProjection[] | null>(null);
   // Held as typed rather than as numbers, so a half-entered "2" of "250"
   // isn't read as two hundred and fifty short of what's meant.
@@ -267,6 +290,14 @@ export default function DebtCharts({ accounts }: { accounts: Account[] }) {
 
   const accountsById = new Map(accounts.map((a) => [a.id, a]));
 
+  // Re-fetching after a correction rather than reloading the page: the fix is
+  // made here, so the answer should change here.
+  async function fixSign(account: Account) {
+    const held = Math.max(0, accountBalance(account, txSums.get(account.id) ?? 0));
+    await api.updateAccount(account.id, { balance: -held });
+    setExtras((current) => ({ ...current }));
+  }
+
   return (
     <div className="card" style={{ marginBottom: "1.25rem" }}>
       <div className="card__header">
@@ -283,6 +314,8 @@ export default function DebtCharts({ accounts }: { accounts: Account[] }) {
           key={p.accountId}
           projection={p}
           account={accountsById.get(p.accountId)}
+          txSum={txSums.get(p.accountId) ?? 0}
+          onFixSign={fixSign}
           extra={extras[p.accountId] ?? ""}
           onExtraChange={(value) => setExtras((current) => ({ ...current, [p.accountId]: value }))}
         />
