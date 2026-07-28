@@ -10,11 +10,13 @@ import { api, type AdvisorMessage, type AdvisorWorking } from "../api/client.js"
  * expanded — so a plan can be checked rather than taken on trust.
  */
 
+// Phrased to work as follow-ups as well as openers, since they stay on
+// screen for the whole conversation.
 const SUGGESTIONS = [
   "What's the fastest way to clear my debt?",
   "What if I paid 200 extra a month?",
   "Which account should I attack first, and why?",
-  "How much interest would avalanche save over snowball?",
+  "What would that save me in interest?",
 ];
 
 function Workings({ workings }: { workings: AdvisorWorking[] }) {
@@ -91,15 +93,7 @@ export default function DebtAdvisor() {
         </p>
       </div>
 
-      {messages.length === 0 ? (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", padding: "0.5rem 0" }}>
-          {SUGGESTIONS.map((s) => (
-            <button key={s} onClick={() => send(s)} style={{ fontSize: "0.78rem" }}>
-              {s}
-            </button>
-          ))}
-        </div>
-      ) : (
+      {messages.length > 0 && (
         <div style={{ display: "grid", gap: "0.75rem", maxHeight: 420, overflowY: "auto", padding: "0.25rem 0" }}>
           {messages.map((m, i) => (
             <div
@@ -128,6 +122,17 @@ export default function DebtAdvisor() {
           <div ref={endRef} />
         </div>
       )}
+
+      {/* Kept available throughout rather than only on an empty thread: a
+          follow-up is where a prompt is most use, and that is exactly when
+          they used to disappear. */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", padding: "0.4rem 0" }}>
+        {SUGGESTIONS.map((s) => (
+          <button key={s} onClick={() => send(s)} style={{ fontSize: "0.74rem", padding: "0.2rem 0.5rem" }} disabled={sending}>
+            {s}
+          </button>
+        ))}
+      </div>
 
       {error && <p style={{ fontSize: "0.8rem", color: "var(--critical)", margin: "0.4rem 0" }}>{error}</p>}
 

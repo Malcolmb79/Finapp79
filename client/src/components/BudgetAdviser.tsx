@@ -14,6 +14,15 @@ import { formatCurrency } from "../utils/formatCurrency.js";
  * Not fetched on mount: it costs a model call, and a page that spends one
  * every time it is opened spends most of them on nobody looking.
  */
+// Phrased as replies as well as openers, since they stay on screen for the
+// whole conversation.
+const STARTERS = [
+  "Where can I realistically cut?",
+  "That's too tight — what else could give?",
+  "Which limit should I set first?",
+  "What would save the most a month?",
+];
+
 export default function BudgetAdviser({ onApplied }: { onApplied: () => void }) {
   const [advice, setAdvice] = useState<BudgetAdvice | null>(null);
   const [loading, setLoading] = useState(false);
@@ -214,15 +223,7 @@ export default function BudgetAdviser({ onApplied }: { onApplied: () => void }) 
           actually spending on groceries" is a fair first question, and
           answering it doesn't need a full set of recommendations first. */}
       <div style={{ borderTop: "1px solid var(--gridline)", marginTop: "0.8rem", paddingTop: "0.6rem" }}>
-        {messages.length === 0 ? (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.5rem" }}>
-            {["Where can I realistically cut?", "That's too tight — what else could give?", "Which limit should I set first?"].map((q) => (
-              <button key={q} onClick={() => send(q)} style={{ fontSize: "0.76rem" }} disabled={sending}>
-                {q}
-              </button>
-            ))}
-          </div>
-        ) : (
+        {messages.length > 0 && (
           <div style={{ display: "grid", gap: "0.5rem", maxHeight: 260, overflowY: "auto", marginBottom: "0.5rem" }}>
             {messages.map((m, i) => (
               <div
@@ -248,6 +249,17 @@ export default function BudgetAdviser({ onApplied }: { onApplied: () => void }) 
             )}
           </div>
         )}
+
+        {/* Kept available throughout rather than only on an empty thread.
+            "That's too tight" is a reply, not an opening line — the prompts
+            were most useful at exactly the moment they used to disappear. */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", marginBottom: "0.5rem" }}>
+          {STARTERS.map((q) => (
+            <button key={q} onClick={() => send(q)} style={{ fontSize: "0.74rem", padding: "0.2rem 0.5rem" }} disabled={sending}>
+              {q}
+            </button>
+          ))}
+        </div>
 
         <form
           onSubmit={(e) => {
