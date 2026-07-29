@@ -12,6 +12,7 @@ import {
   accountTypeLabel,
   facilityLabel,
   hasAvailable,
+  accountTxSums,
   isLiability,
 } from "../utils/accountBalance.js";
 import { fileToBase64 } from "../utils/fileBytes.js";
@@ -80,10 +81,10 @@ export default function Accounts() {
 
   useEffect(refresh, [refresh]);
 
-  const byAccount = new Map<string, number>();
-  for (const tx of transactions) {
-    byAccount.set(tx.account_id, (byAccount.get(tx.account_id) ?? 0) + tx.amount);
-  }
+  // Counted from the point each balance was set, so a hand-set figure
+  // is an opening balance that transactions move rather than a frozen
+  // number — see accountTxSums.
+  const byAccount = accountTxSums(accounts, transactions);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();

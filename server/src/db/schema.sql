@@ -135,6 +135,11 @@ ALTER TABLE accounts ADD COLUMN IF NOT EXISTS balance_is_manual BOOLEAN NOT NULL
 -- column was assumed to be.
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT 'current';
 
+-- What the bank last reported, kept even when a hand-set balance is the one
+-- being used. Without it a manual figure silently outranks every later sync
+-- with no way to see the two disagree, let alone hand the account back.
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS synced_balance DOUBLE PRECISION;
+
 -- An account's own branding, as opposed to its bank connection's. A linked
 -- account inherits both from bank_connections, but a manual account has no
 -- connection to inherit from — these are where a bank matched by name (from a

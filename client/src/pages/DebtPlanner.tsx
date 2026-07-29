@@ -3,7 +3,7 @@ import MonthlyPlan from "../components/MonthlyPlan.js";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useCallback, useEffect, useState } from "react";
 import { api, type Account, type Transaction } from "../api/client.js";
-import { accountTypeLabel, amountDrawn, facilityLabel, isBorrowing } from "../utils/accountBalance.js";
+import { accountTypeLabel, amountDrawn, facilityLabel, isBorrowing, accountTxSums } from "../utils/accountBalance.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { sumInBase, useFxRates } from "../utils/fx.js";
 import DebtAdvisor from "../components/DebtAdvisor.js";
@@ -71,10 +71,10 @@ export default function DebtPlanner() {
 
   const rates = useFxRates("EUR");
 
-  const byAccount = new Map<string, number>();
-  for (const tx of transactions) {
-    byAccount.set(tx.account_id, (byAccount.get(tx.account_id) ?? 0) + tx.amount);
-  }
+  // Counted from the point each balance was set, so a hand-set figure
+  // is an opening balance that transactions move rather than a frozen
+  // number — see accountTxSums.
+  const byAccount = accountTxSums(accounts, transactions);
   // Anything that is borrowing or could be: an overdrawn balance is debt
   // whatever the account is called, and an arranged facility belongs in the
   // picture even before it's drawn on. Account type isn't the test — a cheque

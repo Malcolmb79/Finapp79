@@ -50,12 +50,51 @@ export function facilityLabel(account: Account): string | null {
 // window. Manual accounts have no such source of truth, so they stay
 // derived from the running sum of their own transactions.
 export function accountBalance(account: Account, txSum: number): number {
-  // A balance set by hand is a deliberate statement about what the account
-  // holds, so it outranks a derived sum for any account — that's the whole
-  // point of entering it. Clearing it hands the account back to its
-  // transaction history.
-  if (account.balance_is_manual && account.balance != null) return account.balance;
+  // A balance set by hand is where the account stood when it was entered, not
+  // where it stands forever. Treated as final it froze the account: a figure
+  // corrected once never moved again however many transactions arrived, and
+  // the account read as broken rather than as overridden.
+  //
+  // So it is an opening figure, and `txSum` carries only what has been booked
+  // since — see accountTxSums, which is what every caller should build its
+  // sums with.
+  if (account.balance_is_manual && account.balance != null) return account.balance + txSum;
   return account.source === "enablebanking" && account.balance != null ? account.balance : txSum;
+}
+
+/**
+ * Each account's transaction sum, counted from the point its balance was set.
+ *
+ * An account with a hand-set balance only wants what has happened since —
+ * everything before it is already inside the figure that was entered, and
+ * adding the lot would count months of history twice. An account without one
+ * wants the whole history, since that is all it has.
+ *
+ * A linked account takes the bank's figure and ignores this entirely: the
+ * bank has already counted its own transactions, and a sync happens often
+ * enough that adding today's on top would double them.
+ */
+export function accountTxSums(
+  accounts: Account[],
+  transactions: { account_id: string; booking_date: string; amount: number }[]
+): Map<string, number> {
+  const anchors = new Map<string, string | null>();
+  for (const account of accounts) {
+    // The date the balance was entered, which is also when a sync last wrote
+    // one. Only meaningful for a manual figure; the rest count everything.
+    anchors.set(account.id, account.balance_is_manual ? (account.balance_synced_at?.slice(0, 10) ?? null) : null);
+  }
+
+  const sums = new Map<string, number>();
+  for (const tx of transactions) {
+    const anchor = anchors.get(tx.account_id);
+    // Strictly after: a transaction booked on the day the balance was entered
+    // is assumed to be in it, which is the safer of the two mistakes — it
+    // understates a change rather than inventing one.
+    if (anchor && tx.booking_date <= anchor) continue;
+    sums.set(tx.account_id, (sums.get(tx.account_id) ?? 0) + tx.amount);
+  }
+  return sums;
 }
 
 /**

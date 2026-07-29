@@ -196,12 +196,21 @@ bankLinkRouter.post("/accounts/:accountId/sync", async (req, res) => {
       await db
         .prepare(
           `UPDATE accounts
-              SET balance = CASE WHEN balance_is_manual THEN balance ELSE ? END,
+              SET balance = ?,
+                  synced_balance = ?,
                   available_balance = ?,
-                  balance_synced_at = ?
+                  balance_synced_at = ?,
+                  balance_is_manual = FALSE
             WHERE id = ?`
         )
-        .run(booked, available, new Date().toISOString(), accountId);
+        // The bank's figure wins, and the manual flag is cleared with it.
+        //
+        // A hand-set balance used to survive every later sync, so an account
+        // corrected by hand once never updated again — it read as simply
+        // stuck. A manual figure is an override until the bank says otherwise,
+        // which is the only version of "override" that doesn't quietly stop
+        // the account working.
+        .run(booked, booked, available, new Date().toISOString(), accountId);
     }
   } catch (err) {
     console.error(`Failed to sync balance for account ${accountId}:`, err);

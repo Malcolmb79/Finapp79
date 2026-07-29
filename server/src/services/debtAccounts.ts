@@ -50,8 +50,20 @@ export async function loadDebts(userId: string, everythingBorrowable = false): P
     .prepare("SELECT * FROM accounts WHERE user_id = ?")
     .all(userId)) as unknown as AccountRow[];
 
+  // Summed from the point each balance was set, matching the client's
+  // accountTxSums: a hand-set figure is an opening balance that transactions
+  // move, so counting the whole history against it would count everything
+  // before it twice. An account with no manual figure has no anchor and
+  // counts the lot.
   const sums = (await db
-    .prepare("SELECT account_id, SUM(amount) AS total FROM transactions WHERE user_id = ? GROUP BY account_id")
+    .prepare(
+      `SELECT t.account_id, SUM(t.amount) AS total
+         FROM transactions t
+         JOIN accounts a ON a.id = t.account_id
+        WHERE t.user_id = ?
+          AND (NOT a.balance_is_manual OR a.balance_synced_at IS NULL OR t.booking_date > substr(a.balance_synced_at, 1, 10))
+        GROUP BY t.account_id`
+    )
     .all(userId)) as unknown as { account_id: string; total: number }[];
   const byAccount = new Map(sums.map((s) => [s.account_id, Number(s.total)]));
 
@@ -60,7 +72,7 @@ export async function loadDebts(userId: string, everythingBorrowable = false): P
       const derived = byAccount.get(a.id) ?? 0;
       const balance =
         a.balance_is_manual && a.balance != null
-          ? a.balance
+          ? a.balance + derived
           : a.source === "enablebanking" && a.balance != null
             ? a.balance
             : derived;

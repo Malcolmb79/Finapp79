@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { api, type Account, type Transaction } from "../../api/client.js";
 import { useAuth } from "../../contexts/AuthContext.js";
-import { accountBalance } from "../../utils/accountBalance.js";
+import { accountBalance, accountTxSums } from "../../utils/accountBalance.js";
 import { formatCurrency } from "../../utils/formatCurrency.js";
 import { sumInBase, useFxRates } from "../../utils/fx.js";
 
@@ -39,10 +39,10 @@ export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onC
 
   const rates = useFxRates("EUR");
 
-  const byAccount = new Map<string, number>();
-  for (const tx of transactions) {
-    byAccount.set(tx.account_id, (byAccount.get(tx.account_id) ?? 0) + tx.amount);
-  }
+  // Counted from the point each balance was set, so a hand-set figure
+  // is an opening balance that transactions move rather than a frozen
+  // number — see accountTxSums.
+  const byAccount = accountTxSums(accounts, transactions);
   // Linked accounts contribute their real bank balance rather than a sum
   // of the 90-day synced transaction window — see accountBalance.ts.
   // Converted rather than added raw — accounts in different currencies are

@@ -30,7 +30,7 @@ import { inBase, sumInBase, useFxRates } from "../utils/fx.js";
 import { computeCanvasHeight, type CanvasRect } from "../utils/useCanvasItem.js";
 import { useMeasuredWidth } from "../utils/useMeasuredWidth.js";
 import AccountAvatar from "../components/AccountAvatar.js";
-import { accountBalance, amountDrawn, isBorrowing } from "../utils/accountBalance.js";
+import { accountBalance, amountDrawn, isBorrowing, accountTxSums } from "../utils/accountBalance.js";
 import { budgetStatus } from "../utils/budgetStatus.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { monthsToPayoff } from "../utils/payoff.js";
@@ -236,10 +236,10 @@ export default function Dashboard() {
     }
   }
 
-  const byAccount = new Map<string, number>();
-  for (const tx of transactions) {
-    byAccount.set(tx.account_id, (byAccount.get(tx.account_id) ?? 0) + tx.amount);
-  }
+  // Counted from the point each balance was set, so a hand-set figure
+  // is an opening balance that transactions move rather than a frozen
+  // number — see accountTxSums.
+  const byAccount = accountTxSums(accounts, transactions);
 
   // Linked accounts contribute their real bank balance (not a sum of the
   // 90-day synced transaction window); manual accounts have no other
