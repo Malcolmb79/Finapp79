@@ -6,6 +6,7 @@ import { api, type Account, type Transaction } from "../api/client.js";
 import { accountTypeLabel, amountDrawn, facilityLabel, isBorrowing, accountTxSums, visibleAccounts, visibleTransactions } from "../utils/accountBalance.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { sumInBase, useFxRates } from "../utils/fx.js";
+import { useAccountScope } from "../contexts/AccountScopeContext.js";
 import DebtAdvisor from "../components/DebtAdvisor.js";
 import DebtCharts from "../components/DebtCharts.js";
 import StatTile from "../components/dashboard/StatTile.js";
@@ -69,9 +70,10 @@ export default function DebtPlanner() {
 
   useEffect(refresh, [refresh]);
 
+  const { scope } = useAccountScope();
   const rates = useFxRates("EUR");
-  const accounts = visibleAccounts(allAccounts);
-  const transactions = visibleTransactions(allTransactions, allAccounts);
+  const accounts = visibleAccounts(allAccounts, scope);
+  const transactions = visibleTransactions(allTransactions, allAccounts, scope);
 
   // Counted from the point each balance was set, so a hand-set figure
   // is an opening balance that transactions move rather than a frozen

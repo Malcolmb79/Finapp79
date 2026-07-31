@@ -16,6 +16,7 @@ import { useAuth } from "../../contexts/AuthContext.js";
 import { accountBalance, accountTxSums, visibleAccounts, visibleTransactions } from "../../utils/accountBalance.js";
 import { formatCurrency } from "../../utils/formatCurrency.js";
 import { sumInBase, useFxRates } from "../../utils/fx.js";
+import { useAccountScope } from "../../contexts/AccountScopeContext.js";
 
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -37,12 +38,13 @@ export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onC
     api.listAccounts().then(setAccounts);
   }, []);
 
+  const { scope } = useAccountScope();
   const rates = useFxRates("EUR");
   // Hidden accounts are out of the total, and so are their transactions —
   // otherwise net worth excludes an account while the month's change still
   // counts its spending.
-  const accounts = visibleAccounts(allAccounts);
-  const transactions = visibleTransactions(allTransactions, allAccounts);
+  const accounts = visibleAccounts(allAccounts, scope);
+  const transactions = visibleTransactions(allTransactions, allAccounts, scope);
 
   // Counted from the point each balance was set, so a hand-set figure
   // is an opening balance that transactions move rather than a frozen

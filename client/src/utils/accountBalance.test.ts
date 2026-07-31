@@ -41,3 +41,40 @@ describe("visibleTransactions", () => {
     expect(visibleTransactions(txs, [account("a")])).toBe(txs);
   });
 });
+
+describe("scoping to one account", () => {
+  const accounts = [account("a"), account("b"), account("c", true)];
+
+  it("narrows the accounts to the one chosen", () => {
+    expect(visibleAccounts(accounts, "b").map((a) => a.id)).toEqual(["b"]);
+  });
+
+  it("narrows the transactions to the same one", () => {
+    const txs = [
+      { account_id: "a", amount: -10 },
+      { account_id: "b", amount: -20 },
+    ];
+    expect(visibleTransactions(txs, accounts, "b")).toEqual([{ account_id: "b", amount: -20 }]);
+  });
+
+  // Asking to look at one account is explicit; a page of zeroes because it is
+  // also hidden would be a worse answer than the account's real figures.
+  it("lets an explicit choice override the hidden flag, on both sides", () => {
+    expect(visibleAccounts(accounts, "c").map((a) => a.id)).toEqual(["c"]);
+    expect(visibleTransactions([{ account_id: "c", amount: -5 }], accounts, "c")).toHaveLength(1);
+  });
+
+  it("falls back to every visible account when no choice is made", () => {
+    expect(visibleAccounts(accounts, null).map((a) => a.id)).toEqual(["a", "b"]);
+  });
+
+  // The header loads accounts asynchronously, so a scoped filter has to be
+  // right before that list arrives — filtering by id keeps it correct.
+  it("scopes correctly while the accounts are still loading", () => {
+    const txs = [
+      { account_id: "a", amount: -10 },
+      { account_id: "b", amount: -20 },
+    ];
+    expect(visibleTransactions(txs, [], "b")).toHaveLength(1);
+  });
+});

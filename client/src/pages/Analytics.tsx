@@ -9,6 +9,7 @@ import MagnitudeBarList from "../components/dashboard/MagnitudeBarList.js";
 import StatTile from "../components/dashboard/StatTile.js";
 import { api, type Account, type Category, type Transaction } from "../api/client.js";
 import { visibleTransactions } from "../utils/accountBalance.js";
+import { useAccountScope } from "../contexts/AccountScopeContext.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { inBase, useFxRates } from "../utils/fx.js";
 import { cleanDescription } from "../utils/cleanDescription.js";
@@ -56,10 +57,11 @@ export default function Analytics() {
     api.listAccounts().then(setAccounts);
   }, []);
 
+  const { scope } = useAccountScope();
   const rates = useFxRates("EUR");
   // Every figure on this page totals transactions from accounts that may be
   // in different currencies, so all of it works from amounts restated in one.
-  const { items: convertedTx, dropped } = inBase(visibleTransactions(allTransactions, accounts), rates);
+  const { items: convertedTx, dropped } = inBase(visibleTransactions(allTransactions, accounts, scope), rates);
   const money = (value: number) => (rates ? formatCurrency(value, rates.base) : value.toFixed(2));
 
   // The twelve-month series the trend charts are drawn from. Deliberately not

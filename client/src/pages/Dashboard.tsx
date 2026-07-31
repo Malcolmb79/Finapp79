@@ -27,6 +27,7 @@ import {
   type WidgetId,
 } from "../dashboardWidgets.js";
 import { inBase, sumInBase, useFxRates } from "../utils/fx.js";
+import { useAccountScope } from "../contexts/AccountScopeContext.js";
 import { computeCanvasHeight, type CanvasRect } from "../utils/useCanvasItem.js";
 import { useMeasuredWidth } from "../utils/useMeasuredWidth.js";
 import AccountAvatar from "../components/AccountAvatar.js";
@@ -168,11 +169,12 @@ export default function Dashboard() {
   const [syncingAll, setSyncingAll] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [canvasRef, canvasWidth] = useMeasuredWidth(WIDE_WIDTH);
+  const { scope } = useAccountScope();
   const rates = useFxRates("EUR");
   // Hidden accounts leave every total on this page, and their transactions
   // leave with them.
-  const accounts = visibleAccounts(allAccounts);
-  const transactions = visibleTransactions(allTransactions, allAccounts);
+  const accounts = visibleAccounts(allAccounts, scope);
+  const transactions = visibleTransactions(allTransactions, allAccounts, scope);
 
   function refresh() {
     api.listTransactions().then(setTransactions);

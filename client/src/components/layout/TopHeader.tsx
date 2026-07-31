@@ -1,7 +1,9 @@
-import { Bell, Menu, Search, User } from "lucide-react";
+import { Bell, Menu, User, Wallet, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, type Category, type PendingTransaction } from "../../api/client.js";
+import { api, type Account, type Category, type PendingTransaction } from "../../api/client.js";
+import { useAccountScope } from "../../contexts/AccountScopeContext.js";
+import { visibleAccounts } from "../../utils/accountBalance.js";
 import { useAuth } from "../../contexts/AuthContext.js";
 import { initials } from "../../utils/avatarColor.js";
 import { cleanDescription } from "../../utils/cleanDescription.js";
@@ -20,11 +22,27 @@ export default function TopHeader({ onOpenNav }: { onOpenNav: () => void }) {
   // suggestion, the same rule the review widget uses.
   const [selections, setSelections] = useState<Record<string, number | null>>({});
   const [approving, setApproving] = useState<string | null>(null);
+  const { scope, setScope } = useAccountScope();
+  const [accounts, setAccounts] = useState<Account[]>([]);
 
   useEffect(() => {
     api.listPendingTransactions().then(setPending);
     api.listCategories().then(setCategories);
+    // A remembered filter naming an account that no longer exists would leave
+    // every page empty with nothing on screen to explain it, so it is checked
+    // against the real list once and dropped if it has gone.
+    api.listAccounts().then((list) => {
+      setAccounts(list);
+      setScope((current) => (current && !list.some((a) => a.id === current) ? null : current));
+    });
+    // Runs once: setScope is stable and the check only matters at startup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Hidden accounts aren't offered as a filter — they count towards nothing,
+  // so picking one would be asking for a view of an account you have already
+  // said shouldn't appear.
+  const selectable = visibleAccounts(accounts);
 
   function chosen(t: PendingTransaction): number | null {
     return t.id in selections ? selections[t.id] : t.suggested_category_id;
@@ -63,12 +81,45 @@ export default function TopHeader({ onOpenNav }: { onOpenNav: () => void }) {
       <button className="icon-button menu-button" aria-label="Open navigation" onClick={onOpenNav}>
         <Menu size={18} />
       </button>
-      <div className="search-input" style={{ position: "relative" }}>
-        <Search
-          size={15}
-          style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }}
-        />
-        <input type="search" placeholder="Search..." style={{ width: "100%", paddingLeft: "2rem" }} disabled />
+      {/* Scopes every page at once: pick an account and the dashboard,
+          analytics and debt views all narrow to it. Kept in the header rather
+          than repeated per page so there is one filter to notice and one to
+          clear — a per-page filter left on somewhere else is how figures end
+          up looking wrong for no visible reason. */}
+      <div className="search-input" style={{ position: "relative", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+        <Wallet size={15} style={{ color: scope ? "var(--accent)" : "var(--text-muted)", flexShrink: 0 }} />
+        <select
+          value={scope ?? ""}
+          onChange={(e) => setScope(e.target.value || null)}
+          aria-label="Filter every view to one account"
+          title="Filter every view to one account"
+          style={{
+            width: "100%",
+            border: "none",
+            background: "transparent",
+            fontSize: "0.85rem",
+            fontWeight: scope ? 600 : 400,
+            color: scope ? "var(--accent)" : "var(--text-muted)",
+          }}
+        >
+          <option value="">All accounts</option>
+          {selectable.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+        {scope && (
+          <button
+            className="icon-button"
+            onClick={() => setScope(null)}
+            aria-label="Show all accounts again"
+            title="Show all accounts again"
+            style={{ flexShrink: 0 }}
+          >
+            <X size={14} />
+          </button>
+        )}
       </div>
       <div className="top-header__actions">
         <ThemeToggle />

@@ -10,26 +10,46 @@ export const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
 /**
  * Accounts that count towards a total.
  *
- * Hiding an account takes it out of every summary — net worth, spending, the
- * debt picture — without deleting it or its history. A closed account or one
- * somebody else tracks shouldn't be in the totals, and removing it to achieve
- * that would throw away the record.
+ * Two separate reasons an account drops out:
  *
- * The Accounts page deliberately doesn't use this: hidden accounts have to
- * stay visible somewhere, or they can never be brought back.
+ * `hidden` is a standing statement that it shouldn't count towards anything —
+ * a closed account, one somebody else tracks, one being wound down. Hiding
+ * rather than deleting keeps its history, which deletion wouldn't.
+ *
+ * `scope` is a temporary lens: look at just this account for a moment. It says
+ * nothing about the account and changes several times a minute.
+ *
+ * The Accounts page deliberately applies neither: it is the only place a
+ * hidden account stays visible, and hiding it there too would make the state
+ * impossible to undo.
  */
-export function visibleAccounts(accounts: Account[]): Account[] {
+export function visibleAccounts(accounts: Account[], scope?: string | null): Account[] {
+  // Scope wins over hidden, and deliberately: asking to look at one account is
+  // explicit, so honouring it beats showing a page of zeroes because the
+  // account also happens to be hidden. It matches what the transactions do
+  // below, which is what keeps the two from disagreeing.
+  if (scope) return accounts.filter((account) => account.id === scope);
   return accounts.filter((account) => !account.hidden);
 }
 
 /**
  * Transactions belonging to accounts that count.
  *
- * A hidden account's transactions have to go with it. Leaving them in means
- * net worth excludes the account while spending by category still includes
- * its spending — two views disagreeing about whether it exists.
+ * A dropped account's transactions have to go with it. Leaving them in means
+ * net worth excludes the account while spending by category still counts its
+ * spending — two views disagreeing about which accounts exist.
+ *
+ * Note this reads `accounts` for the hidden flags but matches `scope` against
+ * the id directly, so it stays correct while the accounts are still loading —
+ * a moment when an id-based include list would filter everything away and
+ * flash a page of zeroes.
  */
-export function visibleTransactions<T extends { account_id: string }>(transactions: T[], accounts: Account[]): T[] {
+export function visibleTransactions<T extends { account_id: string }>(
+  transactions: T[],
+  accounts: Account[],
+  scope?: string | null
+): T[] {
+  if (scope) return transactions.filter((tx) => tx.account_id === scope);
   const hidden = new Set(accounts.filter((account) => account.hidden).map((account) => account.id));
   return hidden.size === 0 ? transactions : transactions.filter((tx) => !hidden.has(tx.account_id));
 }
