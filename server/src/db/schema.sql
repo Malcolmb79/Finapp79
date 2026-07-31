@@ -140,6 +140,12 @@ ALTER TABLE accounts ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT
 -- with no way to see the two disagree, let alone hand the account back.
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS synced_balance DOUBLE PRECISION;
 
+-- Kept off every total without being deleted: a closed account, a joint
+-- account someone else tracks, an account being wound down. Hiding rather
+-- than removing keeps its history intact and reversible, which deletion
+-- isn't.
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS hidden BOOLEAN NOT NULL DEFAULT FALSE;
+
 -- An account's own branding, as opposed to its bank connection's. A linked
 -- account inherits both from bank_connections, but a manual account has no
 -- connection to inherit from — these are where a bank matched by name (from a

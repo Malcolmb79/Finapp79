@@ -63,13 +63,14 @@ accountsRouter.post("/", async (req, res) => {
 // stay in sync with the bank, so unlike transactions.source (where only
 // 'manual' rows are deletable), there's no reason to restrict this.
 accountsRouter.patch("/:id", async (req, res) => {
-  const { name, balance, overdraft_limit, account_type, logo, institution_name } = req.body as {
+  const { name, balance, overdraft_limit, account_type, logo, institution_name, hidden } = req.body as {
     name?: unknown;
     balance?: unknown;
     overdraft_limit?: unknown;
     account_type?: unknown;
     logo?: unknown;
     institution_name?: unknown;
+    hidden?: unknown;
   };
 
   const sets: string[] = [];
@@ -178,6 +179,15 @@ accountsRouter.patch("/:id", async (req, res) => {
     }
     sets.push(`${column} = ?`);
     params.push(value);
+  }
+
+  if (hidden !== undefined) {
+    if (typeof hidden !== "boolean") {
+      res.status(400).json({ error: "hidden must be true or false" });
+      return;
+    }
+    sets.push("hidden = ?");
+    params.push(hidden);
   }
 
   if (sets.length === 0) {

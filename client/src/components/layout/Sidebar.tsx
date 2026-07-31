@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { api, type Account, type Transaction } from "../../api/client.js";
 import { useAuth } from "../../contexts/AuthContext.js";
-import { accountBalance, accountTxSums } from "../../utils/accountBalance.js";
+import { accountBalance, accountTxSums, visibleAccounts, visibleTransactions } from "../../utils/accountBalance.js";
 import { formatCurrency } from "../../utils/formatCurrency.js";
 import { sumInBase, useFxRates } from "../../utils/fx.js";
 
@@ -28,8 +28,8 @@ const NAV_ITEMS = [
 ];
 
 export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onCloseNav: () => void }) {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [allTransactions, setTransactions] = useState<Transaction[]>([]);
+  const [allAccounts, setAccounts] = useState<Account[]>([]);
   const { user, logout } = useAuth();
 
   useEffect(() => {
@@ -38,6 +38,11 @@ export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onC
   }, []);
 
   const rates = useFxRates("EUR");
+  // Hidden accounts are out of the total, and so are their transactions —
+  // otherwise net worth excludes an account while the month's change still
+  // counts its spending.
+  const accounts = visibleAccounts(allAccounts);
+  const transactions = visibleTransactions(allTransactions, allAccounts);
 
   // Counted from the point each balance was set, so a hand-set figure
   // is an opening balance that transactions move rather than a frozen

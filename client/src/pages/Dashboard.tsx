@@ -30,7 +30,7 @@ import { inBase, sumInBase, useFxRates } from "../utils/fx.js";
 import { computeCanvasHeight, type CanvasRect } from "../utils/useCanvasItem.js";
 import { useMeasuredWidth } from "../utils/useMeasuredWidth.js";
 import AccountAvatar from "../components/AccountAvatar.js";
-import { accountBalance, amountDrawn, isBorrowing, accountTxSums } from "../utils/accountBalance.js";
+import { accountBalance, amountDrawn, isBorrowing, accountTxSums, visibleAccounts, visibleTransactions } from "../utils/accountBalance.js";
 import { budgetStatus } from "../utils/budgetStatus.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { monthsToPayoff } from "../utils/payoff.js";
@@ -158,9 +158,9 @@ function loadConfig(): DashboardConfig {
 }
 
 export default function Dashboard() {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [allTransactions, setTransactions] = useState<Transaction[]>([]);
   const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [allAccounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
@@ -169,6 +169,10 @@ export default function Dashboard() {
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [canvasRef, canvasWidth] = useMeasuredWidth(WIDE_WIDTH);
   const rates = useFxRates("EUR");
+  // Hidden accounts leave every total on this page, and their transactions
+  // leave with them.
+  const accounts = visibleAccounts(allAccounts);
+  const transactions = visibleTransactions(allTransactions, allAccounts);
 
   function refresh() {
     api.listTransactions().then(setTransactions);

@@ -3,7 +3,7 @@ import MonthlyPlan from "../components/MonthlyPlan.js";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useCallback, useEffect, useState } from "react";
 import { api, type Account, type Transaction } from "../api/client.js";
-import { accountTypeLabel, amountDrawn, facilityLabel, isBorrowing, accountTxSums } from "../utils/accountBalance.js";
+import { accountTypeLabel, amountDrawn, facilityLabel, isBorrowing, accountTxSums, visibleAccounts, visibleTransactions } from "../utils/accountBalance.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { sumInBase, useFxRates } from "../utils/fx.js";
 import DebtAdvisor from "../components/DebtAdvisor.js";
@@ -59,8 +59,8 @@ function AccountDebtRow({ account, txSum }: { account: Account; txSum: number })
 }
 
 export default function DebtPlanner() {
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [allAccounts, setAccounts] = useState<Account[]>([]);
+  const [allTransactions, setTransactions] = useState<Transaction[]>([]);
 
   const refresh = useCallback(() => {
     api.listAccounts().then(setAccounts);
@@ -70,6 +70,8 @@ export default function DebtPlanner() {
   useEffect(refresh, [refresh]);
 
   const rates = useFxRates("EUR");
+  const accounts = visibleAccounts(allAccounts);
+  const transactions = visibleTransactions(allTransactions, allAccounts);
 
   // Counted from the point each balance was set, so a hand-set figure
   // is an opening balance that transactions move rather than a frozen

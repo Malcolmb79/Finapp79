@@ -7,6 +7,33 @@ export const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
   { value: "loan", label: "Personal loan" },
 ];
 
+/**
+ * Accounts that count towards a total.
+ *
+ * Hiding an account takes it out of every summary — net worth, spending, the
+ * debt picture — without deleting it or its history. A closed account or one
+ * somebody else tracks shouldn't be in the totals, and removing it to achieve
+ * that would throw away the record.
+ *
+ * The Accounts page deliberately doesn't use this: hidden accounts have to
+ * stay visible somewhere, or they can never be brought back.
+ */
+export function visibleAccounts(accounts: Account[]): Account[] {
+  return accounts.filter((account) => !account.hidden);
+}
+
+/**
+ * Transactions belonging to accounts that count.
+ *
+ * A hidden account's transactions have to go with it. Leaving them in means
+ * net worth excludes the account while spending by category still includes
+ * its spending — two views disagreeing about whether it exists.
+ */
+export function visibleTransactions<T extends { account_id: string }>(transactions: T[], accounts: Account[]): T[] {
+  const hidden = new Set(accounts.filter((account) => account.hidden).map((account) => account.id));
+  return hidden.size === 0 ? transactions : transactions.filter((tx) => !hidden.has(tx.account_id));
+}
+
 export function accountTypeLabel(account: Account): string {
   return ACCOUNT_TYPES.find((t) => t.value === (account.account_type ?? "current"))?.label ?? "Account";
 }

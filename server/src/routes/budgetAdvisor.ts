@@ -49,7 +49,8 @@ async function loadSpending(userId: string) {
       `SELECT t.amount, t.booking_date, t.currency, c.name AS category_name
          FROM transactions t
          LEFT JOIN categories c ON c.id = t.category_id
-        WHERE t.user_id = ? AND t.reviewed_at IS NOT NULL`
+         JOIN accounts a ON a.id = t.account_id
+        WHERE t.user_id = ? AND t.reviewed_at IS NOT NULL AND NOT a.hidden`
     )
     .all(userId)) as unknown as TransactionRow[];
 

@@ -124,6 +124,8 @@ export interface Account {
   balance_is_manual?: boolean;
   /** Arranged overdraft, stored positive: 45000 means the balance may reach -45000. */
   overdraft_limit?: number | null;
+  /** Kept off every summary total, without deleting the account or its history. */
+  hidden?: boolean;
 }
 
 // How a statement file's columns map onto this app's transaction shape. The
@@ -392,6 +394,7 @@ export const api = {
       balance?: number | null;
       overdraft_limit?: number | null;
       account_type?: AccountType;
+      hidden?: boolean;
       logo?: string | null;
       institution_name?: string | null;
       loan_principal?: number | null;

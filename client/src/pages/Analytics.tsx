@@ -7,7 +7,8 @@ import { useEffect, useState } from "react";
 import CashFlowCard, { type MonthFlow } from "../components/dashboard/CashFlowCard.js";
 import MagnitudeBarList from "../components/dashboard/MagnitudeBarList.js";
 import StatTile from "../components/dashboard/StatTile.js";
-import { api, type Category, type Transaction } from "../api/client.js";
+import { api, type Account, type Category, type Transaction } from "../api/client.js";
+import { visibleTransactions } from "../utils/accountBalance.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { inBase, useFxRates } from "../utils/fx.js";
 import { cleanDescription } from "../utils/cleanDescription.js";
@@ -35,8 +36,12 @@ type RangeId = (typeof RANGES)[number]["id"];
 const RANGE_KEY = "analytics.range.v1";
 
 export default function Analytics() {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [allTransactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  // Loaded only to know which accounts are hidden: their spending has to leave
+  // these figures with them, or the page reports spending from an account the
+  // rest of the app has been told to ignore.
+  const [accounts, setAccounts] = useState<Account[]>([]);
   // Opens on the current month: the question this page usually answers is
   // "how is this month going", and a twelve-month total buries it.
   const [range, setRange] = useState<RangeId>(() => (localStorage.getItem(RANGE_KEY) as RangeId | null) ?? "month");
@@ -48,12 +53,13 @@ export default function Analytics() {
   useEffect(() => {
     api.listTransactions().then(setTransactions);
     api.listCategories().then(setCategories);
+    api.listAccounts().then(setAccounts);
   }, []);
 
   const rates = useFxRates("EUR");
   // Every figure on this page totals transactions from accounts that may be
   // in different currencies, so all of it works from amounts restated in one.
-  const { items: convertedTx, dropped } = inBase(transactions, rates);
+  const { items: convertedTx, dropped } = inBase(visibleTransactions(allTransactions, accounts), rates);
   const money = (value: number) => (rates ? formatCurrency(value, rates.base) : value.toFixed(2));
 
   // The twelve-month series the trend charts are drawn from. Deliberately not

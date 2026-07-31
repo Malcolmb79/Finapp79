@@ -47,7 +47,7 @@ export async function loadDebts(userId: string, everythingBorrowable = false): P
   const rates = await loadRates("EUR");
 
   const accounts = (await db
-    .prepare("SELECT * FROM accounts WHERE user_id = ?")
+    .prepare("SELECT * FROM accounts WHERE user_id = ? AND NOT hidden")
     .all(userId)) as unknown as AccountRow[];
 
   // Summed from the point each balance was set, matching the client's

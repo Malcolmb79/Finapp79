@@ -1,4 +1,4 @@
-import { Check, Eraser, FileText, Loader2, Pencil, RefreshCw, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { Check, Eraser, Eye, EyeOff, FileText, Loader2, Pencil, RefreshCw, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Account, type AccountType, type LoanTerms, type Transaction } from "../api/client.js";
@@ -224,6 +224,11 @@ export default function Accounts() {
     refresh();
   }
 
+  async function toggleHidden(account: Account) {
+    await api.updateAccount(account.id, { hidden: !account.hidden });
+    refresh();
+  }
+
   function startUpload(account: Account) {
     uploadTargetRef.current = account;
     contractModeRef.current = false;
@@ -355,7 +360,9 @@ export default function Accounts() {
             {accounts.map((a) => {
               const isEditing = editingId === a.id;
               return (
-                <div className="account-row" key={a.id}>
+                // Dimmed rather than restyled: it is still the same account,
+                // just not counted.
+                <div className="account-row" key={a.id} style={a.hidden ? { opacity: 0.55 } : undefined}>
                   {/* Tapping a blank avatar looks for the bank in the account's
                       own name. Accounts that already carry a logo are left
                       alone — there's nothing to find. */}
@@ -457,6 +464,7 @@ export default function Accounts() {
                     )}
                     <div className="account-row__meta">
                       <span className="status-dot" />
+                      {a.hidden && <span style={{ color: "var(--critical)" }}>Hidden from totals · </span>}
                       {accountTypeLabel(a)} ·{" "}
                       {a.source === "enablebanking" ? a.institution_name ?? "Linked via Enable Banking" : "Manual"} · {a.currency}
                     </div>
@@ -521,6 +529,18 @@ export default function Accounts() {
                       <RefreshCw size={14} className={syncingId === a.id ? "spin" : undefined} />
                     </button>
                   )}
+                  {/* Sits beside Remove because it is the gentler version of
+                      it: an account you don't want in your totals stops
+                      counting, keeps its history, and can come back. This page
+                      never hides its own rows, or a hidden account could never
+                      be found again to unhide. */}
+                  <button
+                    onClick={() => toggleHidden(a)}
+                    title={a.hidden ? "Count this account in totals again" : "Keep this account out of all totals"}
+                    aria-label={a.hidden ? `Show ${a.name} in totals` : `Hide ${a.name} from totals`}
+                  >
+                    {a.hidden ? <EyeOff size={14} color="var(--critical)" /> : <Eye size={14} color="var(--text-muted)" />}
+                  </button>
                   {removingId === a.id ? (
                     <div style={{ display: "flex", gap: "0.3rem", alignItems: "center" }}>
                       <span style={{ fontSize: "0.78rem", color: "var(--critical)", whiteSpace: "nowrap" }}>Remove?</span>
