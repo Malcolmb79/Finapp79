@@ -21,7 +21,15 @@ accountsRouter.get("/", async (req, res) => {
         // logo would be shadowed by its (null) connection's.
         `SELECT a.*,
                 COALESCE(a.institution_name, bc.institution_name) AS institution_name,
-                COALESCE(a.logo, bc.logo) AS logo
+                COALESCE(a.logo, bc.logo) AS logo,
+                -- When a statement was last imported here, and what it covered
+                -- up to. Both are worth showing: an import done yesterday
+                -- carrying nothing newer than March means the account has been
+                -- fed, and is still three months stale.
+                (SELECT MAX(t.created_at) FROM transactions t
+                  WHERE t.account_id = a.id AND t.source = 'csv') AS last_import_at,
+                (SELECT MAX(t.booking_date) FROM transactions t
+                  WHERE t.account_id = a.id AND t.source = 'csv') AS last_imported_date
          FROM accounts a
          LEFT JOIN bank_connections bc ON bc.id = a.bank_connection_id
          WHERE a.user_id = ?

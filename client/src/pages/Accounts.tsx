@@ -18,6 +18,24 @@ import {
 import { fileToBase64 } from "../utils/fileBytes.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 
+/**
+ * "today" / "yesterday" / "3 days ago" / a date once it stops being useful.
+ *
+ * A raw timestamp makes you do the subtraction yourself every time you glance
+ * at the list, which is the whole question being asked. Past a fortnight the
+ * relative form stops helping — "47 days ago" is harder to place than the date
+ * — so it hands back to the date.
+ */
+function relativeDay(timestamp: string): string {
+  const then = new Date(timestamp.replace(" ", "T") + (timestamp.endsWith("Z") ? "" : "Z"));
+  if (Number.isNaN(then.getTime())) return timestamp.slice(0, 10);
+  const days = Math.floor((Date.now() - then.getTime()) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days <= 14) return `${days} days ago`;
+  return `on ${then.toISOString().slice(0, 10)}`;
+}
+
 interface PendingUpload {
   accountId: string;
   accountName: string;
@@ -505,6 +523,23 @@ export default function Accounts() {
                       {accountTypeLabel(a)} ·{" "}
                       {a.source === "enablebanking" ? a.institution_name ?? "Linked via Enable Banking" : "Manual"} · {a.currency}
                     </div>
+                    {/* On the row rather than only inside the history panel:
+                        whether an account is up to date is the question you
+                        have while looking down the list, not one worth opening
+                        a panel per account to answer.
+
+                        Both halves are shown because either alone misleads. An
+                        import done yesterday says the account has been fed;
+                        only the date it reached says whether it is current. A
+                        statement imported last night covering up to March is
+                        three months stale, and "imported yesterday" on its own
+                        reads as up to date. */}
+                    {a.last_import_at && (
+                      <div className="account-row__meta" style={{ fontSize: "0.72rem" }}>
+                        Last import {relativeDay(a.last_import_at)}
+                        {a.last_imported_date && <> · covers to {a.last_imported_date}</>}
+                      </div>
+                    )}
                   </div>
                   {/* Two uploads that read the same file completely
                       differently, so they are labelled rather than left as
