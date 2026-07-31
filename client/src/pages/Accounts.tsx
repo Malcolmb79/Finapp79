@@ -14,6 +14,7 @@ import {
   hasAvailable,
   accountTxSums,
   isLiability,
+  staleness,
 } from "../utils/accountBalance.js";
 import { fileToBase64 } from "../utils/fileBytes.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
@@ -413,6 +414,7 @@ export default function Accounts() {
           <div>
             {accounts.map((a) => {
               const isEditing = editingId === a.id;
+              const stale = staleness(a);
               return (
                 <Fragment key={a.id}>
                 {/* Dimmed rather than restyled: it is still the same account,
@@ -534,6 +536,19 @@ export default function Accounts() {
                         statement imported last night covering up to March is
                         three months stale, and "imported yesterday" on its own
                         reads as up to date. */}
+                    {/* Only appears when it means something — see staleness.
+                        A flag on half the list is the same as no flag. */}
+                    {!a.hidden && stale && (
+                      <div
+                        className="account-row__meta"
+                        style={{ fontSize: "0.72rem", color: "var(--critical)", display: "flex", alignItems: "center", gap: "0.3rem" }}
+                      >
+                        <AlertTriangle size={12} />
+                        {stale.days === null
+                          ? "Never synced"
+                          : `No ${stale.kind === "sync" ? "sync" : "import"} in ${stale.days} days`}
+                      </div>
+                    )}
                     {a.last_import_at && (
                       <div className="account-row__meta" style={{ fontSize: "0.72rem" }}>
                         Last import {relativeDay(a.last_import_at)}

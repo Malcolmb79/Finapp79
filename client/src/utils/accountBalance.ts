@@ -54,6 +54,53 @@ export function visibleTransactions<T extends { account_id: string }>(
   return hidden.size === 0 ? transactions : transactions.filter((tx) => !hidden.has(tx.account_id));
 }
 
+/** How long an account can go unfed before it's worth saying so. */
+export const STALE_AFTER_DAYS = 30;
+
+export type Staleness = { days: number | null; kind: "sync" | "import" };
+
+/**
+ * Whether an account's figures have stopped being refreshed, and for how long.
+ *
+ * Returns null when there is nothing to say — which is most accounts, most of
+ * the time. The point of a flag is that it means something when it appears.
+ *
+ * What counts as being fed depends on how the account is kept:
+ *
+ *   A linked account is fed by syncing, so a sync that stopped happening is
+ *   the signal. One that has never synced is flagged too: it is showing
+ *   figures from the day it was linked and nothing since.
+ *
+ *   A manual account that has been imported to is fed by importing, so an
+ *   import that stopped is the same signal in the other form.
+ *
+ *   A manual account never imported to is kept by hand and is not stale for
+ *   going a month without an entry — a savings account nobody touched all
+ *   month is simply an account nobody touched. Flagging it would be noise,
+ *   and noise is what stops a flag meaning anything.
+ *
+ * `days` is null for "never", which reads differently from a number and is
+ * left to the caller to word.
+ */
+export function staleness(account: Account, now = Date.now()): Staleness | null {
+  const linked = account.source === "enablebanking";
+  if (!linked && !account.last_import_at) return null;
+
+  const kind = linked ? "sync" : "import";
+  const last = linked ? account.balance_synced_at : account.last_import_at;
+  if (!last) return { days: null, kind };
+
+  // Timestamps are stored UTC, some with a space instead of a T and without a
+  // zone. Parsed as local time they drift by the offset, which is harmless at
+  // this scale but wrong, so the shape is normalised first.
+  const iso = last.includes("T") ? last : last.replace(" ", "T");
+  const parsed = new Date(/[Z+]|-\d\d:\d\d$/.test(iso) ? iso : `${iso}Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  const days = Math.floor((now - parsed.getTime()) / 86_400_000);
+  return days >= STALE_AFTER_DAYS ? { days, kind } : null;
+}
+
 export function accountTypeLabel(account: Account): string {
   return ACCOUNT_TYPES.find((t) => t.value === (account.account_type ?? "current"))?.label ?? "Account";
 }
