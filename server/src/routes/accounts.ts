@@ -364,6 +364,96 @@ accountsRouter.delete("/:id/transactions", async (req, res) => {
   res.json({ deleted: result.changes });
 });
 
+/**
+ * The imports done against an account, one row per import.
+ *
+ * Clearing by source is too blunt when one statement went in wrong and three
+ * others were fine — it takes all four. An import needs to be undoable on its
+ * own, which means it has to be identifiable on its own.
+ *
+ * `created_at` is that identifier, without a migration or a new column: the
+ * importer writes every row inside one transaction, and Postgres `now()` is
+ * transaction-start time, so a single import lands on one exact timestamp and
+ * two imports never share one. That it works on imports already in the
+ * database is the point — the ones needing undoing are the ones already done.
+ *
+ * `futureDated` is reported per import because it is the tell for a statement
+ * read wrongly: a parser that picks a year out of a statement's small print
+ * dates rows in years that haven't happened. Nothing legitimately books in the
+ * future, so a non-zero count here names the bad import directly.
+ */
+accountsRouter.get("/:id/imports", async (req, res) => {
+  const account = await db.prepare("SELECT 1 FROM accounts WHERE id = ? AND user_id = ?").get(req.params.id, req.user!.id);
+  if (!account) {
+    res.status(404).json({ error: "account not found" });
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const rows = (await db
+    .prepare(
+      `SELECT created_at,
+              COUNT(*) AS rows,
+              MIN(booking_date) AS first_date,
+              MAX(booking_date) AS last_date,
+              SUM(amount) AS total,
+              SUM(CASE WHEN booking_date > ? THEN 1 ELSE 0 END) AS future_dated
+         FROM transactions
+        WHERE account_id = ? AND user_id = ? AND source = 'csv'
+        GROUP BY created_at
+        ORDER BY created_at DESC`
+    )
+    .all(today, req.params.id, req.user!.id)) as unknown as {
+    created_at: string;
+    rows: number;
+    first_date: string;
+    last_date: string;
+    total: number;
+    future_dated: number;
+  }[];
+
+  res.json(
+    rows.map((r) => ({
+      importedAt: r.created_at,
+      rows: Number(r.rows),
+      firstDate: r.first_date,
+      lastDate: r.last_date,
+      total: Number(r.total),
+      futureDated: Number(r.future_dated),
+    }))
+  );
+});
+
+/**
+ * Undoes one import, leaving every other import on the account alone.
+ *
+ * Matched on the exact timestamp rather than a range: an exact match can only
+ * ever hit the rows of one import, where a range could quietly take a
+ * neighbouring one. Deleting the wrong statement is the failure that matters
+ * here, so the match is the strict one.
+ */
+accountsRouter.delete("/:id/imports", async (req, res) => {
+  const account = await db.prepare("SELECT 1 FROM accounts WHERE id = ? AND user_id = ?").get(req.params.id, req.user!.id);
+  if (!account) {
+    res.status(404).json({ error: "account not found" });
+    return;
+  }
+
+  const importedAt = typeof req.query.at === "string" ? req.query.at : null;
+  if (!importedAt) {
+    res.status(400).json({ error: "at (the import timestamp) is required" });
+    return;
+  }
+
+  // Scoped to csv rows: an import only ever writes those, and a bank-synced
+  // row that happened to land on the same timestamp is not part of it.
+  const result = await db
+    .prepare("DELETE FROM transactions WHERE account_id = ? AND user_id = ? AND source = 'csv' AND created_at = ?")
+    .run(req.params.id, req.user!.id, importedAt);
+
+  res.json({ deleted: result.changes });
+});
+
 // Removing an account also removes its own transaction history (there's no
 // other reasonable state for an orphaned transaction to be in) and, if this
 // was the last account on its bank_connection, the bank_connection row too

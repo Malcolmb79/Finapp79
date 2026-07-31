@@ -1,7 +1,7 @@
-import { Check, Eraser, Eye, EyeOff, FileText, Loader2, Pencil, RefreshCw, Sparkles, Trash2, Upload, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle, Check, Eraser, Eye, EyeOff, FileText, History, Loader2, Pencil, RefreshCw, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type Account, type AccountType, type LoanTerms, type Transaction } from "../api/client.js";
+import { api, type Account, type AccountImport, type AccountType, type LoanTerms, type Transaction } from "../api/client.js";
 import AccountAvatar from "../components/AccountAvatar.js";
 import LoanContractModal from "../components/LoanContractModal.js";
 import StatementImportModal from "../components/StatementImportModal.js";
@@ -224,6 +224,42 @@ export default function Accounts() {
     refresh();
   }
 
+  // Which account's import history is open, and what it holds.
+  const [importsFor, setImportsFor] = useState<string | null>(null);
+  const [imports, setImports] = useState<AccountImport[]>([]);
+  const [loadingImports, setLoadingImports] = useState(false);
+  const [undoing, setUndoing] = useState<string | null>(null);
+
+  async function showImports(account: Account) {
+    if (importsFor === account.id) {
+      setImportsFor(null);
+      return;
+    }
+    setImportsFor(account.id);
+    setLoadingImports(true);
+    try {
+      setImports(await api.listAccountImports(account.id));
+    } finally {
+      setLoadingImports(false);
+    }
+  }
+
+  // Deleting transactions can't be undone, so the row asks first — the same
+  // two-step the remove and clear controls use.
+  const [confirmUndo, setConfirmUndo] = useState<string | null>(null);
+
+  async function undoImport(accountId: string, importedAt: string) {
+    setUndoing(importedAt);
+    try {
+      await api.deleteAccountImport(accountId, importedAt);
+      setImports(await api.listAccountImports(accountId));
+      setConfirmUndo(null);
+      refresh();
+    } finally {
+      setUndoing(null);
+    }
+  }
+
   async function toggleHidden(account: Account) {
     await api.updateAccount(account.id, { hidden: !account.hidden });
     refresh();
@@ -360,9 +396,10 @@ export default function Accounts() {
             {accounts.map((a) => {
               const isEditing = editingId === a.id;
               return (
-                // Dimmed rather than restyled: it is still the same account,
-                // just not counted.
-                <div className="account-row" key={a.id} style={a.hidden ? { opacity: 0.55 } : undefined}>
+                <Fragment key={a.id}>
+                {/* Dimmed rather than restyled: it is still the same account,
+                    just not counted. */}
+                <div className="account-row" style={a.hidden ? { opacity: 0.55 } : undefined}>
                   {/* Tapping a blank avatar looks for the bank in the account's
                       own name. Accounts that already carry a logo are left
                       alone — there's nothing to find. */}
@@ -529,6 +566,14 @@ export default function Accounts() {
                       <RefreshCw size={14} className={syncingId === a.id ? "spin" : undefined} />
                     </button>
                   )}
+                  <button
+                    onClick={() => showImports(a)}
+                    title="See and undo individual statement imports"
+                    aria-label={`Import history for ${a.name}`}
+                    aria-expanded={importsFor === a.id}
+                  >
+                    <History size={14} color="var(--text-muted)" />
+                  </button>
                   {/* Sits beside Remove because it is the gentler version of
                       it: an account you don't want in your totals stops
                       counting, keeps its history, and can come back. This page
@@ -755,6 +800,84 @@ export default function Accounts() {
                     </div>
                   )}
                 </div>
+                {importsFor === a.id && (
+                  // Below the row rather than in a modal: it is a list of that
+                  // account's own imports, and reading it against the account
+                  // it belongs to is the whole point.
+                  <div style={{ padding: "0.5rem 0.75rem 0.75rem", borderBottom: "1px solid var(--gridline)" }}>
+                    {loadingImports ? (
+                      <p className="empty-state" style={{ margin: 0 }}>
+                        Loading imports…
+                      </p>
+                    ) : imports.length === 0 ? (
+                      <p className="empty-state" style={{ margin: 0 }}>
+                        No statement imports on this account.
+                      </p>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.4rem" }}>
+                          Statement imports — undo one without touching the others.
+                        </div>
+                        {imports.map((imp) => (
+                          <div
+                            key={imp.importedAt}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: "0.6rem",
+                              flexWrap: "wrap",
+                              padding: "0.35rem 0",
+                              borderTop: "1px solid var(--gridline)",
+                            }}
+                          >
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: "0.83rem", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                                {/* Named directly rather than left to be worked
+                                    out: nothing books in the future, so these
+                                    rows are a misread statement, and this is
+                                    the import to undo. */}
+                                {imp.futureDated > 0 && <AlertTriangle size={13} color="var(--critical)" />}
+                                {imp.rows} {imp.rows === 1 ? "transaction" : "transactions"}
+                                {imp.futureDated > 0 && (
+                                  <span style={{ color: "var(--critical)" }}>
+                                    · {imp.futureDated} dated in the future
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                                {imp.firstDate} to {imp.lastDate} · imported {imp.importedAt.slice(0, 16).replace("T", " ")} ·{" "}
+                                {formatCurrency(imp.total, a.currency)}
+                              </div>
+                            </div>
+                            {confirmUndo === imp.importedAt ? (
+                              <div style={{ display: "flex", gap: "0.3rem", alignItems: "center" }}>
+                                <span style={{ fontSize: "0.78rem", color: "var(--critical)", whiteSpace: "nowrap" }}>
+                                  Delete {imp.rows}?
+                                </span>
+                                <button
+                                  onClick={() => undoImport(a.id, imp.importedAt)}
+                                  disabled={undoing === imp.importedAt}
+                                  style={{ fontSize: "0.78rem", color: "var(--critical)" }}
+                                >
+                                  {undoing === imp.importedAt ? "Deleting…" : "Yes, undo it"}
+                                </button>
+                                <button onClick={() => setConfirmUndo(null)} disabled={undoing === imp.importedAt} aria-label="Cancel">
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            ) : (
+                              <button onClick={() => setConfirmUndo(imp.importedAt)} style={{ fontSize: "0.78rem", whiteSpace: "nowrap" }}>
+                                Undo this import
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
+                </Fragment>
               );
             })}
           </div>

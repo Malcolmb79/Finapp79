@@ -46,6 +46,18 @@ export interface PendingTransaction extends Transaction {
   suggestion_source: "history" | "ai" | null;
 }
 
+/** One statement import, identified by exactly when it was done. */
+export interface AccountImport {
+  /** Doubles as the identifier: one import writes one timestamp. */
+  importedAt: string;
+  rows: number;
+  firstDate: string;
+  lastDate: string;
+  total: number;
+  /** Rows booked after today — the tell for a statement whose dates were misread. */
+  futureDated: number;
+}
+
 export type AccountType = "current" | "savings" | "credit_card" | "loan";
 
 export interface AdvisorMessage {
@@ -429,6 +441,15 @@ export const api = {
   // bank-synced and manual history alone.
   clearAccountTransactions: (accountId: string, source?: "csv" | "enablebanking" | "manual") =>
     request<{ deleted: number }>(`/accounts/${accountId}/transactions${source ? `?source=${source}` : ""}`, {
+      method: "DELETE",
+    }),
+
+  /** Every statement import done against an account, newest first. */
+  listAccountImports: (accountId: string) => request<AccountImport[]>(`/accounts/${accountId}/imports`),
+
+  /** Undoes one import, leaving the account's other imports alone. */
+  deleteAccountImport: (accountId: string, importedAt: string) =>
+    request<{ deleted: number }>(`/accounts/${accountId}/imports?at=${encodeURIComponent(importedAt)}`, {
       method: "DELETE",
     }),
 
