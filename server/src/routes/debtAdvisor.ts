@@ -124,7 +124,7 @@ debtAdvisorRouter.post("/projection", async (req, res) => {
     return Number.isFinite(value) && value > 0 ? value : 0;
   };
 
-  const debts = await loadDebts(req.user!.id, true);
+  const debts = await loadDebts(req.user!.id, true, req.accountScope);
 
   // One simulation per account, each on its own payments — which is what
   // "when does this account clear" means. A combined curve answers a
@@ -184,7 +184,7 @@ debtAdvisorRouter.post("/", async (req, res) => {
   }
 
   try {
-    const debts = await loadDebts(req.user!.id);
+    const debts = await loadDebts(req.user!.id, false, req.accountScope);
     const client = new Anthropic();
     const conversation: Anthropic.MessageParam[] = [...history];
     // Surfaced to the user so the working behind an answer is inspectable

@@ -43,16 +43,17 @@ interface BudgetRow {
 
 const BASE_CURRENCY = "EUR";
 
-async function loadSpending(userId: string) {
+async function loadSpending(userId: string, scope?: string | null) {
   const rows = (await db
     .prepare(
       `SELECT t.amount, t.booking_date, t.currency, c.name AS category_name
          FROM transactions t
          LEFT JOIN categories c ON c.id = t.category_id
          JOIN accounts a ON a.id = t.account_id
-        WHERE t.user_id = ? AND t.reviewed_at IS NOT NULL AND NOT a.hidden`
+        WHERE t.user_id = ? AND t.reviewed_at IS NOT NULL
+          AND (CASE WHEN ?::text IS NULL THEN NOT a.hidden ELSE a.id = ?::text END)`
     )
-    .all(userId)) as unknown as TransactionRow[];
+    .all(userId, scope ?? null, scope ?? null)) as unknown as TransactionRow[];
 
   // Converted before anything is totalled, for the same reason every other
   // combined figure in this app is: adding ZAR to EUR produces a number in no
@@ -277,7 +278,7 @@ budgetAdvisorRouter.post("/chat", async (req, res) => {
   }
 
   try {
-    const { analysis, dropped } = await loadSpending(req.user!.id);
+    const { analysis, dropped } = await loadSpending(req.user!.id, req.accountScope);
     const budgets = (await db
       .prepare(
         `SELECT b.id, b.category_id, c.name AS category_name, b.monthly_limit
@@ -385,7 +386,7 @@ budgetAdvisorRouter.get("/", async (req, res) => {
   }
 
   try {
-    const { analysis, dropped } = await loadSpending(req.user!.id);
+    const { analysis, dropped } = await loadSpending(req.user!.id, req.accountScope);
     if (analysis.monthsCovered.length === 0) {
       res.json({ summary: "Not enough history yet — a full month of reviewed transactions is needed before this can say anything.", proposals: [], analysis, dropped });
       return;

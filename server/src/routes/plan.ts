@@ -33,16 +33,17 @@ interface SavingsGoalRow {
 }
 
 /** Spending restated in one currency, so income and outgoings can be compared. */
-async function monthlyFlows(userId: string) {
+async function monthlyFlows(userId: string, scope?: string | null) {
   const rows = (await db
     .prepare(
       `SELECT t.amount, t.booking_date, t.currency, c.name AS category_name
          FROM transactions t
          LEFT JOIN categories c ON c.id = t.category_id
          JOIN accounts a ON a.id = t.account_id
-        WHERE t.user_id = ? AND t.reviewed_at IS NOT NULL AND NOT a.hidden`
+        WHERE t.user_id = ? AND t.reviewed_at IS NOT NULL
+          AND (CASE WHEN ?::text IS NULL THEN NOT a.hidden ELSE a.id = ?::text END)`
     )
-    .all(userId)) as unknown as { amount: number; booking_date: string; currency: string; category_name: string | null }[];
+    .all(userId, scope ?? null, scope ?? null)) as unknown as { amount: number; booking_date: string; currency: string; category_name: string | null }[];
 
   const rates = await loadRates(BASE_CURRENCY);
   const dropped = new Set<string>();
@@ -61,8 +62,8 @@ async function monthlyFlows(userId: string) {
 
 planRouter.get("/", async (req, res) => {
   try {
-    const { analysis, dropped, rates } = await monthlyFlows(req.user!.id);
-    const debts = await loadDebts(req.user!.id);
+    const { analysis, dropped, rates } = await monthlyFlows(req.user!.id, req.accountScope);
+    const debts = await loadDebts(req.user!.id, false, req.accountScope);
 
     // Debt payments in the base currency, since a rand loan and a euro card
     // are being paid out of the same monthly surplus.
@@ -136,7 +137,7 @@ planRouter.post("/simulate", async (req, res) => {
   const horizon = Number.isFinite(Number(months)) ? Math.min(600, Math.max(1, Math.round(Number(months)))) : 24;
 
   try {
-    const debts = await loadDebts(req.user!.id);
+    const debts = await loadDebts(req.user!.id, false, req.accountScope);
     // One currency at a time: debts in different currencies are paid from
     // different pockets, and a single payoff date across them would be a
     // fiction.

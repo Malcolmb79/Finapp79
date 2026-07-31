@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { setRequestAccountScope } from "../api/client.js";
 
 /**
  * Which account the app is currently looking at.
@@ -29,6 +30,11 @@ export function AccountScopeProvider({ children }: { children: ReactNode }) {
   // like they changed on their own. The header always shows what's in force,
   // so a remembered filter is visible rather than a trap.
   const [scope, setScope] = useState<string | null>(() => localStorage.getItem(STORAGE_KEY));
+
+  // Set during render, not in an effect: a request fired by a page rendering
+  // in the same commit would otherwise go out under the previous filter and
+  // come back with figures for the wrong set of accounts.
+  setRequestAccountScope(scope);
 
   useEffect(() => {
     if (scope) localStorage.setItem(STORAGE_KEY, scope);

@@ -1,9 +1,25 @@
 const BASE = "/api";
 
+// The account filter currently on screen, mirrored out of React so the plain
+// request helper can reach it. Sent on every call rather than added to the few
+// adviser endpoints by hand: an adviser that silently reasoned over accounts
+// the screen has filtered out would give advice the user cannot check against
+// anything in front of them, and that is exactly the kind of mistake that only
+// shows up once someone acts on it.
+let accountScope: string | null = null;
+
+export function setRequestAccountScope(accountId: string | null) {
+  accountScope = accountId;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: {
+      "Content-Type": "application/json",
+      ...(accountScope ? { "X-Account-Scope": accountScope } : {}),
+      ...init?.headers,
+    },
   });
   if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
   if (res.status === 204) return undefined as T;

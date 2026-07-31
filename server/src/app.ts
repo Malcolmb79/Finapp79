@@ -6,6 +6,7 @@ import passport from "./auth/passport.js";
 import { SqliteSessionStore } from "./auth/sessionStore.js";
 import { initDb } from "./db/client.js";
 import { accountsRouter } from "./routes/accounts.js";
+import { accountScope } from "./middleware/accountScope.js";
 import { budgetAdvisorRouter } from "./routes/budgetAdvisor.js";
 import { debtAdvisorRouter } from "./routes/debtAdvisor.js";
 import { planRouter } from "./routes/plan.js";
@@ -77,6 +78,10 @@ app.use(
 );
 app.use(passport.initialize());
 app.use(passport.session());
+
+// Ahead of every route, so the account filter on screen reaches the queries
+// that answer it and no route can be added later that forgets to read it.
+app.use(accountScope);
 
 app.use("/api/auth", authRouter);
 app.use("/api/transactions", transactionsRouter);

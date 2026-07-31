@@ -41,14 +41,18 @@ interface AccountRow {
  *   The adviser does not: an account owing nothing is not something to plan a
  *   payoff for, and listing it among the debts would mislead.
  */
-export async function loadDebts(userId: string, everythingBorrowable = false): Promise<DebtInput[]> {
+export async function loadDebts(userId: string, everythingBorrowable = false, scope?: string | null): Promise<DebtInput[]> {
   // Converted once here rather than per simulation, so every projection and
   // every answer the adviser gives uses the same figure for a given card.
   const rates = await loadRates("EUR");
 
-  const accounts = (await db
-    .prepare("SELECT * FROM accounts WHERE user_id = ? AND NOT hidden")
-    .all(userId)) as unknown as AccountRow[];
+  // Narrowed to the account on screen when one is picked, so the adviser
+  // plans over exactly the debts the user is looking at. Scope beats hidden
+  // for the same reason it does on the client: an explicit choice of account
+  // is a better answer than an empty plan.
+  const accounts = (await (scope
+    ? db.prepare("SELECT * FROM accounts WHERE user_id = ? AND id = ?").all(userId, scope)
+    : db.prepare("SELECT * FROM accounts WHERE user_id = ? AND NOT hidden").all(userId))) as unknown as AccountRow[];
 
   // Summed from the point each balance was set, matching the client's
   // accountTxSums: a hand-set figure is an opening balance that transactions
