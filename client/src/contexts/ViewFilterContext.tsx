@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { setRequestAccountScope } from "../api/client.js";
+import type { DateRange } from "../utils/dateRange.js";
 
 /**
  * Which account the app is currently looking at.
@@ -24,7 +25,18 @@ type AccountScope = {
 const AccountScopeContext = createContext<AccountScope>({ scope: null, setScope: () => {} });
 
 const STORAGE_KEY = "finapp.accountScope";
+const RANGE_KEY = "finapp.dateRange";
 
+const DateRangeContext = createContext<{ range: DateRange; setRange: Dispatch<SetStateAction<DateRange>> }>({
+  range: "all",
+  setRange: () => {},
+});
+
+/**
+ * The two filters that scope what is on screen: which account, and over what
+ * period. Held together because they are read together — every page that
+ * narrows by one narrows by the other.
+ */
 export function AccountScopeProvider({ children }: { children: ReactNode }) {
   // Kept across reloads: a filter that silently resets makes the figures look
   // like they changed on their own. The header always shows what's in force,
@@ -36,12 +48,32 @@ export function AccountScopeProvider({ children }: { children: ReactNode }) {
   // come back with figures for the wrong set of accounts.
   setRequestAccountScope(scope);
 
+  const [range, setRange] = useState<DateRange>(() => (localStorage.getItem(RANGE_KEY) as DateRange | null) ?? "all");
+
   useEffect(() => {
     if (scope) localStorage.setItem(STORAGE_KEY, scope);
     else localStorage.removeItem(STORAGE_KEY);
   }, [scope]);
 
-  return <AccountScopeContext.Provider value={{ scope, setScope }}>{children}</AccountScopeContext.Provider>;
+  useEffect(() => {
+    localStorage.setItem(RANGE_KEY, range);
+  }, [range]);
+
+  return (
+    <AccountScopeContext.Provider value={{ scope, setScope }}>
+      <DateRangeContext.Provider value={{ range, setRange }}>{children}</DateRangeContext.Provider>
+    </AccountScopeContext.Provider>
+  );
+}
+
+/**
+ * The period the figures on screen cover.
+ *
+ * Only ever read by figures describing a period. Balances and net worth read
+ * the full history whatever this says — see withinRange.
+ */
+export function useDateRange() {
+  return useContext(DateRangeContext);
 }
 
 export function useAccountScope() {

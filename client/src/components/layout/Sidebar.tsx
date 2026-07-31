@@ -16,7 +16,7 @@ import { useAuth } from "../../contexts/AuthContext.js";
 import { accountBalance, accountTxSums, visibleAccounts, visibleTransactions } from "../../utils/accountBalance.js";
 import { formatCurrency } from "../../utils/formatCurrency.js";
 import { sumInBase, useFxRates } from "../../utils/fx.js";
-import { useAccountScope } from "../../contexts/AccountScopeContext.js";
+import { useAccountScope } from "../../contexts/ViewFilterContext.js";
 
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },

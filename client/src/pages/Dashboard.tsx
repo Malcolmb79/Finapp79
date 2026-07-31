@@ -27,7 +27,8 @@ import {
   type WidgetId,
 } from "../dashboardWidgets.js";
 import { inBase, sumInBase, useFxRates } from "../utils/fx.js";
-import { useAccountScope } from "../contexts/AccountScopeContext.js";
+import { useAccountScope, useDateRange } from "../contexts/ViewFilterContext.js";
+import { dateRangeLabel, withinRange } from "../utils/dateRange.js";
 import { computeCanvasHeight, type CanvasRect } from "../utils/useCanvasItem.js";
 import { useMeasuredWidth } from "../utils/useMeasuredWidth.js";
 import AccountAvatar from "../components/AccountAvatar.js";
@@ -170,6 +171,7 @@ export default function Dashboard() {
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [canvasRef, canvasWidth] = useMeasuredWidth(WIDE_WIDTH);
   const { scope } = useAccountScope();
+  const { range } = useDateRange();
   const rates = useFxRates("EUR");
   // Hidden accounts leave every total on this page, and their transactions
   // leave with them.
@@ -262,7 +264,7 @@ export default function Dashboard() {
   // Every aggregate below combines accounts, so all of them work from
   // transactions restated in one currency. Adding a ZAR amount to a EUR one
   // gives a figure in no currency at all — confident and meaningless.
-  const { items: convertedTx, dropped: droppedCurrencies } = inBase(transactions, rates);
+  const { items: convertedTx, dropped: droppedCurrencies } = inBase(withinRange(transactions, range), rates);
   const missingRates = [...new Set([...unconvertible, ...droppedCurrencies])];
 
   const monthDelta = convertedTx

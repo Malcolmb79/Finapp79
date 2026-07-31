@@ -1,8 +1,9 @@
-import { Bell, Menu, User, Wallet, X } from "lucide-react";
+import { Bell, CalendarRange, Menu, User, Wallet, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type Account, type Category, type PendingTransaction } from "../../api/client.js";
-import { useAccountScope } from "../../contexts/AccountScopeContext.js";
+import { useAccountScope, useDateRange } from "../../contexts/ViewFilterContext.js";
+import { DATE_RANGES } from "../../utils/dateRange.js";
 import { visibleAccounts } from "../../utils/accountBalance.js";
 import { useAuth } from "../../contexts/AuthContext.js";
 import { initials } from "../../utils/avatarColor.js";
@@ -23,6 +24,7 @@ export default function TopHeader({ onOpenNav }: { onOpenNav: () => void }) {
   const [selections, setSelections] = useState<Record<string, number | null>>({});
   const [approving, setApproving] = useState<string | null>(null);
   const { scope, setScope } = useAccountScope();
+  const { range, setRange } = useDateRange();
   const [accounts, setAccounts] = useState<Account[]>([]);
 
   useEffect(() => {
@@ -122,6 +124,31 @@ export default function TopHeader({ onOpenNav }: { onOpenNav: () => void }) {
         )}
       </div>
       <div className="top-header__actions">
+        {/* Beside the account filter because they are the same kind of thing:
+            what is on screen, and over what period. Both live here so there is
+            one place to look when a figure is smaller than expected. */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+          <CalendarRange size={15} style={{ color: range === "all" ? "var(--text-muted)" : "var(--accent)", flexShrink: 0 }} />
+          <select
+            value={range}
+            onChange={(e) => setRange(e.target.value as typeof range)}
+            aria-label="Period covered by the figures on screen"
+            title="Period covered by the figures on screen"
+            style={{
+              border: "none",
+              background: "transparent",
+              fontSize: "0.85rem",
+              fontWeight: range === "all" ? 400 : 600,
+              color: range === "all" ? "var(--text-muted)" : "var(--accent)",
+            }}
+          >
+            {DATE_RANGES.map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+        </div>
         <ThemeToggle />
         <div style={{ position: "relative" }}>
           <button className="icon-button" aria-label="Notifications" onClick={toggle} aria-expanded={open}>

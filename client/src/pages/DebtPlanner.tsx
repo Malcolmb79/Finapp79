@@ -6,7 +6,7 @@ import { api, type Account, type Transaction } from "../api/client.js";
 import { accountTypeLabel, amountDrawn, facilityLabel, isBorrowing, accountTxSums, visibleAccounts, visibleTransactions } from "../utils/accountBalance.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { sumInBase, useFxRates } from "../utils/fx.js";
-import { useAccountScope } from "../contexts/AccountScopeContext.js";
+import { useAccountScope } from "../contexts/ViewFilterContext.js";
 import DebtAdvisor from "../components/DebtAdvisor.js";
 import DebtCharts from "../components/DebtCharts.js";
 import StatTile from "../components/dashboard/StatTile.js";

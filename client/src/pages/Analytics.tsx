@@ -9,7 +9,8 @@ import MagnitudeBarList from "../components/dashboard/MagnitudeBarList.js";
 import StatTile from "../components/dashboard/StatTile.js";
 import { api, type Account, type Category, type Transaction } from "../api/client.js";
 import { visibleTransactions } from "../utils/accountBalance.js";
-import { useAccountScope } from "../contexts/AccountScopeContext.js";
+import { useAccountScope, useDateRange } from "../contexts/ViewFilterContext.js";
+import { dateRangeLabel, rangeMonthCount, withinRange } from "../utils/dateRange.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { inBase, useFxRates } from "../utils/fx.js";
 import { cleanDescription } from "../utils/cleanDescription.js";
@@ -24,18 +25,6 @@ function monthLabel(key: string): string {
   return date.toLocaleDateString(undefined, { month: "short", year: "2-digit", timeZone: "UTC" });
 }
 
-const RANGES = [
-  { id: "month", label: "This month", months: 1 },
-  { id: "3m", label: "Last 3 months", months: 3 },
-  { id: "6m", label: "Last 6 months", months: 6 },
-  { id: "12m", label: "Last 12 months", months: 12 },
-  { id: "all", label: "All time", months: null },
-] as const;
-
-type RangeId = (typeof RANGES)[number]["id"];
-
-const RANGE_KEY = "analytics.range.v1";
-
 export default function Analytics() {
   const [allTransactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -43,14 +32,6 @@ export default function Analytics() {
   // these figures with them, or the page reports spending from an account the
   // rest of the app has been told to ignore.
   const [accounts, setAccounts] = useState<Account[]>([]);
-  // Opens on the current month: the question this page usually answers is
-  // "how is this month going", and a twelve-month total buries it.
-  const [range, setRange] = useState<RangeId>(() => (localStorage.getItem(RANGE_KEY) as RangeId | null) ?? "month");
-
-  useEffect(() => {
-    localStorage.setItem(RANGE_KEY, range);
-  }, [range]);
-
   useEffect(() => {
     api.listTransactions().then(setTransactions);
     api.listCategories().then(setCategories);
@@ -58,10 +39,11 @@ export default function Analytics() {
   }, []);
 
   const { scope } = useAccountScope();
+  const { range } = useDateRange();
   const rates = useFxRates("EUR");
   // Every figure on this page totals transactions from accounts that may be
   // in different currencies, so all of it works from amounts restated in one.
-  const { items: convertedTx, dropped } = inBase(visibleTransactions(allTransactions, accounts, scope), rates);
+  const { items: convertedTx, dropped } = inBase(withinRange(visibleTransactions(allTransactions, accounts, scope), range), rates);
   const money = (value: number) => (rates ? formatCurrency(value, rates.base) : value.toFixed(2));
 
   // The twelve-month series the trend charts are drawn from. Deliberately not
@@ -77,15 +59,18 @@ export default function Analytics() {
     };
   });
 
-  const selectedRange = RANGES.find((r) => r.id === range) ?? RANGES[0];
+  // Driven by the header's period filter rather than a control of its own:
+  // this page had its own, and two date pickers filtering one page is a way
+  // to be confidently wrong about which one a chart obeyed.
+  const selectedMonths = rangeMonthCount(range);
   // Everything that is a total — spend, share, largest, recurring — is cut to
   // the chosen span. Trends keep their full series and say so.
-  const rangeMonths = selectedRange.months == null ? monthKeys : monthKeys.slice(-selectedRange.months);
-  const inRange = (date: string) => selectedRange.months == null || rangeMonths.includes(date.slice(0, 7));
+  const rangeMonths = selectedMonths == null ? monthKeys : monthKeys.slice(-selectedMonths);
+  const inRange = (date: string) => selectedMonths == null || rangeMonths.includes(date.slice(0, 7));
   const rangedTx = convertedTx.filter((tx) => inRange(tx.booking_date));
   // Matched on the month keys rather than the labels, which are now formatted
   // for reading and no longer look like "2026-07".
-  const rangedFlows = monthFlows.filter((_, i) => selectedRange.months == null || rangeMonths.includes(monthKeys[i]));
+  const rangedFlows = monthFlows.filter((_, i) => selectedMonths == null || rangeMonths.includes(monthKeys[i]));
 
   const totalIncome = rangedFlows.reduce((s, m) => s + m.income, 0);
   const totalExpenses = rangedFlows.reduce((s, m) => s + m.expenses, 0);
@@ -184,7 +169,7 @@ export default function Analytics() {
     {
       id: "savingsRate",
       title: "Savings rate",
-      headerExtra: <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{selectedRange.label.toLowerCase()}</span>,
+      headerExtra: <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{dateRangeLabel(range).toLowerCase()}</span>,
       icon: PiggyBank,
       accentVar: "--accent-2",
       defaultWidth: 328,
@@ -434,7 +419,7 @@ export default function Analytics() {
           <p className="page-header__subtitle">
             {/* The span is stated rather than assumed: the same chart means
                 something different over a month and over a year. */}
-            {selectedRange.label}
+            {dateRangeLabel(range)}
             {rates ? ` · converted to ${rates.base}` : ""}
             {/* Named rather than quietly omitted: a chart that silently drops
                 a currency under-reports without ever looking wrong. */}
@@ -442,13 +427,6 @@ export default function Analytics() {
             {" · hold a card to move or resize it"}
           </p>
         </div>
-        <select value={range} onChange={(e) => setRange(e.target.value as RangeId)} aria-label="Period">
-          {RANGES.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.label}
-            </option>
-          ))}
-        </select>
       </div>
 
       <WidgetCanvas storageKey="analytics.layout.v1" widgets={widgets} />
