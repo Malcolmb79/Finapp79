@@ -5,6 +5,7 @@ import { analyseSpending } from "../services/budgetPlanner.js";
 import { loadDebts } from "../services/debtAccounts.js";
 import { simulate } from "../services/debtStrategy.js";
 import { loadRates } from "../services/exchangeRates.js";
+import { matchPremiums, type Chargeable, type PremiumPolicy } from "../services/policyPremiums.js";
 
 /**
  * What a month has spare, and what it buys.
@@ -60,10 +61,42 @@ async function monthlyFlows(userId: string, scope?: string | null) {
   return { analysis: analyseSpending(converted, BASE_CURRENCY), dropped: [...dropped], rates };
 }
 
+/**
+ * Life policy premiums, split by whether the spending figures already saw them.
+ *
+ * A premium debited from a tracked account is inside `typicalSpend` already —
+ * see the note on the surplus below, and services/policyPremiums.ts for the
+ * matching itself. Only a premium the transactions cannot see is a commitment
+ * the plan has to add for itself.
+ *
+ * Policies are deliberately not filtered by the account scope: a policy belongs
+ * to no account, so narrowing to one account cannot narrow the set of policies
+ * without inventing a relationship that isn't there.
+ */
+async function policyPremiums(userId: string) {
+  const policies = (await db
+    .prepare("SELECT id, name, insurer, currency, premium, premium_frequency FROM policies WHERE user_id = ?")
+    .all(userId)) as unknown as PremiumPolicy[];
+
+  if (policies.length === 0) return [];
+
+  const charges = (await db
+    .prepare(
+      `SELECT t.amount, t.description, t.counterparty
+         FROM transactions t
+         JOIN accounts a ON a.id = t.account_id
+        WHERE t.user_id = ? AND t.reviewed_at IS NOT NULL AND NOT a.hidden`
+    )
+    .all(userId)) as unknown as Chargeable[];
+
+  return matchPremiums(policies, charges);
+}
+
 planRouter.get("/", async (req, res) => {
   try {
     const { analysis, dropped, rates } = await monthlyFlows(req.user!.id, req.accountScope);
     const debts = await loadDebts(req.user!.id, false, req.accountScope);
+    const premiums = await policyPremiums(req.user!.id);
 
     // Debt payments in the base currency, since a rand loan and a euro card
     // are being paid out of the same monthly surplus.
@@ -89,6 +122,18 @@ planRouter.get("/", async (req, res) => {
 
     const committedDebt = debtRows.reduce((sum, d) => sum + (d.paymentInBase ?? 0), 0);
 
+    // Premiums in the base currency, for the same reason the debts are: a rand
+    // policy and a euro one come out of the same monthly surplus.
+    const premiumRows = premiums.map((premium) => ({
+      ...premium,
+      monthlyInBase: inBase(premium.monthly, premium.currency),
+    }));
+    // Only the ones the spending figures cannot see. A premium already inside
+    // typicalSpend is reported so it can be recognised, but subtracting it
+    // would charge it twice — the same trap as the debt minimums below.
+    const unseenPremiums = premiumRows.filter((p) => !p.alreadyInSpending);
+    const premiumsToDeduct = unseenPremiums.reduce((sum, p) => sum + (p.monthlyInBase ?? 0), 0);
+
     const goals = (await db
       .prepare("SELECT id, name, target_amount, current_amount, target_date FROM savings_goals WHERE user_id = ? ORDER BY target_date NULLS LAST")
       .all(req.user!.id)) as unknown as SavingsGoalRow[];
@@ -102,8 +147,24 @@ planRouter.get("/", async (req, res) => {
       // inside typicalSpend where they were actually paid, so subtracting them
       // again here would double-count them — the surplus is simply what did
       // not go out.
-      surplus: Math.round((analysis.typicalIncome - analysis.typicalSpend) * 100) / 100,
+      //
+      // Policy premiums are the one thing subtracted on top, and only the ones
+      // that failed to match any transaction. Those are paid from somewhere
+      // this app cannot see, so unlike a debt minimum they are genuinely
+      // missing from typicalSpend rather than hiding inside it. The ones that
+      // did match are reported below and deliberately left alone.
+      surplus: Math.round((analysis.typicalIncome - analysis.typicalSpend - premiumsToDeduct) * 100) / 100,
       committedDebt: Math.round(committedDebt * 100) / 100,
+      premiums: {
+        deducted: Math.round(premiumsToDeduct * 100) / 100,
+        // Both lists, not just a total: a premium taken off the surplus and one
+        // left in the spending are different claims about where the money went,
+        // and the plan should be able to say which it made for each policy.
+        unseen: unseenPremiums.map((p) => ({ policyId: p.policyId, name: p.name, monthly: p.monthlyInBase })),
+        alreadyInSpending: premiumRows
+          .filter((p) => p.alreadyInSpending)
+          .map((p) => ({ policyId: p.policyId, name: p.name, monthly: p.monthlyInBase })),
+      },
       categories: analysis.categories.slice(0, 8).map((c) => ({ category: c.category, typical: c.typical, volatility: c.volatility })),
       debts: debtRows,
       goals: goals.map((g) => ({

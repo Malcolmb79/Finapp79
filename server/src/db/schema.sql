@@ -260,6 +260,67 @@ CREATE TABLE IF NOT EXISTS debts (
   created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
 );
 
+-- A life insurance policy, read from its statement (see
+-- services/policyDocument.ts). Deliberately not an `accounts` row with a new
+-- account_type: a policy has no transactions, no IBAN and no bank connection,
+-- so folding it in would offer it as a transaction target in every account
+-- dropdown, in the statement importer, in the account filter and in the debt
+-- planner — a lot of places to then suppress it again.
+--
+-- The two money columns are the point of the table, and they are not
+-- interchangeable:
+--
+--   cover_amount is the sum assured — what pays out on death. It is not money
+--   held, and no arrangement of this app's totals should ever treat it as
+--   such by default.
+--
+--   surrender_value is what the policy is worth if cashed in today. That is
+--   an asset, and it is the figure a policy normally contributes to net
+--   worth. A term policy has none, and null is the honest answer there.
+--
+-- net_worth_source names which of the two (if either) counts, per policy. It
+-- defaults to 'none' so a policy never enters a total until it is asked to —
+-- there is no safe figure to guess with, and a wrong net worth reads exactly
+-- like a right one.
+CREATE TABLE IF NOT EXISTS policies (
+  id TEXT PRIMARY KEY,               -- generated uuid
+  user_id TEXT REFERENCES users(id),
+  name TEXT NOT NULL,
+  insurer TEXT,
+  policy_number TEXT,
+  currency TEXT NOT NULL DEFAULT 'USD',
+  cover_amount DOUBLE PRECISION,     -- sum assured: protection, never wealth
+  surrender_value DOUBLE PRECISION,  -- cash/fund value: the asset figure
+  valued_at TEXT,                    -- the statement date those figures were true on
+  premium DOUBLE PRECISION,
+  premium_frequency TEXT,            -- monthly | quarterly | annual
+  start_date TEXT,
+  maturity_date TEXT,
+  net_worth_source TEXT NOT NULL DEFAULT 'none', -- none | surrender | cover
+  extract_json TEXT,                 -- the confirmed extraction, quotes included
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
+);
+
+CREATE INDEX IF NOT EXISTS idx_policies_user ON policies (user_id);
+
+-- One row per confirmed statement import. Without it a re-upload silently
+-- overwrites the previous figure, and there is no way to see the value move
+-- between statements or to notice that a newly read figure disagrees wildly
+-- with the last one. It is also what keeps the net worth trend honest: a
+-- policy contributes from its earliest valuation onwards rather than being
+-- projected backwards over history it wasn't held for.
+CREATE TABLE IF NOT EXISTS policy_valuations (
+  id TEXT PRIMARY KEY,               -- generated uuid
+  user_id TEXT REFERENCES users(id),
+  policy_id TEXT NOT NULL REFERENCES policies(id),
+  valued_at TEXT NOT NULL,
+  cover_amount DOUBLE PRECISION,
+  surrender_value DOUBLE PRECISION,
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
+);
+
+CREATE INDEX IF NOT EXISTS idx_policy_valuations_policy ON policy_valuations (policy_id, valued_at);
+
 -- A savings goal with manually-tracked progress (not linked to a specific
 -- account balance, since a goal like "vacation fund" is often notional
 -- rather than a literal separate account).

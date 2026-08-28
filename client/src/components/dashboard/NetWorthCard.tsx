@@ -43,6 +43,7 @@ export default function NetWorthCard({
   mode = "chart",
   currency,
   unconvertible = [],
+  countedAtCover = [],
 }: {
   current: number;
   delta: number;
@@ -52,6 +53,15 @@ export default function NetWorthCard({
   currency?: string;
   /** Currencies with no available rate — their balances are missing from the total. */
   unconvertible?: string[];
+  /**
+   * Policies being counted at their cover amount rather than a cash value.
+   *
+   * Named here rather than left inside the total: a sum assured pays out on
+   * death and is not money held now, so a net worth that includes one is
+   * answering a different question from the rest of the figure. Counting it is
+   * the user's decision and is honoured — this only keeps it from disappearing.
+   */
+  countedAtCover?: string[];
 }) {
   // Drawn at the size it actually has rather than stretched to fit. Width
   // matters because a stretched SVG turns round markers into ellipses;
@@ -109,6 +119,12 @@ export default function NetWorthCard({
       {unconvertible.length > 0 && (
         <p role="alert" style={{ margin: "0.15rem 0 0", fontSize: "0.75rem", color: "var(--warning)" }}>
           Excludes {unconvertible.join(", ")} — no rate available
+        </p>
+      )}
+      {countedAtCover.length > 0 && (
+        <p style={{ margin: "0.15rem 0 0", fontSize: "0.75rem", color: "var(--warning)" }}>
+          Includes {countedAtCover.join(", ")} at {countedAtCover.length === 1 ? "its" : "their"} cover amount — paid out
+          on death rather than held now
         </p>
       )}
 

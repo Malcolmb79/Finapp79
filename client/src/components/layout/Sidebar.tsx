@@ -7,16 +7,19 @@ import {
   Settings,
   ShieldCheck,
   Target,
+  Umbrella,
   Wallet,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { api, type Account, type Transaction } from "../../api/client.js";
+import { api, type Account, type Policy, type Transaction } from "../../api/client.js";
 import { useAuth } from "../../contexts/AuthContext.js";
 import { accountBalance, accountTxSums, visibleAccounts, visibleTransactions } from "../../utils/accountBalance.js";
 import { formatCurrency } from "../../utils/formatCurrency.js";
+import { policyContributions } from "../../utils/policyValue.js";
 import { sumInBase, useFxRates } from "../../utils/fx.js";
 import { useAccountScope } from "../../contexts/ViewFilterContext.js";
+import { useRefresh } from "../../contexts/RefreshContext.js";
 
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -26,17 +29,26 @@ const NAV_ITEMS = [
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/debt-planner", label: "Debt Planner", icon: PiggyBank },
   { to: "/savings", label: "Savings", icon: PiggyBank },
+  { to: "/policies", label: "Policies", icon: Umbrella },
 ];
 
 export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onCloseNav: () => void }) {
   const [allTransactions, setTransactions] = useState<Transaction[]>([]);
   const [allAccounts, setAccounts] = useState<Account[]>([]);
+  const [policies, setPolicies] = useState<Policy[]>([]);
   const { user, logout } = useAuth();
+
+  // The sidebar lives outside the router, so it mounts once and would
+  // otherwise keep its first fetch for the life of the session — showing a net
+  // worth that disagrees with the page that just changed it. `version` is the
+  // signal that something was written; see contexts/RefreshContext.tsx.
+  const { version } = useRefresh();
 
   useEffect(() => {
     api.listTransactions().then(setTransactions);
     api.listAccounts().then(setAccounts);
-  }, []);
+    api.listPolicies().then(setPolicies);
+  }, [version]);
 
   const { scope } = useAccountScope();
   const rates = useFxRates("EUR");
@@ -55,8 +67,19 @@ export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onC
   // Converted rather than added raw — accounts in different currencies are
   // not the same unit, and the sidebar figure has to agree with the
   // dashboard's.
+  // Policies join the total on the same terms as accounts: converted rather
+  // than added raw, and only the figure each policy was explicitly set to
+  // contribute — see utils/policyValue.ts.
+  //
+  // A scope narrows the view to one account, and a policy is not that account,
+  // so they drop out entirely while one is set. Leaving them in would show a
+  // single account's balance with a policy's value stacked on top, which is a
+  // figure describing nothing.
   const { converted: netWorth } = sumInBase(
-    accounts.map((a) => ({ amount: accountBalance(a, byAccount.get(a.id) ?? 0), currency: a.currency })),
+    [
+      ...accounts.map((a) => ({ amount: accountBalance(a, byAccount.get(a.id) ?? 0), currency: a.currency })),
+      ...(scope ? [] : policyContributions(policies)),
+    ],
     rates
   );
   const thisMonth = new Date().toISOString().slice(0, 7);

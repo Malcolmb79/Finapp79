@@ -12,6 +12,7 @@ import {
   type Budget,
   type Category,
   type PendingTransaction,
+  type Policy,
   type SavingsGoal,
   type Transaction,
 } from "../api/client.js";
@@ -36,6 +37,7 @@ import { accountBalance, amountDrawn, isBorrowing, accountTxSums, visibleAccount
 import { budgetStatus } from "../utils/budgetStatus.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { monthsToPayoff } from "../utils/payoff.js";
+import { countsAtCover, policyContribution, policyContributions, policyContributionsAt } from "../utils/policyValue.js";
 
 /** How far back a widget looks, where that is a choice rather than a fixed span. */
 type WidgetRange = "month" | "3m" | "6m" | "1y" | "all";
@@ -166,6 +168,7 @@ export default function Dashboard() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
+  const [allPolicies, setPolicies] = useState<Policy[]>([]);
   const [config, setConfig] = useState<DashboardConfig>(loadConfig);
   const [syncingAll, setSyncingAll] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -185,6 +188,7 @@ export default function Dashboard() {
     api.listCategories().then(setCategories);
     api.listBudgets().then(setBudgets);
     api.listSavingsGoals().then(setSavingsGoals);
+    api.listPolicies().then(setPolicies);
   }
 
   useEffect(refresh, []);
@@ -256,7 +260,22 @@ export default function Dashboard() {
   // numbers: an account in ZAR and one in EUR are not the same unit, and
   // totalling them raw produced a net worth that meant nothing.
   const balances = accounts.map((a) => ({ amount: accountBalance(a, byAccount.get(a.id) ?? 0), currency: a.currency }));
-  const { converted: netWorth, unconvertible } = sumInBase(balances, rates);
+  // A scope narrows to one account, and a policy is not that account, so
+  // policies drop out entirely while one is set — the same reasoning that keeps
+  // a hidden account's transactions out with it.
+  const policies = scope ? [] : allPolicies;
+
+  // Accounts alone, kept apart from the headline because the trend below needs
+  // it: the line is anchored on this figure and walked backwards through the
+  // transactions, and a policy's value is not something the transactions move.
+  const { converted: accountsNetWorth, unconvertible: accountsUnconvertible } = sumInBase(balances, rates);
+  const { converted: policyTotal, unconvertible: policyUnconvertible } = sumInBase(policyContributions(policies), rates);
+  const netWorth = accountsNetWorth + policyTotal;
+  const unconvertible = [...new Set([...accountsUnconvertible, ...policyUnconvertible])];
+  // Named so the reason net worth exceeds the accounts stays visible. A cover
+  // amount pays out on death rather than being held now; counting it is the
+  // user's call, but it should never become an anonymous part of a total.
+  const coveredAtCover = policies.filter(countsAtCover);
   // Currencies missing a rate are named wherever they affect a total, so a
   // combined figure is never shown as complete when part of it was dropped.
   const thisMonthKey = new Date().toISOString().slice(0, 7);
@@ -296,20 +315,40 @@ export default function Dashboard() {
    *
    * Daily points over a short range, month-ends over a long one — a year of
    * daily points is 365 dots of noise, and a month of month-ends is one.
+   *
+   * Policies are added per point rather than folded into the anchor. Walking
+   * back from a total that already contains them would carry today's policy
+   * value across every earlier point too, quietly raising last year's net worth
+   * by an amount there was no record of holding — so each point instead takes
+   * the figure from the statement in effect on that date, and nothing at all
+   * before a policy's first one.
    */
   const netWorthTrend: TrendPoint[] = (() => {
     if (convertedTx.length === 0) return [];
 
     const sorted = [...convertedTx].sort((a, b) => a.booking_date.localeCompare(b.booking_date));
     const total = sorted.reduce((sum, tx) => sum + tx.amount, 0);
-    // What the accounts held before any of this was recorded.
-    const opening = netWorth - total;
+    // What the accounts held before any of this was recorded. Accounts only —
+    // the policies are put back per point below.
+    const opening = accountsNetWorth - total;
+
+    // Cached per date: a busy month puts dozens of transactions on the same
+    // day, and the policy figure is identical for every one of them.
+    const policyOnDate = new Map<string, number>();
+    const policiesOn = (date: string) => {
+      let value = policyOnDate.get(date);
+      if (value === undefined) {
+        value = sumInBase(policyContributionsAt(policies, date), rates).converted;
+        policyOnDate.set(date, value);
+      }
+      return value;
+    };
 
     const cumulative = new Map<string, number>();
     let running = opening;
     for (const tx of sorted) {
       running += tx.amount;
-      cumulative.set(tx.booking_date, running);
+      cumulative.set(tx.booking_date, running + policiesOn(tx.booking_date));
     }
 
     const start = rangeStart(netWorthRange);
@@ -356,6 +395,14 @@ export default function Dashboard() {
   const currencyTotals = new Map<string, number>();
   for (const a of accounts) {
     currencyTotals.set(a.currency, (currencyTotals.get(a.currency) ?? 0) + accountBalance(a, byAccount.get(a.id) ?? 0));
+  }
+  // Policies belong in the per-currency breakdown for the same reason they
+  // belong in the headline: leaving them out would make the currencies add up
+  // to less than the total sitting above them.
+  for (const policy of policies) {
+    const contribution = policyContribution(policy);
+    if (contribution === 0) continue;
+    currencyTotals.set(policy.currency, (currencyTotals.get(policy.currency) ?? 0) + contribution);
   }
 
   const recentTransactions = [...transactions]
@@ -410,6 +457,7 @@ export default function Dashboard() {
           mode={config.modes.netWorth}
           currency={rates?.base}
           unconvertible={missingRates}
+          countedAtCover={coveredAtCover.map((p) => p.name)}
         />
       ),
     },

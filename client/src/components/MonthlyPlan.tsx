@@ -86,6 +86,32 @@ export default function MonthlyPlan() {
         {plan.dropped.length > 0 && ` Excludes ${plan.dropped.join(", ")} — no exchange rate available.`}
       </p>
 
+      {/* Policy premiums, and which of them the spare figure already accounted
+          for. Split rather than totalled on purpose: a premium taken off the
+          spare and one left inside the outgoings are different claims about
+          where the money went, and a figure nobody can account for is one
+          nobody can check. */}
+      {(plan.premiums.unseen.length > 0 || plan.premiums.alreadyInSpending.length > 0) && (
+        <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", margin: "-0.4rem 0 0.7rem" }}>
+          {plan.premiums.unseen.length > 0 && (
+            <>
+              {money(plan.premiums.deducted)} of policy premiums taken off the spare —{" "}
+              {plan.premiums.unseen.map((p) => p.name).join(", ")}, which {plan.premiums.unseen.length === 1 ? "doesn't" : "don't"}{" "}
+              appear in your transactions and so {plan.premiums.unseen.length === 1 ? "isn't" : "aren't"} in the outgoings above.{" "}
+            </>
+          )}
+          {plan.premiums.alreadyInSpending.length > 0 && (
+            <>
+              {plan.premiums.alreadyInSpending.map((p) => p.name).join(", ")}{" "}
+              {plan.premiums.alreadyInSpending.length === 1 ? "is" : "are"} already inside the outgoings and{" "}
+              {plan.premiums.alreadyInSpending.length === 1 ? "was" : "were"} left alone — subtracting{" "}
+              {plan.premiums.alreadyInSpending.length === 1 ? "it" : "them"} again would count{" "}
+              {plan.premiums.alreadyInSpending.length === 1 ? "it" : "them"} twice.
+            </>
+          )}
+        </p>
+      )}
+
       {plan.surplus <= 0 ? (
         // Splitting nothing between two things is not a plan, and pretending
         // otherwise is how a planner stops being believed.

@@ -23,7 +23,8 @@ Run from the repo root (npm workspaces: `server`, `client`).
 - `npm run build` — build both workspaces
 - `npm run typecheck` — typecheck both workspaces
 - `npm run lint` — lint both workspaces
-- `npm run test` — run server tests (vitest)
+- `npm run test` — run both workspaces' tests (vitest)
+  - One workspace: `npm run test --workspace client`
   - Single test file: `npm run test --workspace server -- path/to/file.test.ts`
 
 Requires Node.js >=22.5 and a `.env` file (copy `.env.example`). Enable
@@ -233,7 +234,10 @@ account creation — the only UI for `api.createAccount`, which existed in
 the client for a while with nothing calling it), `Budgets`, `Analytics`
 (derived views only, no dedicated backend table), `DebtPlanner` (payoff
 time via `utils/payoff.ts`'s amortization math, computed client-side since
-it's a projection that changes with every payment), `Savings`, `BankLink`
+it's a projection that changes with every payment), `Savings`, `Policies`
+(life cover: upload a statement, confirm what was read from it, and choose
+per policy which figure counts towards net worth — see the data model below),
+`BankLink`
 / `BankLinkCallback` (see the Enable Banking flow above), `Login` (Google/
 Facebook buttons; grayed out per `GET /api/auth/providers` if a provider
 isn't configured server-side, rather than offering a dead link).
@@ -265,6 +269,34 @@ why, and for the migration that added it retroactively.
 - `savings_goals.current_amount` is only ever changed via `POST
   /api/savings/:id/contribute` (adds a delta), not a raw `PATCH`, so the
   client never has to read-modify-write it itself.
+- `policies` / `policy_valuations` — life insurance, read from a statement by
+  `services/policyDocument.ts` (the same grounded-extraction design as
+  `loanContract.ts`, whose helpers it imports rather than copies). Kept out of
+  `accounts` deliberately: a policy has no transactions, no IBAN and no bank
+  connection, so folding it in would offer it as a transaction target in every
+  account dropdown, the statement importer, the account filter and the debt
+  planner.
+
+  The two money columns are **not** interchangeable, and most of the design
+  exists to keep them apart. `cover_amount` is the sum assured — what pays out
+  on death, which is not money held; a term policy quotes a large one and has
+  no cash value at all. `surrender_value` is what the policy is worth if cashed
+  in today, and that is the figure that behaves like an asset. They sit
+  together on the same page of a statement in the same currency, so the reader
+  drops a surrender value whose evidence is the cover amount's own sentence
+  (`dropConfusedSurrender`), and nothing is stored until confirmed.
+
+  `net_worth_source` (`none` | `surrender` | `cover`) names which figure counts,
+  per policy, and defaults to `none` — a policy is in no total until asked in.
+  Counting one at its cover amount is allowed, and every screen that uses the
+  figure says so rather than letting it disappear into a total.
+  `policy_valuations` keeps one row per confirmed statement, which is what lets
+  the net worth trend show a policy from its first statement onward instead of
+  projecting today's value back across history it wasn't held for.
+- Policy premiums reach `GET /api/plan` through `services/policyPremiums.ts`,
+  and only the ones that match no transaction are subtracted from the surplus.
+  A premium debited from a tracked account is already inside `typicalSpend` —
+  the same double-count the plan already avoids for debt minimums.
 
 ## Deployment (Vercel)
 

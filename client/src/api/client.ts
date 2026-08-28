@@ -273,10 +273,92 @@ export interface MonthlyPlanData {
   /** What a typical month doesn't spend — the amount there is to allocate. */
   surplus: number;
   committedDebt: number;
+  /**
+   * Life policy premiums, split by whether the spending figures already saw
+   * them. Only `unseen` was taken off the surplus — a premium already inside
+   * typicalSpend would be charged twice if it were subtracted again.
+   */
+  premiums: {
+    deducted: number;
+    unseen: { policyId: string; name: string; monthly: number | null }[];
+    alreadyInSpending: { policyId: string; name: string; monthly: number | null }[];
+  };
   categories: { category: string; typical: number; volatility: number }[];
   debts: { id: string; name: string; currency: string; balance: number; rate: number; minimumPayment: number }[];
   goals: { id: number; name: string; target: number; saved: number; targetDate: string | null; remaining: number }[];
   dropped: string[];
+}
+
+/**
+ * Which figure on a policy, if any, counts towards net worth.
+ *
+ * `surrender` is the policy's cash value — money you would actually receive,
+ * and the only figure that behaves like an asset. `cover` is the sum assured,
+ * which pays out on death rather than being held now; it is offered because the
+ * choice is the user's, and shown with a caution wherever it is used.
+ */
+export type NetWorthSource = "none" | "surrender" | "cover";
+
+export interface PolicyValuation {
+  policy_id: string;
+  valued_at: string;
+  cover_amount: number | null;
+  surrender_value: number | null;
+}
+
+export interface Policy {
+  id: string;
+  name: string;
+  insurer: string | null;
+  policy_number: string | null;
+  currency: string;
+  /** Sum assured — what pays out on death. Protection, not wealth. */
+  cover_amount: number | null;
+  /** Cash/fund value — what it is worth if cashed in today. */
+  surrender_value: number | null;
+  /** The statement date the two figures above were true on. */
+  valued_at: string | null;
+  premium: number | null;
+  premium_frequency: "monthly" | "quarterly" | "annual" | null;
+  start_date: string | null;
+  maturity_date: string | null;
+  net_worth_source: NetWorthSource;
+  extract_json: string | null;
+  created_at: string;
+  /** Every confirmed statement, oldest first. */
+  valuations: PolicyValuation[];
+}
+
+/** A figure read out of a policy document, with the sentence it came from. */
+export interface PolicyFacts {
+  insurer: string | null;
+  policyNumber: string | null;
+  currency: string | null;
+  coverAmount: ExtractedField<number> | null;
+  surrenderValue: ExtractedField<number> | null;
+  premium: ExtractedField<number> | null;
+  premiumFrequency: "monthly" | "quarterly" | "annual" | null;
+  startDate: ExtractedField<string> | null;
+  maturityDate: ExtractedField<string> | null;
+  valuedAt: ExtractedField<string> | null;
+  keyTerms: KeyTerm[];
+  passes: number;
+}
+
+export interface PolicyDraft {
+  name: string;
+  insurer?: string | null;
+  policy_number?: string | null;
+  currency?: string;
+  cover_amount?: number | null;
+  surrender_value?: number | null;
+  valued_at?: string | null;
+  premium?: number | null;
+  premium_frequency?: "monthly" | "quarterly" | "annual" | null;
+  start_date?: string | null;
+  maturity_date?: string | null;
+  net_worth_source?: NetWorthSource;
+  extract?: unknown;
 }
 
 export interface PlanSimulation {
@@ -492,6 +574,36 @@ export const api = {
   setBudget: (categoryId: number, monthlyLimit: number) =>
     request<Budget>("/budgets", { method: "POST", body: JSON.stringify({ category_id: categoryId, monthly_limit: monthlyLimit }) }),
   deleteBudget: (id: number) => request<void>(`/budgets/${id}`, { method: "DELETE" }),
+
+  listPolicies: () => request<Policy[]>("/policies"),
+
+  /** Reads a policy document. Writes nothing — the details come back for review. */
+  previewPolicyDocument: (contentBase64: string) =>
+    request<PolicyFacts>("/policies/preview", { method: "POST", body: JSON.stringify({ content_base64: contentBase64 }) }),
+
+  createPolicy: (draft: PolicyDraft) => request<Policy>("/policies", { method: "POST", body: JSON.stringify(draft) }),
+  updatePolicy: (id: string, patch: Partial<PolicyDraft>) =>
+    request<Policy>(`/policies/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+
+  /**
+   * Records a newer statement against a policy, keeping the earlier ones.
+   *
+   * `premium` is optional and updates the policy rather than the history — a
+   * premium is what the policy costs from here on, not what it was worth on a
+   * date. Omitted, the recorded premium is left alone.
+   */
+  addPolicyValuation: (
+    id: string,
+    valuation: {
+      valued_at: string;
+      cover_amount: number | null;
+      surrender_value: number | null;
+      premium?: number | null;
+      premium_frequency?: "monthly" | "quarterly" | "annual" | null;
+    }
+  ) => request<Policy>(`/policies/${id}/valuations`, { method: "POST", body: JSON.stringify(valuation) }),
+
+  deletePolicy: (id: string) => request<void>(`/policies/${id}`, { method: "DELETE" }),
 
   listDebts: () => request<Debt[]>("/debts"),
   createDebt: (debt: { name: string; balance: number; apr: number; minimum_payment: number }) =>
