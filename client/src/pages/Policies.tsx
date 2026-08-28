@@ -76,9 +76,14 @@ function PolicyCard({ policy, onChanged }: { policy: Policy; onChanged: () => vo
   return (
     <div className="budget-row">
       <div className="budget-row__meta">
+        {/* The insurer is dropped when it is the name: an import with nothing
+            better to call the policy defaults to the insurer, and printing the
+            same legal name twice down the card says nothing the once didn't. */}
         <span style={{ fontWeight: 600 }}>
           {policy.name}
-          {policy.insurer ? <span style={{ fontWeight: 400, color: "var(--text-muted)" }}> · {policy.insurer}</span> : null}
+          {policy.insurer && policy.insurer !== policy.name ? (
+            <span style={{ fontWeight: 400, color: "var(--text-muted)" }}> · {policy.insurer}</span>
+          ) : null}
         </span>
         {policy.policy_number && <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{policy.policy_number}</span>}
       </div>

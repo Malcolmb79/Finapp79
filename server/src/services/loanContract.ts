@@ -147,7 +147,7 @@ export function flatten(text: string): string {
     .replace(/[‘’ʼ]/g, "'")
     .replace(/[“”]/g, '"')
     .replace(/[‐-―−]/g, "-")
-    .replace(/ /g, " ")
+    .replace(/\u00a0/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -200,6 +200,21 @@ export function verifyNumber(entry: { value: unknown; quote: unknown } | null, b
   if (claimed < bounds.min || claimed > bounds.max) return null;
 
   return { value: claimed, quote: entry.quote };
+}
+
+/** One pass's JSON, before any of it has been checked against the document. */
+export type RawPass = Record<string, unknown>;
+
+/**
+ * A `{ value, quote }` entry from a pass, still unverified.
+ *
+ * Everything stays `unknown` on purpose: this narrows the shape just enough to
+ * hand to `verifyNumber`/`verifyDate`, and those are what decide whether the
+ * contents are real. Shared with the policy reader, which does the same thing
+ * to a different document.
+ */
+export function rawField(value: unknown): { value: unknown; quote: unknown } | null {
+  return value !== null && typeof value === "object" ? (value as { value: unknown; quote: unknown }) : null;
 }
 
 export function verifyDate(entry: { value: unknown; quote: unknown } | null): ExtractedField<string> | null {
@@ -270,7 +285,7 @@ export async function extractLoanTerms(text: string): Promise<LoanTerms | null> 
   const parts = chunk(text);
   // Sequential rather than parallel: a contract is one or two passes in
   // practice, and this runs while someone waits on a modal.
-  const results: Record<string, any>[] = [];
+  const results: RawPass[] = [];
   for (const [index, part] of parts.entries()) {
     const parsed = await readPass(client, part, index, parts.length);
     if (parsed) results.push(parsed);
@@ -286,7 +301,7 @@ export async function extractLoanTerms(text: string): Promise<LoanTerms | null> 
 
   // First section to state a term wins: the headline figures appear in the
   // summary box at the front, and a later mention is usually a worked example.
-  const first = <T>(pick: (parsed: any) => T | null): T | null => {
+  const first = <T>(pick: (parsed: RawPass) => T | null): T | null => {
     for (const parsed of results) {
       const value = pick(parsed);
       if (value) return value;
@@ -294,13 +309,23 @@ export async function extractLoanTerms(text: string): Promise<LoanTerms | null> 
     return null;
   };
 
+  const readNumber = (raw: unknown, bounds: { min: number; max: number }) => {
+    const entry = rawField(raw);
+    return grounded(entry, () => verifyNumber(entry, bounds));
+  };
+
+  const readDate = (raw: unknown) => {
+    const entry = rawField(raw);
+    return grounded(entry, () => verifyDate(entry));
+  };
+
   const terms: LoanTerms = {
-    principal: first((p) => grounded(p.principal, () => verifyNumber(p.principal, LIMITS.principal))),
-    monthlyPayment: first((p) => grounded(p.monthly_payment, () => verifyNumber(p.monthly_payment, LIMITS.monthlyPayment))),
-    interestRate: first((p) => grounded(p.interest_rate, () => verifyNumber(p.interest_rate, LIMITS.interestRate))),
-    startDate: first((p) => grounded(p.start_date, () => verifyDate(p.start_date))),
-    endDate: first((p) => grounded(p.end_date, () => verifyDate(p.end_date))),
-    termMonths: first((p) => grounded(p.term_months, () => verifyNumber(p.term_months, LIMITS.termMonths))),
+    principal: first((p) => readNumber(p.principal, LIMITS.principal)),
+    monthlyPayment: first((p) => readNumber(p.monthly_payment, LIMITS.monthlyPayment)),
+    interestRate: first((p) => readNumber(p.interest_rate, LIMITS.interestRate)),
+    startDate: first((p) => readDate(p.start_date)),
+    endDate: first((p) => readDate(p.end_date)),
+    termMonths: first((p) => readNumber(p.term_months, LIMITS.termMonths)),
     lender: first((p) => (typeof p.lender === "string" && p.lender ? p.lender : null)),
     currency: first((p) => (typeof p.currency === "string" && /^[A-Z]{3}$/.test(p.currency) ? p.currency : null)),
     keyTerms: collectKeyTerms(results, text),

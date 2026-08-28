@@ -1,6 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { Router } from "express";
-import { db } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { ASSUMED_CARD_PAYMENT_EUR, assumedMinimum, compareStrategies, simulate, type DebtInput } from "../services/debtStrategy.js";
 import { loadDebts } from "../services/debtAccounts.js";

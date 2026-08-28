@@ -29,7 +29,7 @@ import {
 } from "../dashboardWidgets.js";
 import { inBase, sumInBase, useFxRates } from "../utils/fx.js";
 import { useAccountScope, useDateRange } from "../contexts/ViewFilterContext.js";
-import { dateRangeLabel, withinRange } from "../utils/dateRange.js";
+import { withinRange } from "../utils/dateRange.js";
 import { computeCanvasHeight, type CanvasRect } from "../utils/useCanvasItem.js";
 import { useMeasuredWidth } from "../utils/useMeasuredWidth.js";
 import AccountAvatar from "../components/AccountAvatar.js";

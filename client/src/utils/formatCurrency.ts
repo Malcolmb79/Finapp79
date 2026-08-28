@@ -31,5 +31,5 @@ export function formatCurrency(amount: number, currency: string): string {
   // written -- and Intl uses a non-breaking space there, not a plain one, so
   // both spellings have to be handled.
   if (!symbol || !formatted.includes(currency)) return formatted;
-  return formatted.replace(currency, symbol).replace(`${symbol} `, symbol).replace(`${symbol} `, symbol);
+  return formatted.replace(currency, symbol).replace(`${symbol}\u00a0`, symbol).replace(`${symbol} `, symbol);
 }

@@ -3,10 +3,12 @@ import {
   chunk,
   collectKeyTerms,
   quoteAppearsIn,
+  rawField,
   verifyDate,
   verifyNumber,
   type ExtractedField,
   type KeyTerm,
+  type RawPass,
 } from "./loanContract.js";
 
 /**
@@ -205,20 +207,6 @@ async function readPass(client: Anthropic, part: string, index: number, total: n
   const block = response.content.find((b) => b.type === "text");
   if (!block || block.type !== "text") return null;
   return JSON.parse(block.text);
-}
-
-/** One pass's JSON, before any of it has been checked against the document. */
-type RawPass = Record<string, unknown>;
-
-/**
- * A `{ value, quote }` entry from a pass, still unverified.
- *
- * Everything stays `unknown` on purpose: this only narrows the shape enough for
- * `verifyNumber`/`verifyDate` to be handed it, and those are what decide
- * whether the contents are real.
- */
-function rawField(value: unknown): { value: unknown; quote: unknown } | null {
-  return value !== null && typeof value === "object" ? (value as { value: unknown; quote: unknown }) : null;
 }
 
 export async function extractPolicyFacts(text: string): Promise<PolicyFacts | null> {

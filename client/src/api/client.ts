@@ -12,6 +12,30 @@ export function setRequestAccountScope(accountId: string | null) {
   accountScope = accountId;
 }
 
+/**
+ * What to show a person when a request fails.
+ *
+ * Every route that can fail in a way the user could act on already words the
+ * reason — "that PDF couldn't be opened", "if it's a scan rather than a text
+ * PDF". Wrapping the raw body put `502: {"error":"..."}` on screen instead, so
+ * the sentence written for the user arrived quoted, braced and prefixed with a
+ * number that means nothing to them.
+ *
+ * The status is kept only where there is no message to show: a proxy error or
+ * a crash mid-response has no JSON body, and "500" is then more use than an
+ * empty string.
+ */
+async function errorMessage(res: Response): Promise<string> {
+  const body = await res.text();
+  try {
+    const parsed = JSON.parse(body);
+    if (parsed && typeof parsed.error === "string" && parsed.error) return parsed.error;
+  } catch {
+    // Not JSON — fall through to the raw body below.
+  }
+  return body.trim() ? `${res.status}: ${body}` : `Request failed (${res.status})`;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...init,
@@ -21,7 +45,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init?.headers,
     },
   });
-  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(await errorMessage(res));
   if (res.status === 204) return undefined as T;
   return res.json();
 }
