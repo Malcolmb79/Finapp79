@@ -5,6 +5,45 @@ import CategorySelect from "./CategorySelect.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 
 /**
+ * Picks which column of the file holds a given field.
+ *
+ * A component rather than a function returning JSX, which is what it was. The
+ * difference is not cosmetic: a function called during render hands its
+ * callback over mid-render, so neither React nor the linter can tell the
+ * callback won't be invoked there and then — and that callback reaches the
+ * request-id ref that discards stale re-parses. As a component the callback is
+ * a prop, fired by an event, which is both what actually happens and what the
+ * rules can see. It also gives each select its own identity for reconciliation
+ * instead of being re-created inline every render.
+ */
+function ColumnSelect({
+  value,
+  onChange,
+  allowNone,
+  columns,
+}: {
+  value: number | null;
+  onChange: (v: number | null) => void;
+  allowNone: boolean;
+  columns: { index: number; label: string }[];
+}) {
+  return (
+    <select
+      value={value ?? ""}
+      onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+      style={{ width: "100%" }}
+    >
+      {allowNone && <option value="">None</option>}
+      {columns.map((c) => (
+        <option key={c.index} value={c.index}>
+          {c.label || `Column ${c.index + 1}`}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/**
  * Confirms how a statement file will be read before anything is written.
  *
  * The server's inferred mapping is a guess about someone's money — day/month
@@ -161,22 +200,6 @@ export default function StatementImportModal({
   const columnOptions = preview?.columns ?? [];
   const splitColumns = mapping ? mapping.amountColumn == null : false;
 
-  function columnSelect(value: number | null, onChange: (v: number | null) => void, allowNone: boolean) {
-    return (
-      <select
-        value={value ?? ""}
-        onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
-        style={{ width: "100%" }}
-      >
-        {allowNone && <option value="">None</option>}
-        {columnOptions.map((c) => (
-          <option key={c.index} value={c.index}>
-            {c.label || `Column ${c.index + 1}`}
-          </option>
-        ))}
-      </select>
-    );
-  }
 
   return (
     <>
@@ -241,7 +264,7 @@ export default function StatementImportModal({
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.75rem" }}>
               <label>
                 Date column
-                {columnSelect(mapping.dateColumn, (v) => update({ dateColumn: v ?? 0 }), false)}
+                <ColumnSelect value={mapping.dateColumn} onChange={(v) => update({ dateColumn: v ?? 0 })} allowNone={false} columns={columnOptions} />
               </label>
               <label>
                 Date format
@@ -273,27 +296,27 @@ export default function StatementImportModal({
                 <>
                   <label>
                     Money out
-                    {columnSelect(mapping.debitColumn, (v) => update({ debitColumn: v }), true)}
+                    <ColumnSelect value={mapping.debitColumn} onChange={(v) => update({ debitColumn: v })} allowNone columns={columnOptions} />
                   </label>
                   <label>
                     Money in
-                    {columnSelect(mapping.creditColumn, (v) => update({ creditColumn: v }), true)}
+                    <ColumnSelect value={mapping.creditColumn} onChange={(v) => update({ creditColumn: v })} allowNone columns={columnOptions} />
                   </label>
                 </>
               ) : (
                 <label>
                   Amount
-                  {columnSelect(mapping.amountColumn, (v) => update({ amountColumn: v }), false)}
+                  <ColumnSelect value={mapping.amountColumn} onChange={(v) => update({ amountColumn: v })} allowNone={false} columns={columnOptions} />
                 </label>
               )}
 
               <label>
                 Description
-                {columnSelect(mapping.descriptionColumn, (v) => update({ descriptionColumn: v }), true)}
+                <ColumnSelect value={mapping.descriptionColumn} onChange={(v) => update({ descriptionColumn: v })} allowNone columns={columnOptions} />
               </label>
               <label>
                 Payee
-                {columnSelect(mapping.counterpartyColumn, (v) => update({ counterpartyColumn: v }), true)}
+                <ColumnSelect value={mapping.counterpartyColumn} onChange={(v) => update({ counterpartyColumn: v })} allowNone columns={columnOptions} />
               </label>
               <label>
                 Decimal separator

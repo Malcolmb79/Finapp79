@@ -1,5 +1,5 @@
 import { Check, Loader2, Plus, Search, Sparkles, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api, type Account, type Category, type PendingTransaction } from "../../api/client.js";
 import CategorySelect from "../CategorySelect.js";
 import { cleanDescription } from "../../utils/cleanDescription.js";
@@ -28,9 +28,20 @@ export default function PendingReviewWidget({
   const [accountId, setAccountId] = useState<string>("");
   const [suggesting, setSuggesting] = useState(false);
   const [proposed, setProposed] = useState<string[]>([]);
+  // The categories the dropdowns offer: the prop, plus any created inline here
+  // before the parent has refetched (see the `setKnown` below).
   const [known, setKnown] = useState<Category[]>(categories);
+  const [lastCategories, setLastCategories] = useState(categories);
 
-  useEffect(() => setKnown(categories), [categories]);
+  // Adjusting state during render — React's documented pattern for "reset
+  // state when a prop changes" — rather than in an effect, which rendered the
+  // whole list once with the stale set before correcting it. Same reasoning as
+  // the drawer reset in App.tsx. A locally added category survives until the
+  // parent sends a new list, which by then contains it.
+  if (categories !== lastCategories) {
+    setLastCategories(categories);
+    setKnown(categories);
+  }
 
   async function suggestAll() {
     setSuggesting(true);

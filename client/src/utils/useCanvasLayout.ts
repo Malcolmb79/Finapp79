@@ -37,9 +37,21 @@ export function useCanvasLayout(storageKey: string, defs: CanvasWidgetDef[], gap
 
   // A widget added by a later release has no stored rect; place it without
   // disturbing anything the user has already arranged.
-  useEffect(() => {
-    setRects((current) => (defs.every((d) => current[d.id]) ? current : autoLayout(defs, current, gap, columnWidth)));
-  }, [defs, gap, columnWidth]);
+  //
+  // Adjusted during render rather than in an effect — React's documented
+  // pattern, the same one App.tsx uses for the mobile drawer. From an effect
+  // this painted once with the new widget missing its rect before correcting
+  // it, a visible jump on the frame a page gains a widget.
+  //
+  // The condition is deliberately about the rects, not about whether `defs`
+  // changed. Tracking a previous `defs` would loop forever: pages build their
+  // widget list as a fresh array literal each render, so `defs` has a new
+  // identity every time and an identity comparison never settles. Asking "is
+  // anything unplaced" is self-limiting instead — autoLayout gives every def a
+  // rect, so the next render has nothing left to do.
+  if (!defs.every((d) => rects[d.id])) {
+    setRects((current) => autoLayout(defs, current, gap, columnWidth));
+  }
 
   const visible = defs.filter((def) => enabled.includes(def.id));
 
