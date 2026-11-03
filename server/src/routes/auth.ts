@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "../db/client.js";
 import passport, { configuredProviders } from "../auth/passport.js";
-import { createLocalUser, getUserByEmail } from "../auth/findOrCreateUser.js";
+import { createLocalUser, getUserByEmail, isSignupAllowed } from "../auth/findOrCreateUser.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { loginRateLimit, signupRateLimit, emailActionRateLimit } from "../middleware/authRateLimit.js";
 import { hashPassword, verifyPassword } from "../auth/password.js";
@@ -46,6 +46,10 @@ authRouter.post("/signup", signupRateLimit, async (req, res, next) => {
   }
   if (await getUserByEmail(email)) {
     res.status(409).json({ error: "An account with this email already exists." });
+    return;
+  }
+  if (!isSignupAllowed(email)) {
+    res.status(403).json({ error: "Sign-ups are closed." });
     return;
   }
 

@@ -3,7 +3,7 @@ import { Strategy as FacebookStrategy } from "passport-facebook";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import { Strategy as LocalStrategy } from "passport-local";
 import { db } from "../db/client.js";
-import { findOrCreateUser, getUserByEmail, type AppUser } from "./findOrCreateUser.js";
+import { findOrCreateUser, getUserByEmail, SignupClosedError, type AppUser } from "./findOrCreateUser.js";
 import { verifyPassword } from "./password.js";
 
 /**
@@ -38,6 +38,13 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           );
           done(null, user);
         } catch (err) {
+          // A closed signup list isn't a server error, just a declined
+          // sign-in — same shape as a wrong password, so it redirects back
+          // to the login form instead of showing a raw 500.
+          if (err instanceof SignupClosedError) {
+            done(null, false, { message: err.message });
+            return;
+          }
           done(err as Error);
         }
       }
@@ -66,6 +73,10 @@ if (process.env.FACEBOOK_CLIENT_ID && process.env.FACEBOOK_CLIENT_SECRET) {
           );
           done(null, user);
         } catch (err) {
+          if (err instanceof SignupClosedError) {
+            done(null, false, { message: err.message });
+            return;
+          }
           done(err as Error);
         }
       }

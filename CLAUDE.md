@@ -128,7 +128,28 @@ query, or one user's data leaks into another's response.
   email/password signup, via `createLocalUser`) to an app user: an existing
   `(provider, provider_user_id)` identity returns that user; otherwise an
   existing user is matched by email (so the same person can add a second
-  sign-in method) or a new one is created.
+  sign-in method) or a new one is created. `isSignupAllowed()`/
+  `SignupClosedError` gate every new-account insert in this file (password
+  signup, a brand new OAuth identity, and a passkey's own account-creation
+  path all end up here) behind `ALLOWED_SIGNUP_EMAIL` — unset means open
+  signups (the default); set it to close the app to one address. Linking a
+  second sign-in method to an account that already exists is never
+  blocked, only creating a brand new one.
+- `src/auth/passkeys.ts` / `src/routes/passkeys.ts` — WebAuthn passkey
+  sign-in (Face ID/Touch ID/Windows Hello/a security key), alongside
+  Google/Facebook/password rather than replacing them. Credentials are
+  rows in `passkey_credentials`, keyed by `user_id`. `relyingParty()`
+  derives the RP ID/origin from `CLIENT_URL` so this needs no dedicated
+  env var in the common case — `PASSKEY_RP_ID`/`PASSKEY_ORIGIN` override
+  it when that derivation is wrong. The in-flight WebAuthn challenge lives
+  in the session (`req.session.passkeyChallenge`), not a signed cookie —
+  `express-session` here is already backed by Postgres, so it can simply
+  be put down between the "options" and "verify" calls and picked up
+  again, single-use and cleared either way. `register/options` doubles as
+  sign-up when there's no session yet (the same door `/auth/signup`
+  already opens, behind the same rate limit and `ALLOWED_SIGNUP_EMAIL`
+  gate), and `wouldLockOut()` refuses to delete a credential that is the
+  only way into an account with no password set.
 - `src/auth/tokens.ts` — single-use tokens for password reset and email
   verification links. `createToken()` persists only the SHA-256 hash of a
   random token and returns the raw value (the only time it's ever
@@ -318,7 +339,12 @@ One Vercel project serves both halves from this repo:
   integration — see `.env.example`), plus whichever of the OAuth/Enable
   Banking vars you're using. `ENABLE_BANKING_PRIVATE_KEY` (raw PEM
   content) is required there instead of the `_PATH` variant, since the key
-  file is gitignored and never reaches the deployment.
+  file is gitignored and never reaches the deployment. Passkeys need no
+  env var of their own — `relyingParty()` derives the RP ID/origin from
+  `CLIENT_URL`, which is already in this list; set `PASSKEY_RP_ID`/
+  `PASSKEY_ORIGIN` only if that derivation is ever wrong. Set
+  `ALLOWED_SIGNUP_EMAIL` to close signups to one address instead of
+  leaving the deployment open to anyone who finds the URL.
 - OAuth redirect URIs need your production URL added alongside the
   localhost ones already registered (Google Cloud Console / Meta for
   Developers) — `https://your-app.vercel.app/api/auth/google/callback`

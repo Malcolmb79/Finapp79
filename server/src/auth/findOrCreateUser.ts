@@ -9,6 +9,27 @@ export interface AppUser {
   email_verified_at: string | null;
 }
 
+/**
+ * Restricts who can create a new account, independent of which door they use
+ * (password signup, OAuth, or a passkey's own account-creation path) — every
+ * one of those ends up calling an insert in this file, so gating it here once
+ * covers all three rather than needing the same check repeated at each call
+ * site. Unset means no restriction, same "missing config degrades gracefully"
+ * principle as everywhere else in this app: a fresh clone with no .env still
+ * lets people sign up, same as before this existed.
+ */
+export class SignupClosedError extends Error {
+  constructor() {
+    super("Sign-ups are closed.");
+    this.name = "SignupClosedError";
+  }
+}
+
+export function isSignupAllowed(email: string): boolean {
+  const allowed = process.env.ALLOWED_SIGNUP_EMAIL?.trim().toLowerCase();
+  return !allowed || email.trim().toLowerCase() === allowed;
+}
+
 export async function getUserById(id: string): Promise<AppUser | undefined> {
   return (await db
     .prepare("SELECT id, email, name, avatar_url, email_verified_at FROM users WHERE id = ?")
@@ -43,8 +64,11 @@ export async function findOrCreateUser(
     return getUser(existingIdentity.user_id);
   }
 
-  const userId =
-    (email ? (await db.prepare("SELECT id FROM users WHERE email = ?").get<{ id: string }>(email))?.id : undefined) ?? randomUUID();
+  const existingByEmail = email ? await db.prepare("SELECT id FROM users WHERE email = ?").get<{ id: string }>(email) : undefined;
+  // A brand new account, not a second provider linking onto one that's
+  // already there — that's the case the allowlist exists to gate.
+  if (!existingByEmail && email && !isSignupAllowed(email)) throw new SignupClosedError();
+  const userId = existingByEmail?.id ?? randomUUID();
 
   await db
     .prepare("INSERT INTO users (id, email, name, avatar_url) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO NOTHING")
@@ -77,12 +101,14 @@ export async function getUserByEmail(email: string): Promise<(AppUser & { passwo
  * always had none. The difference is only which thing proves identity instead.
  */
 export async function createPasskeyUser(email: string, name: string | null): Promise<AppUser> {
+  if (!isSignupAllowed(email)) throw new SignupClosedError();
   const userId = randomUUID();
   await db.prepare("INSERT INTO users (id, email, name) VALUES (?, ?, ?)").run(userId, email, name);
   return getUser(userId);
 }
 
 export async function createLocalUser(email: string, name: string | null, passwordHash: string): Promise<AppUser> {
+  if (!isSignupAllowed(email)) throw new SignupClosedError();
   const userId = randomUUID();
   await db.prepare("INSERT INTO users (id, email, name, password_hash) VALUES (?, ?, ?, ?)").run(userId, email, name, passwordHash);
   return getUser(userId);

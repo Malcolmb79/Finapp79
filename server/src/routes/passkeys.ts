@@ -5,7 +5,7 @@ import {
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
 } from "@simplewebauthn/server";
-import { createPasskeyUser, getUserByEmail, getUserById } from "../auth/findOrCreateUser.js";
+import { createPasskeyUser, getUserByEmail, getUserById, isSignupAllowed } from "../auth/findOrCreateUser.js";
 import {
   addCredential,
   findById,
@@ -85,6 +85,10 @@ passkeysRouter.post("/register/options", signupRateLimit, async (req, res, next)
         // passkey would be a way to take over an account by knowing its
         // address.
         res.status(409).json({ error: "An account with this email already exists — sign in first, then add a passkey in Settings." });
+        return;
+      }
+      if (!isSignupAllowed(email)) {
+        res.status(403).json({ error: "Sign-ups are closed." });
         return;
       }
       const user = await createPasskeyUser(email, null);
