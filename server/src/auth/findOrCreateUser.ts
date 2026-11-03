@@ -9,6 +9,12 @@ export interface AppUser {
   email_verified_at: string | null;
 }
 
+export async function getUserById(id: string): Promise<AppUser | undefined> {
+  return (await db
+    .prepare("SELECT id, email, name, avatar_url, email_verified_at FROM users WHERE id = ?")
+    .get(id)) as AppUser | undefined;
+}
+
 async function getUser(id: string): Promise<AppUser> {
   return (await db.prepare("SELECT id, email, name, avatar_url, email_verified_at FROM users WHERE id = ?").get(id)) as AppUser;
 }
@@ -62,6 +68,18 @@ export async function getUserByEmail(email: string): Promise<(AppUser & { passwo
   return db.prepare("SELECT id, email, name, avatar_url, password_hash FROM users WHERE email = ?").get(email) as Promise<
     (AppUser & { password_hash: string | null }) | undefined
   >;
+}
+
+/**
+ * An account whose only credential is a passkey.
+ *
+ * `password_hash` stays null, which is not a new case — OAuth-only users have
+ * always had none. The difference is only which thing proves identity instead.
+ */
+export async function createPasskeyUser(email: string, name: string | null): Promise<AppUser> {
+  const userId = randomUUID();
+  await db.prepare("INSERT INTO users (id, email, name) VALUES (?, ?, ?)").run(userId, email, name);
+  return getUser(userId);
 }
 
 export async function createLocalUser(email: string, name: string | null, passwordHash: string): Promise<AppUser> {

@@ -17,6 +17,7 @@ import { categoriesRouter } from "./routes/categories.js";
 import { debtsRouter } from "./routes/debts.js";
 import { fxRouter } from "./routes/fx.js";
 import { importStatementRouter } from "./routes/importStatement.js";
+import { passkeysRouter } from "./routes/passkeys.js";
 import { policiesRouter } from "./routes/policies.js";
 import { savingsRouter } from "./routes/savings.js";
 import { transactionsRouter } from "./routes/transactions.js";
@@ -85,6 +86,9 @@ app.use(passport.session());
 app.use(accountScope);
 
 app.use("/api/auth", authRouter);
+// Not behind requireAuth as a whole — signing in cannot require being signed
+// in. Each route in there states its own rule.
+app.use("/api/passkeys", passkeysRouter);
 app.use("/api/transactions", transactionsRouter);
 app.use("/api/accounts", accountsRouter);
 app.use("/api/budget-advisor", budgetAdvisorRouter);

@@ -1,7 +1,10 @@
+import { KeyRound, Loader2 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, type AuthProviders } from "../api/client.js";
 import { useAuth } from "../contexts/AuthContext.js";
+import { errorMessage } from "../utils/errorMessage.js";
+import { isCancellation, passkeysSupported, registerPasskey, signInWithPasskey } from "../utils/passkeys.js";
 
 const ERROR_MESSAGES: Record<string, string> = {
   google_not_configured: "Google sign-in isn't set up on this server yet.",
@@ -9,22 +12,6 @@ const ERROR_MESSAGES: Record<string, string> = {
   google_failed: "Google sign-in didn't complete. Please try again.",
   facebook_failed: "Facebook sign-in didn't complete. Please try again.",
 };
-
-// api/client.ts throws `Error("<status>: <bodyText>")`; the routes here
-// always send a JSON `{ error }` body, so pull that out for display instead
-// of showing the raw "409: {\"error\":...}" string.
-function extractErrorMessage(err: unknown, fallback: string): string {
-  if (err instanceof Error) {
-    const body = err.message.slice(err.message.indexOf(": ") + 2);
-    try {
-      const parsed = JSON.parse(body) as { error?: string };
-      if (parsed.error) return parsed.error;
-    } catch {
-      // Not JSON — fall through to the generic message.
-    }
-  }
-  return fallback;
-}
 
 export default function Login() {
   const [providers, setProviders] = useState<AuthProviders>({ google: false, facebook: false });
@@ -39,10 +26,56 @@ export default function Login() {
   const [name, setName] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Null unless a passkey ceremony is in flight — the authenticator prompt can
+  // sit there for a while, and two overlapping ceremonies would each clobber
+  // the other's challenge in the session.
+  const [busy, setBusy] = useState<"signin" | "signup" | null>(null);
+  const [serverSupportsPasskeys, setServerSupportsPasskeys] = useState(false);
 
   useEffect(() => {
     api.getAuthProviders().then(setProviders);
+    // Both halves have to be able to do it: the browser needs WebAuthn, and
+    // the server needs a relying party it can name.
+    api
+      .passkeysAvailable()
+      .then((r) => setServerSupportsPasskeys(r.available))
+      .catch(() => setServerSupportsPasskeys(false));
   }, []);
+
+  const passkeyReady = serverSupportsPasskeys && passkeysSupported();
+
+  async function afterSignIn() {
+    await refresh();
+    navigate("/", { replace: true });
+  }
+
+  async function handlePasskeySignIn() {
+    setFormError(null);
+    setBusy("signin");
+    try {
+      await signInWithPasskey();
+      await afterSignIn();
+    } catch (err) {
+      // A cancelled prompt throws too, and telling someone their sign-in
+      // failed when they chose to dismiss it is just noise.
+      if (!isCancellation(err)) setFormError(errorMessage(err, "That passkey didn't work."));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handlePasskeySignUp() {
+    setFormError(null);
+    setBusy("signup");
+    try {
+      await registerPasskey("Passkey", email.trim());
+      await afterSignIn();
+    } catch (err) {
+      if (!isCancellation(err)) setFormError(errorMessage(err, "Couldn't create that passkey."));
+    } finally {
+      setBusy(null);
+    }
+  }
 
   const noneConfigured = !providers.google && !providers.facebook;
 
@@ -59,7 +92,7 @@ export default function Login() {
       await refresh();
       navigate("/", { replace: true });
     } catch (err) {
-      setFormError(extractErrorMessage(err, mode === "signup" ? "Couldn't create your account." : "Couldn't sign you in."));
+      setFormError(errorMessage(err, mode === "signup" ? "Couldn't create your account." : "Couldn't sign you in."));
     } finally {
       setSubmitting(false);
     }
@@ -90,6 +123,36 @@ export default function Login() {
         {formError && (
           <div className="budget-alert" style={{ textAlign: "left" }}>
             {formError}
+          </div>
+        )}
+
+        {/* Above the OAuth buttons on purpose: a passkey is the quickest way
+            in for someone who has one, and the one that works on this server
+            without any provider being configured. */}
+        {passkeyReady && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", marginBottom: "0.6rem" }}>
+            <button
+              type="button"
+              className="btn-accent"
+              onClick={handlePasskeySignIn}
+              disabled={busy !== null}
+              style={{ justifyContent: "center", padding: "0.6rem", display: "flex", alignItems: "center", gap: "0.4rem" }}
+            >
+              {busy === "signin" ? <Loader2 size={15} className="spin" /> : <KeyRound size={15} />}
+              Sign in with a passkey
+            </button>
+            {mode === "signup" && (
+              <button
+                type="button"
+                onClick={handlePasskeySignUp}
+                disabled={busy !== null || !email.trim()}
+                style={{ justifyContent: "center", padding: "0.6rem", display: "flex", alignItems: "center", gap: "0.4rem" }}
+                title={email.trim() ? undefined : "Enter your email address first"}
+              >
+                {busy === "signup" ? <Loader2 size={15} className="spin" /> : <KeyRound size={15} />}
+                Create an account with a passkey
+              </button>
+            )}
           </div>
         )}
 

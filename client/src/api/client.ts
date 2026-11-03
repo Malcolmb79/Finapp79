@@ -440,6 +440,14 @@ export interface AuthIdentities {
   hasPassword: boolean;
 }
 
+/** A registered authenticator, as the management UI needs it — no key material. */
+export interface Passkey {
+  id: string;
+  label: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
 export const api = {
   getMe: () => request<AppUser>("/auth/me"),
   getAuthProviders: () => request<AuthProviders>("/auth/providers"),
@@ -456,6 +464,24 @@ export const api = {
   resetPassword: (token: string, newPassword: string) =>
     request<void>("/auth/reset-password", { method: "POST", body: JSON.stringify({ token, newPassword }) }),
   resendVerification: () => request<void>("/auth/resend-verification", { method: "POST" }),
+
+  /**
+   * Passkeys. The two "options" calls put a challenge in the session and the
+   * matching "verify" spends it, so each pair has to run against the same
+   * session — which is why they go through this helper like everything else
+   * rather than a bare fetch.
+   */
+  passkeysAvailable: () => request<{ available: boolean }>("/passkeys/available"),
+  /** With an email, this creates the account too — see utils/passkeys.ts. */
+  passkeyRegisterOptions: (email?: string) =>
+    request<unknown>("/passkeys/register/options", { method: "POST", body: JSON.stringify(email ? { email } : {}) }),
+  passkeyRegisterVerify: (response: unknown, label: string) =>
+    request<{ ok: true }>("/passkeys/register/verify", { method: "POST", body: JSON.stringify({ response, label }) }),
+  passkeyAuthOptions: () => request<unknown>("/passkeys/authenticate/options", { method: "POST", body: "{}" }),
+  passkeyAuthVerify: (response: unknown) =>
+    request<AppUser>("/passkeys/authenticate/verify", { method: "POST", body: JSON.stringify({ response }) }),
+  listPasskeys: () => request<Passkey[]>("/passkeys"),
+  deletePasskey: (id: string) => request<void>(`/passkeys/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
   listTransactions: (accountId?: string) =>
     request<Transaction[]>(`/transactions${accountId ? `?accountId=${accountId}` : ""}`),

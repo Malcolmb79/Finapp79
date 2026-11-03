@@ -1,19 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client.js";
-
-function extractErrorMessage(err: unknown, fallback: string): string {
-  if (err instanceof Error) {
-    const body = err.message.slice(err.message.indexOf(": ") + 2);
-    try {
-      const parsed = JSON.parse(body) as { error?: string };
-      if (parsed.error) return parsed.error;
-    } catch {
-      // Not JSON — fall through to the generic message.
-    }
-  }
-  return fallback;
-}
+import { errorMessage } from "../utils/errorMessage.js";
 
 export default function ResetPassword() {
   const [searchParams] = useSearchParams();
@@ -34,7 +22,7 @@ export default function ResetPassword() {
       await api.resetPassword(token, newPassword);
       setDone(true);
     } catch (err) {
-      setError(extractErrorMessage(err, "Couldn't reset your password."));
+      setError(errorMessage(err, "Couldn't reset your password."));
     } finally {
       setSubmitting(false);
     }

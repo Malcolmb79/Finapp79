@@ -1,26 +1,15 @@
 import { Check, Globe, KeyRound, Moon, Sun } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
-import { api, type AuthIdentities } from "../api/client.js";
+import { api, type AuthIdentities, type Passkey } from "../api/client.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { usePalette } from "../contexts/PaletteContext.js";
 import { useTheme } from "../contexts/ThemeContext.js";
 import { THEMES } from "../palettes.js";
 import { initials } from "../utils/avatarColor.js";
+import { errorMessage } from "../utils/errorMessage.js";
+import { isCancellation, passkeysSupported, registerPasskey } from "../utils/passkeys.js";
 
 const PROVIDER_LABEL: Record<string, string> = { google: "Google", facebook: "Facebook" };
-
-function extractErrorMessage(err: unknown, fallback: string): string {
-  if (err instanceof Error) {
-    const body = err.message.slice(err.message.indexOf(": ") + 2);
-    try {
-      const parsed = JSON.parse(body) as { error?: string };
-      if (parsed.error) return parsed.error;
-    } catch {
-      // Not JSON — fall through to the generic message.
-    }
-  }
-  return fallback;
-}
 
 export default function Settings() {
   const { user, refresh } = useAuth();
@@ -45,6 +34,52 @@ export default function Settings() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [passwordStatus, setPasswordStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+
+  const [passkeys, setPasskeys] = useState<Passkey[]>([]);
+  const [passkeyLabel, setPasskeyLabel] = useState("");
+  const [passkeyStatus, setPasskeyStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [busyPasskey, setBusyPasskey] = useState(false);
+  const [serverSupportsPasskeys, setServerSupportsPasskeys] = useState(false);
+  const passkeyReady = serverSupportsPasskeys && passkeysSupported();
+
+  useEffect(() => {
+    api
+      .passkeysAvailable()
+      .then((r) => setServerSupportsPasskeys(r.available))
+      .catch(() => setServerSupportsPasskeys(false));
+    api.listPasskeys().then(setPasskeys).catch(() => setPasskeys([]));
+  }, []);
+
+  async function addPasskey() {
+    setPasskeyStatus(null);
+    setBusyPasskey(true);
+    try {
+      await registerPasskey(passkeyLabel.trim() || "Passkey");
+      setPasskeyLabel("");
+      setPasskeys(await api.listPasskeys());
+      setPasskeyStatus({ kind: "ok", text: "Passkey registered." });
+    } catch (err) {
+      // Dismissing the prompt is a choice, not a failure.
+      if (!isCancellation(err)) setPasskeyStatus({ kind: "error", text: errorMessage(err, "Couldn't register that passkey.") });
+    } finally {
+      setBusyPasskey(false);
+    }
+  }
+
+  async function removePasskey(id: string) {
+    setPasskeyStatus(null);
+    setBusyPasskey(true);
+    try {
+      await api.deletePasskey(id);
+      setPasskeys(await api.listPasskeys());
+    } catch (err) {
+      // The server refuses to remove the last way into an account that has no
+      // password; that message is worth showing verbatim.
+      setPasskeyStatus({ kind: "error", text: errorMessage(err, "Couldn't remove that passkey.") });
+    } finally {
+      setBusyPasskey(false);
+    }
+  }
   const [savingPassword, setSavingPassword] = useState(false);
 
   const [resendStatus, setResendStatus] = useState<string | null>(null);
@@ -57,7 +92,7 @@ export default function Settings() {
       await api.resendVerification();
       setResendStatus("Verification email sent — check your inbox.");
     } catch (err) {
-      setResendStatus(extractErrorMessage(err, "Couldn't send the verification email."));
+      setResendStatus(errorMessage(err, "Couldn't send the verification email."));
     } finally {
       setSendingVerification(false);
     }
@@ -76,7 +111,7 @@ export default function Settings() {
       await refresh();
       setNameStatus("Saved.");
     } catch (err) {
-      setNameStatus(extractErrorMessage(err, "Couldn't save your name."));
+      setNameStatus(errorMessage(err, "Couldn't save your name."));
     } finally {
       setSavingName(false);
     }
@@ -93,7 +128,7 @@ export default function Settings() {
       setPasswordStatus({ kind: "ok", text: identities?.hasPassword ? "Password changed." : "Password set." });
       setIdentities((prev) => (prev ? { ...prev, hasPassword: true } : prev));
     } catch (err) {
-      setPasswordStatus({ kind: "error", text: extractErrorMessage(err, "Couldn't update your password.") });
+      setPasswordStatus({ kind: "error", text: errorMessage(err, "Couldn't update your password.") });
     } finally {
       setSavingPassword(false);
     }
@@ -360,6 +395,63 @@ export default function Settings() {
             </form>
           )}
         </div>
+
+        {passkeyReady && (
+          <div className="card">
+            <div className="card__header">
+              <span className="card__title">Passkeys</span>
+            </div>
+            <p className="page-header__subtitle" style={{ marginTop: 0 }}>
+              Sign in with Face ID, Touch ID, Windows Hello or a security key instead of a password. Register one per
+              device you use.
+            </p>
+
+            {passkeys.length === 0 ? (
+              <p className="empty-state">No passkeys registered yet.</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "1rem" }}>
+                {passkeys.map((passkey) => (
+                  <div key={passkey.id} style={{ display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "0.9rem" }}>
+                    <KeyRound size={16} />
+                    <span style={{ flex: 1 }}>
+                      {passkey.label}
+                      <span style={{ color: "var(--text-muted)", fontSize: "0.78rem" }}>
+                        {" · added "}
+                        {passkey.createdAt.slice(0, 10)}
+                        {passkey.lastUsedAt ? ` · last used ${passkey.lastUsedAt.slice(0, 10)}` : " · never used"}
+                      </span>
+                    </span>
+                    <button type="button" onClick={() => removePasskey(passkey.id)} disabled={busyPasskey}>
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+              <input
+                type="text"
+                placeholder="Name this device (e.g. iPhone)"
+                value={passkeyLabel}
+                onChange={(e) => setPasskeyLabel(e.target.value)}
+                style={{ flex: 1, minWidth: 180 }}
+              />
+              <button type="button" className="btn-accent" onClick={addPasskey} disabled={busyPasskey}>
+                {busyPasskey ? "Waiting…" : "Add a passkey"}
+              </button>
+            </div>
+
+            {passkeyStatus && (
+              <p
+                className="page-header__subtitle"
+                style={{ margin: "0.6rem 0 0", color: passkeyStatus.kind === "error" ? "var(--critical)" : undefined }}
+              >
+                {passkeyStatus.text}
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

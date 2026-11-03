@@ -70,6 +70,31 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at TEXT NOT NULL
 );
 
+-- Passkeys (WebAuthn credentials). One row per registered authenticator.
+--
+-- None of this is secret: a public key and a counter cannot be used to sign
+-- in, because the private half never leaves the device. What matters is that
+-- the row is bound to the right user and that `counter` only ever moves
+-- forward — a counter that goes backwards is the signal that a credential has
+-- been cloned.
+--
+-- `id` is the authenticator's own base64url credential ID and is globally
+-- unique, so it is the primary key and the sign-in lookup is by id alone. That
+-- is the one query here not scoped by user_id, and necessarily so: at sign-in
+-- there is no session yet to say who is asking. The row then names the user.
+CREATE TABLE IF NOT EXISTS passkey_credentials (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  public_key TEXT NOT NULL,          -- base64url COSE key
+  counter BIGINT NOT NULL DEFAULT 0,
+  transports TEXT,                   -- JSON array as WebAuthn reports it, e.g. ["internal","hybrid"]
+  label TEXT NOT NULL,               -- so a lost device can be told apart and removed
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text,
+  last_used_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_passkey_credentials_user ON passkey_credentials (user_id);
+
 -- Bank connections established via Enable Banking (one per linked institution).
 -- id is our own generated `state` uuid, since Enable Banking identifies an
 -- ASPSP by a (name, country) pair rather than a single opaque id.
