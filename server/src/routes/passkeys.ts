@@ -11,6 +11,7 @@ import {
   findById,
   listForUser,
   parseTransports,
+  passkeySignInPossible,
   passkeysConfigured,
   relyingParty,
   removeCredential,
@@ -49,8 +50,16 @@ function unavailable(res: import("express").Response) {
 }
 
 /** Whether this server can do passkeys at all, so the client can hide the UI. */
-passkeysRouter.get("/available", (_req, res) => {
-  res.json({ available: passkeysConfigured() });
+/**
+ * What the login page needs to decide what to offer.
+ *
+ * `available` is whether this server can do passkeys at all; `exclusive` is
+ * whether it should now be the only thing offered — true once a passkey
+ * exists, so the other methods retire themselves rather than needing a flag
+ * set by hand at exactly the right moment.
+ */
+passkeysRouter.get("/available", async (_req, res) => {
+  res.json({ available: passkeysConfigured(), exclusive: await passkeySignInPossible() });
 });
 
 /**

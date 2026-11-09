@@ -73,6 +73,36 @@ export function passkeysConfigured(): boolean {
   return relyingParty() !== null;
 }
 
+/**
+ * Whether a passkey is the only way in.
+ *
+ * Passkeys are meant to replace the other sign-in methods, not sit beside
+ * them — but switching the others off on a deployment where no passkey exists
+ * leaves no way into the app at all, and recovery then means editing the
+ * database or redeploying. theultracyclist hit the same problem and answered
+ * it the same way: enforce passkey-only *only when a passkey could actually
+ * be used*. Falling back to Google or a password while no credential exists
+ * is a return to the method that was already there, not an open door.
+ *
+ * So this is self-activating. The other methods work until the first passkey
+ * is registered, disappear the moment one is, and come back if every
+ * credential is ever lost — which is exactly when they are needed.
+ *
+ * A failed read reports true, keeping the lock on. The alternative is a
+ * security control that switches itself off precisely when something else is
+ * already wrong; and if the database is unreachable the passkey lookup would
+ * fail too, so this costs nothing real.
+ */
+export async function passkeySignInPossible(): Promise<boolean> {
+  if (!passkeysConfigured()) return false;
+  try {
+    const row = await db.prepare("SELECT COUNT(*)::int AS n FROM passkey_credentials").get<{ n: number }>();
+    return (row?.n ?? 0) > 0;
+  } catch {
+    return true;
+  }
+}
+
 export async function listForUser(userId: string): Promise<CredentialSummary[]> {
   const rows = (await db
     .prepare("SELECT id, label, created_at, last_used_at FROM passkey_credentials WHERE user_id = ? ORDER BY created_at")

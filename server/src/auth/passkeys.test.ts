@@ -91,3 +91,21 @@ describe("wouldLockOut", () => {
     expect(wouldLockOut(1, null)).toBe(false);
   });
 });
+
+/**
+ * The gate that decides whether the other sign-in methods are still offered.
+ *
+ * passkeySignInPossible() itself reads the database, so what is pinned here
+ * is the rule it encodes rather than the query: enforce passkey-only only
+ * when a passkey could actually be used. The hazard it exists to avoid is a
+ * deployment that has switched off every other door while holding no working
+ * credential — recoverable only by editing the database or redeploying.
+ */
+describe("passkey-only, as a rule", () => {
+  it("is the same shape as the lockout guard: never the last way in", () => {
+    // Removing the final credential and switching off the final method are
+    // the same mistake seen from two directions, and both are refused.
+    expect(wouldLockOut(0, null)).toBe(true);
+    expect(wouldLockOut(0, "$2b$10$hash")).toBe(false);
+  });
+});

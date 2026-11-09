@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "../db/client.js";
 import passport, { configuredProviders } from "../auth/passport.js";
 import { createLocalUser, getUserByEmail, isSignupAllowed } from "../auth/findOrCreateUser.js";
+import { passkeySignInPossible } from "../auth/passkeys.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { loginRateLimit, signupRateLimit, emailActionRateLimit } from "../middleware/authRateLimit.js";
 import { hashPassword, verifyPassword } from "../auth/password.js";
@@ -15,6 +16,25 @@ const ONE_HOUR_MS = 1000 * 60 * 60;
 const ONE_DAY_MS = ONE_HOUR_MS * 24;
 
 const PROVIDER_LABEL: Record<string, string> = { google: "Google", facebook: "Facebook" };
+
+/**
+ * Once a passkey exists, it is the only way in.
+ *
+ * Enforced on the server and not merely hidden in the UI, because a login
+ * form that is only invisible is still a login form — the endpoint stays
+ * there for anyone who posts to it directly.
+ *
+ * Conditional rather than absolute: with no passkey registered, these doors
+ * stay open, because closing the last one on a deployment with no working
+ * passkey leaves no way in at all. See passkeySignInPossible().
+ */
+const PASSKEY_ONLY_MESSAGE = "This account uses a passkey. Sign in with your passkey instead.";
+
+async function refuseIfPasskeyOnly(res: import("express").Response): Promise<boolean> {
+  if (!(await passkeySignInPossible())) return false;
+  res.status(403).json({ error: PASSKEY_ONLY_MESSAGE });
+  return true;
+}
 
 function clientUrl(): string {
   return process.env.CLIENT_URL ?? "http://localhost:5173";
@@ -34,6 +54,7 @@ authRouter.get("/providers", (_req, res) => {
 });
 
 authRouter.post("/signup", signupRateLimit, async (req, res, next) => {
+  if (await refuseIfPasskeyOnly(res)) return;
   const { email, password, name } = req.body as { email?: unknown; password?: unknown; name?: unknown };
 
   if (typeof email !== "string" || !/^\S+@\S+\.\S+$/.test(email)) {
@@ -73,7 +94,8 @@ authRouter.post("/signup", signupRateLimit, async (req, res, next) => {
   }
 });
 
-authRouter.post("/login", loginRateLimit, (req, res, next) => {
+authRouter.post("/login", loginRateLimit, async (req, res, next) => {
+  if (await refuseIfPasskeyOnly(res)) return;
   passport.authenticate("local", (err: Error | null, user: Express.User | false, info: { message?: string } | undefined) => {
     if (err) {
       next(err);
@@ -251,7 +273,13 @@ authRouter.post("/logout", (req, res, next) => {
 });
 
 for (const provider of ["google", "facebook"] as const) {
-  authRouter.get(`/${provider}`, (req, res, next) => {
+  authRouter.get(`/${provider}`, async (req, res, next) => {
+    // A redirect rather than JSON: this one is reached by following a link,
+    // so the answer has to be a page the browser can show.
+    if (await passkeySignInPossible()) {
+      res.redirect(`${clientUrl()}/login?error=passkey_only`);
+      return;
+    }
     if (!configuredProviders[provider]) {
       res.redirect(`${clientUrl()}/login?error=${provider}_not_configured`);
       return;

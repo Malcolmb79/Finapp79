@@ -7,6 +7,7 @@ import { errorMessage } from "../utils/errorMessage.js";
 import { isCancellation, passkeysSupported, registerPasskey, signInWithPasskey } from "../utils/passkeys.js";
 
 const ERROR_MESSAGES: Record<string, string> = {
+  passkey_only: "This account uses a passkey. Sign in with your passkey instead.",
   google_not_configured: "Google sign-in isn't set up on this server yet.",
   facebook_not_configured: "Facebook sign-in isn't set up on this server yet.",
   google_failed: "Google sign-in didn't complete. Please try again.",
@@ -31,6 +32,9 @@ export default function Login() {
   // the other's challenge in the session.
   const [busy, setBusy] = useState<"signin" | "signup" | null>(null);
   const [serverSupportsPasskeys, setServerSupportsPasskeys] = useState(false);
+  // True once a passkey exists on this server, at which point it is the only
+  // way in and the other methods retire themselves. See passkeySignInPossible().
+  const [passkeyOnly, setPasskeyOnly] = useState(false);
 
   useEffect(() => {
     api.getAuthProviders().then(setProviders);
@@ -38,8 +42,14 @@ export default function Login() {
     // the server needs a relying party it can name.
     api
       .passkeysAvailable()
-      .then((r) => setServerSupportsPasskeys(r.available))
-      .catch(() => setServerSupportsPasskeys(false));
+      .then((r) => {
+        setServerSupportsPasskeys(r.available);
+        setPasskeyOnly(r.exclusive);
+      })
+      .catch(() => {
+        setServerSupportsPasskeys(false);
+        setPasskeyOnly(false);
+      });
   }, []);
 
   const passkeyReady = serverSupportsPasskeys && passkeysSupported();
@@ -126,6 +136,15 @@ export default function Login() {
           </div>
         )}
 
+        {/* Passkey-only, on a browser that can't do WebAuthn, would otherwise
+            render a card with nothing in it and no explanation. */}
+        {passkeyOnly && !passkeysSupported() && (
+          <div className="budget-alert" style={{ textAlign: "left" }}>
+            This account signs in with a passkey, and this browser doesn&apos;t support them. Open it in a current
+            version of Chrome, Edge, Safari or Firefox.
+          </div>
+        )}
+
         {/* Above the OAuth buttons on purpose: a passkey is the quickest way
             in for someone who has one, and the one that works on this server
             without any provider being configured. */}
@@ -141,7 +160,11 @@ export default function Login() {
               {busy === "signin" ? <Loader2 size={15} className="spin" /> : <KeyRound size={15} />}
               Sign in with a passkey
             </button>
-            {mode === "signup" && (
+            {/* Not offered once a passkey exists: the account is already
+                made, the email field it needs lives in the form below that
+                has retired itself, and ALLOWED_SIGNUP_EMAIL may well have
+                closed sign-ups anyway. */}
+            {mode === "signup" && !passkeyOnly && (
               <button
                 type="button"
                 onClick={handlePasskeySignUp}
@@ -156,6 +179,10 @@ export default function Login() {
           </div>
         )}
 
+        {/* Everything below retires itself once a passkey exists — see
+            passkeySignInPossible(). The server refuses these routes then too;
+            hiding a login form that still answers would be theatre. */}
+        {!passkeyOnly && (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
           <a
             href="/api/auth/google"
@@ -184,14 +211,16 @@ export default function Login() {
             Continue with Facebook
           </a>
         </div>
+        )}
 
-        {noneConfigured && (
+        {!passkeyOnly && noneConfigured && (
           <p className="empty-state" style={{ marginTop: "1.5rem" }}>
             No OAuth providers are configured yet. Add Google or Facebook credentials to your server's <code>.env</code> to
             enable them.
           </p>
         )}
 
+        {!passkeyOnly && (
         <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", margin: "1.25rem 0" }}>
           <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
           <span className="page-header__subtitle" style={{ margin: 0 }}>
@@ -199,7 +228,9 @@ export default function Login() {
           </span>
           <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
         </div>
+        )}
 
+        {!passkeyOnly && (
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "0.6rem", textAlign: "left" }}>
           {mode === "signup" && (
             <input
@@ -231,8 +262,9 @@ export default function Login() {
             {submitting ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
           </button>
         </form>
+        )}
 
-        {mode === "signin" && (
+        {!passkeyOnly && mode === "signin" && (
           <p className="page-header__subtitle" style={{ marginTop: "0.7rem" }}>
             <Link to="/forgot-password" style={{ color: "var(--accent)" }}>
               Forgot password?
@@ -240,6 +272,7 @@ export default function Login() {
           </p>
         )}
 
+        {!passkeyOnly && (
         <p className="page-header__subtitle" style={{ marginTop: "1rem" }}>
           {mode === "signup" ? "Already have an account?" : "Need an account?"}{" "}
           <button
@@ -253,6 +286,7 @@ export default function Login() {
             {mode === "signup" ? "Sign in" : "Sign up"}
           </button>
         </p>
+        )}
       </div>
     </div>
   );

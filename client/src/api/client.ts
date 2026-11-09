@@ -471,7 +471,8 @@ export const api = {
    * session — which is why they go through this helper like everything else
    * rather than a bare fetch.
    */
-  passkeysAvailable: () => request<{ available: boolean }>("/passkeys/available"),
+  /** `exclusive` is true once a passkey exists — the other methods retire then. */
+  passkeysAvailable: () => request<{ available: boolean; exclusive: boolean }>("/passkeys/available"),
   /** With an email, this creates the account too — see utils/passkeys.ts. */
   passkeyRegisterOptions: (email?: string) =>
     request<unknown>("/passkeys/register/options", { method: "POST", body: JSON.stringify(email ? { email } : {}) }),

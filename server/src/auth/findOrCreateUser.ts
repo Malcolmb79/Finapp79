@@ -30,6 +30,25 @@ export function isSignupAllowed(email: string): boolean {
   return !allowed || email.trim().toLowerCase() === allowed;
 }
 
+/**
+ * Whether this address is the *only* one the deployment will accept.
+ *
+ * Deliberately stricter than `isSignupAllowed`, which is permissive when
+ * ALLOWED_SIGNUP_EMAIL is unset. This one requires it to be set and to match,
+ * which is a much stronger statement: there is exactly one person this app is
+ * for, and this is them.
+ *
+ * That is what makes it safe to register a passkey against an account that
+ * already exists. Normally that is refused — knowing an address would
+ * otherwise be enough to attach your own authenticator to someone else's
+ * account. When the deployment is closed to a single address, there is no
+ * someone else: anyone who isn't them cannot get past the gate at all.
+ */
+export function isSoleAllowedEmail(email: string): boolean {
+  const allowed = process.env.ALLOWED_SIGNUP_EMAIL?.trim().toLowerCase();
+  return Boolean(allowed) && email.trim().toLowerCase() === allowed;
+}
+
 export async function getUserById(id: string): Promise<AppUser | undefined> {
   return (await db
     .prepare("SELECT id, email, name, avatar_url, email_verified_at FROM users WHERE id = ?")
