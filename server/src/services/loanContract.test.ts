@@ -137,6 +137,23 @@ describe("collectKeyTerms", () => {
   it("survives a pass that returned nothing usable", () => {
     expect(collectKeyTerms([{}, { key_terms: null }, { key_terms: [{ label: "x" }] }], source)).toEqual([]);
   });
+
+  // A scanned document has no extracted text, so there is nothing to check a
+  // quote against and the check is skipped rather than failing everything. The
+  // quote is still shown to the person confirming, against the page itself.
+  it("keeps terms when there is no source text to check against", () => {
+    const terms = collectKeyTerms(
+      [{ key_terms: [{ label: "Arrangement fee", detail: "R1,500 on origination", quote: "An arrangement fee of R1,500 is payable." }] }],
+      null
+    );
+    expect(terms).toHaveLength(1);
+  });
+
+  it("still deduplicates and still rejects malformed items without a source", () => {
+    const item = { label: "Credit life", detail: "R89.50 a month", quote: "Credit life insurance of R89.50 per month is compulsory." };
+    expect(collectKeyTerms([{ key_terms: [item] }, { key_terms: [item] }], null)).toHaveLength(1);
+    expect(collectKeyTerms([{ key_terms: [{ label: "x" }] }], null)).toEqual([]);
+  });
 });
 
 describe("chunk", () => {

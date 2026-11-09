@@ -163,6 +163,29 @@ export default function PolicyImportModal({ facts, existing, onClose, onSaved }:
             {facts.passes > 1 ? ` · read in ${facts.passes} passes` : ""}. Check each against the wording it came from
             before saving.
           </p>
+          {/* A scan has no text to match a quote against, so the usual
+              "this sentence is in the document" check could not run. Saying so
+              is the honest version of the same safeguard: the reading still
+              has to be agreed to, only now the page is what it's agreed
+              against. */}
+          {facts.readFrom === "scan" && (
+            <p
+              style={{
+                fontSize: "0.78rem",
+                color: "var(--text-muted)",
+                margin: "0.4rem 0 0",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "0.35rem",
+              }}
+            >
+              <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+              <span>
+                This document has no text in it, so its pages were read as images. The wording below is a
+                transcription rather than a match against the file — worth comparing to the statement itself.
+              </span>
+            </p>
+          )}
         </div>
 
         <div style={{ padding: "0.5rem 1rem", display: "grid", gap: "0.75rem" }}>

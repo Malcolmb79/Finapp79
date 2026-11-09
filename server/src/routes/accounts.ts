@@ -4,7 +4,7 @@ import { db, withTransaction } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { matchBankFromWeb, matchBankToAccount } from "../services/bankMatch.js";
 import { fetchLogoDataUri } from "../services/webLogo.js";
-import { extractLoanTerms } from "../services/loanContract.js";
+import { extractLoanTerms, extractLoanTermsFromScan } from "../services/loanContract.js";
 import { extractPdfText, looksLikePdf } from "../services/pdfStatement.js";
 
 export const accountsRouter = Router();
@@ -296,6 +296,9 @@ accountsRouter.post("/:id/loan-contract/preview", async (req, res) => {
 
   const { content_base64, content } = req.body as { content_base64?: unknown; content?: unknown };
   let text: string;
+  // Set when the file is a PDF, so an agreement with no extractable text can
+  // be read from its pages instead of being refused — see below.
+  let pdfBase64: string | null = null;
 
   if (typeof content_base64 === "string") {
     const buffer = Buffer.from(content_base64, "base64");
@@ -303,7 +306,12 @@ accountsRouter.post("/:id/loan-contract/preview", async (req, res) => {
     // it outright — so the conversion is not the formality it looks like.
     const bytes = new Uint8Array(buffer);
     try {
-      text = looksLikePdf(bytes) ? await extractPdfText(bytes) : buffer.toString("utf8");
+      if (looksLikePdf(bytes)) {
+        pdfBase64 = content_base64;
+        text = await extractPdfText(bytes);
+      } else {
+        text = buffer.toString("utf8");
+      }
     } catch (err) {
       // A PDF that won't open is the user's problem to solve — an encrypted
       // or damaged file — so say that rather than returning a bare 500.
@@ -318,15 +326,20 @@ accountsRouter.post("/:id/loan-contract/preview", async (req, res) => {
     return;
   }
 
-  if (text.trim().length < 50) {
+  // A signed agreement is very often a photograph of one, and a PDF of that
+  // extracts to nothing. Refusing it says the terms aren't there when they
+  // plainly are, so a PDF with no text is read from its pages instead.
+  // Anything else with no text in it really is unreadable.
+  const scanned = text.trim().length < 50;
+  if (scanned && !pdfBase64) {
     res.status(422).json({
-      error: "Nothing readable in that file — if it's a scan rather than a text PDF, the terms can't be read from it.",
+      error: "Nothing readable in that file — it has no text in it and isn't a PDF whose pages can be read.",
     });
     return;
   }
 
   try {
-    const terms = await extractLoanTerms(text);
+    const terms = scanned ? await extractLoanTermsFromScan(pdfBase64!) : await extractLoanTerms(text);
     if (!terms) {
       res.status(503).json({ error: "Contract reading is unavailable — the AI key is not configured." });
       return;

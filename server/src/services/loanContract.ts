@@ -19,6 +19,21 @@ import Anthropic from "@anthropic-ai/sdk";
  *     it starts is rejected outright.
  *  4. Nothing is written until the user has seen each figure beside the
  *     sentence it came from and accepted it.
+ *
+ * ## Scanned agreements
+ *
+ * A signed agreement is very often a photograph of one — scanned at a branch,
+ * or photographed and emailed back. `extractPdfText` returns nothing for that,
+ * so the upload used to be refused as unreadable while the instalment and the
+ * rate sat there in plain sight.
+ *
+ * `extractLoanTermsFromScan` sends the PDF itself instead and the model reads
+ * the pages as images. That costs exactly one of the four safeguards above:
+ * with no extracted text, (1)'s quote cannot be checked against the document.
+ * Re-derivation, the range checks and the confirmation all still run, and
+ * `readFrom` records which path ran so the confirmation can say the wording is
+ * a transcription rather than a match. Same reasoning, and the same shape, as
+ * the policy reader in `policyDocument.ts`.
  */
 
 const MODEL = "claude-opus-5";
@@ -65,6 +80,12 @@ export interface LoanTerms {
   keyTerms: KeyTerm[];
   /** Set when the document was long enough to be read in more than one pass. */
   passes: number;
+  /**
+   * `"text"` when the quotes were checked against the document's own text,
+   * `"scan"` when there was none to check them against. The difference is
+   * worth showing the person confirming the figures.
+   */
+  readFrom: "text" | "scan";
 }
 
 const SCHEMA = {
@@ -249,6 +270,21 @@ const SYSTEM_PROMPT = [
   "A term you cannot point at in the document must be reported as null rather than inferred, calculated, or filled in from what is typical.",
 ].join(" ");
 
+/**
+ * The same job, done from page images.
+ *
+ * The quote cannot be checked against extracted text here, so the instruction
+ * about it changes from "we will check this" to what the quote is actually for
+ * on this path: it is what the person confirming the figures reads against the
+ * page in front of them. Transcribing it faithfully is the whole of its value.
+ */
+const SCAN_SYSTEM_PROMPT = [
+  "You read consumer loan agreements and report their terms.",
+  "This document is a scan, so you are reading the pages as images. Read every page, including the summary box, the schedule of payments and the clauses after it.",
+  "Transcribe the quote for each item exactly as it is printed, including the currency symbol and the digits as spaced or punctuated on the page. The person checking your answer reads that quote against the page, so an approximate or reworded quote makes the figure impossible to confirm.",
+  "A term you cannot see on a page must be reported as null rather than inferred, calculated, or filled in from what is typical.",
+].join(" ");
+
 function buildPrompt(part: string, index: number, total: number): string {
   return [
     total > 1
@@ -258,19 +294,22 @@ function buildPrompt(part: string, index: number, total: number): string {
     "Report null for anything the document does not state. Do not calculate a missing field from the others — an end date the contract does not give is null, not start plus term.",
     "",
     "For key_terms, list everything else the borrower should know before signing off on it: fees, early settlement or prepayment penalties, default interest, insurance or credit-life premiums, what happens on a missed payment, variable-rate conditions, security or collateral. Include the ones that cost money even when they read as boilerplate. Leave it empty if the section states none.",
-    "",
-    "---",
-    part,
+    // The scanned path passes no text — the document is attached to the
+    // message instead, so there is nothing to append and no separator to
+    // dangle beneath the instructions.
+    ...(part ? ["", "---", part] : []),
   ].join("\n");
 }
 
-async function readPass(client: Anthropic, part: string, index: number, total: number) {
+type PromptContent = Parameters<Anthropic["messages"]["create"]>[0]["messages"][number]["content"];
+
+async function readPass(client: Anthropic, content: PromptContent, system: string) {
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 16000,
     output_config: { format: { type: "json_schema", schema: SCHEMA } },
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: buildPrompt(part, index, total) }],
+    system,
+    messages: [{ role: "user", content }],
   });
 
   const block = response.content.find((b) => b.type === "text");
@@ -287,15 +326,50 @@ export async function extractLoanTerms(text: string): Promise<LoanTerms | null> 
   // practice, and this runs while someone waits on a modal.
   const results: RawPass[] = [];
   for (const [index, part] of parts.entries()) {
-    const parsed = await readPass(client, part, index, parts.length);
+    const parsed = await readPass(client, buildPrompt(part, index, parts.length), SYSTEM_PROMPT);
     if (parsed) results.push(parsed);
   }
+  return assemble(results, text, parts.length);
+}
+
+/**
+ * Reads a loan agreement that has no extractable text, from the PDF itself.
+ *
+ * One pass, never chunked: there is no text to split on, and an agreement's
+ * page count sits far inside what a single request takes.
+ */
+export async function extractLoanTermsFromScan(pdfBase64: string): Promise<LoanTerms | null> {
+  if (!process.env.ANTHROPIC_API_KEY) return null;
+
+  const client = new Anthropic();
+  const parsed = await readPass(
+    client,
+    [
+      { type: "document", source: { type: "base64", media_type: "application/pdf", data: pdfBase64 } },
+      { type: "text", text: buildPrompt("", 0, 1) },
+    ],
+    SCAN_SYSTEM_PROMPT
+  );
+  return assemble(parsed ? [parsed] : [], null, 1);
+}
+
+/**
+ * Turns raw passes into checked terms.
+ *
+ * `text` is the document's own text, or null when it had none to extract and
+ * the pages were read as images. That is the single difference between the two
+ * paths: with text, a quote must be found in it; without, the quote stands on
+ * its own and is shown to the person to check. Every other test below runs
+ * either way.
+ */
+function assemble(results: RawPass[], text: string | null, passes: number): LoanTerms | null {
   if (results.length === 0) return null;
 
   // Every quote is checked against the document it supposedly came from, so a
   // fabricated sentence is dropped however plausible it reads.
   const grounded = <T>(entry: { quote?: unknown } | null, verify: () => T | null): T | null => {
-    if (!entry || typeof entry.quote !== "string" || !quoteAppearsIn(entry.quote, text)) return null;
+    if (!entry || typeof entry.quote !== "string") return null;
+    if (text !== null && !quoteAppearsIn(entry.quote, text)) return null;
     return verify();
   };
 
@@ -329,7 +403,8 @@ export async function extractLoanTerms(text: string): Promise<LoanTerms | null> 
     lender: first((p) => (typeof p.lender === "string" && p.lender ? p.lender : null)),
     currency: first((p) => (typeof p.currency === "string" && /^[A-Z]{3}$/.test(p.currency) ? p.currency : null)),
     keyTerms: collectKeyTerms(results, text),
-    passes: parts.length,
+    passes,
+    readFrom: text === null ? "scan" : "text",
   };
 
   // A term that ends before it starts means one of the two dates was read off
@@ -344,7 +419,7 @@ export async function extractLoanTerms(text: string): Promise<LoanTerms | null> 
 
 // Chunks overlap, so a clause near a boundary is read twice and comes back
 // twice. Deduplicating on the quote keeps one copy of each.
-export function collectKeyTerms(results: { key_terms?: unknown }[], source: string): KeyTerm[] {
+export function collectKeyTerms(results: { key_terms?: unknown }[], source: string | null): KeyTerm[] {
   const seen = new Set<string>();
   const terms: KeyTerm[] = [];
 
@@ -352,7 +427,11 @@ export function collectKeyTerms(results: { key_terms?: unknown }[], source: stri
     if (!Array.isArray(parsed.key_terms)) continue;
     for (const item of parsed.key_terms) {
       if (!item || typeof item.label !== "string" || typeof item.detail !== "string" || typeof item.quote !== "string") continue;
-      if (!quoteAppearsIn(item.quote, source)) continue;
+      // null source means the document had no extractable text and was read
+      // as images — there is nothing to check a quote against. Every other
+      // safeguard still applies; see the note on scanned documents in
+      // policyDocument.ts.
+      if (source !== null && !quoteAppearsIn(item.quote, source)) continue;
 
       const key = flatten(item.quote);
       if (seen.has(key)) continue;

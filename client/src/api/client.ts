@@ -151,6 +151,12 @@ export interface LoanTerms {
   keyTerms: KeyTerm[];
   /** How many passes the document took to read — more than one means it was long. */
   passes: number;
+  /**
+   * "scan" when the document had no text in it and its pages were read as
+   * images. The quotes are then a transcription rather than something matched
+   * against the document's own text, which is worth saying on screen.
+   */
+  readFrom: "text" | "scan";
 }
 
 export interface Account {
@@ -367,6 +373,12 @@ export interface PolicyFacts {
   valuedAt: ExtractedField<string> | null;
   keyTerms: KeyTerm[];
   passes: number;
+  /**
+   * "scan" when the document had no text in it and its pages were read as
+   * images. The quotes are then a transcription rather than something matched
+   * against the document's own text, which is worth saying on screen.
+   */
+  readFrom: "text" | "scan";
 }
 
 export interface PolicyDraft {

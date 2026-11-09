@@ -41,6 +41,24 @@ import {
  *  - `dropConfusedSurrender` below drops a surrender value whose quote is the
  *    sentence the cover amount came from, or whose figure equals the cover.
  *    One sentence stating one figure cannot be evidence for both.
+ *
+ * ## Scanned documents
+ *
+ * Insurers post these, and a posted letter comes back as a photograph of a
+ * page. `extractPdfText` returns nothing for one — a Momentum premium-increase
+ * letter with the whole benefit schedule on page two extracted to a single
+ * character — and the reader above had nothing to read, so the upload was
+ * refused as unreadable while the figures sat there in plain sight.
+ *
+ * `extractPolicyFactsFromScan` sends the PDF itself instead, and the model
+ * reads the pages as images. What that costs is exactly one safeguard: there
+ * is no extracted text, so `quoteAppearsIn` has nothing to check a quote
+ * against. Everything else is unchanged — the value is still re-derived from
+ * the quote by code, still range-checked, surrender is still kept apart from
+ * cover, and nothing is written until a person has confirmed it. `readFrom`
+ * records which path ran so the confirmation can say the quotes were not
+ * cross-checked, rather than presenting both kinds of read as equally
+ * verified.
  */
 
 const MODEL = "claude-opus-5";
@@ -62,6 +80,12 @@ export interface PolicyFacts {
   keyTerms: KeyTerm[];
   /** Set when the document was long enough to be read in more than one pass. */
   passes: number;
+  /**
+   * `"text"` when the quotes were checked against the document's own text,
+   * `"scan"` when there was none to check them against. The difference is
+   * worth showing the person confirming the figures.
+   */
+  readFrom: "text" | "scan";
 }
 
 function field(type: "number" | "string", description: string) {
@@ -170,12 +194,32 @@ export function dropConfusedSurrender(
   return surrender;
 }
 
+const DISTINCTION = [
+  "The cover amount and the surrender value are different things and must never be confused: the cover amount (sum assured) is paid out on death, while the surrender value (also called cash value, fund value or investment value) is what the policy is worth if cashed in today.",
+  "A term or pure risk policy has a cover amount and no surrender value. Where the document states no cash, fund or surrender value, report surrender_value as null — never repeat the cover amount there.",
+];
+
 const SYSTEM_PROMPT = [
   "You read life insurance policy statements and schedules, and report what they state.",
   "Quote the exact wording each item comes from, copied character for character from the document — the quotes are checked against the source text, and an item whose quote cannot be found there is discarded.",
   "A figure you cannot point at in the document must be reported as null rather than inferred, calculated, or filled in from what is typical.",
-  "The cover amount and the surrender value are different things and must never be confused: the cover amount (sum assured) is paid out on death, while the surrender value (also called cash value, fund value or investment value) is what the policy is worth if cashed in today.",
-  "A term or pure risk policy has a cover amount and no surrender value. Where the document states no cash, fund or surrender value, report surrender_value as null — never repeat the cover amount there.",
+  ...DISTINCTION,
+].join(" ");
+
+/**
+ * The same job, done from page images.
+ *
+ * The quote cannot be checked against extracted text here, so the instruction
+ * about it changes from "we will check this" to what the quote is actually for
+ * on this path: it is what the person confirming the figures reads against the
+ * page in front of them. Transcribing it faithfully is the whole of its value.
+ */
+const SCAN_SYSTEM_PROMPT = [
+  "You read life insurance policy statements and schedules, and report what they state.",
+  "This document is a scan, so you are reading the pages as images. Read every page, including tables and benefit schedules, which is usually where the figures are.",
+  "Transcribe the quote for each item exactly as it is printed, including the currency symbol and the digits as spaced or punctuated on the page. The person checking your answer reads that quote against the page, so an approximate or reworded quote makes the figure impossible to confirm.",
+  "A figure you cannot see on a page must be reported as null rather than inferred, calculated, or filled in from what is typical.",
+  ...DISTINCTION,
 ].join(" ");
 
 function buildPrompt(part: string, index: number, total: number): string {
@@ -189,19 +233,22 @@ function buildPrompt(part: string, index: number, total: number): string {
     "cover_amount is the benefit paid on death. surrender_value is what the policy is worth if cashed in today — look for 'surrender value', 'cash value', 'fund value', 'investment value' or 'policy value'. If the document gives no such figure, surrender_value is null.",
     "",
     "For key_terms, list what the policyholder should know beyond the headline figures: exclusions, waiting periods, premium escalation or review terms, cessions, loans taken against the policy, what happens if a premium is missed, beneficiaries. Leave it empty if the section states none.",
-    "",
-    "---",
-    part,
+    // The scanned path passes no text — the document is attached to the
+    // message instead, so there is nothing to append and no separator to
+    // dangle beneath the instructions.
+    ...(part ? ["", "---", part] : []),
   ].join("\n");
 }
 
-async function readPass(client: Anthropic, part: string, index: number, total: number) {
+type PromptContent = Parameters<Anthropic["messages"]["create"]>[0]["messages"][number]["content"];
+
+async function readPass(client: Anthropic, content: PromptContent, system: string) {
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 16000,
     output_config: { format: { type: "json_schema", schema: SCHEMA } },
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: buildPrompt(part, index, total) }],
+    system,
+    messages: [{ role: "user", content }],
   });
 
   const block = response.content.find((b) => b.type === "text");
@@ -218,13 +265,48 @@ export async function extractPolicyFacts(text: string): Promise<PolicyFacts | nu
   // practice, and this runs while someone waits on a modal.
   const results: RawPass[] = [];
   for (const [index, part] of parts.entries()) {
-    const parsed = await readPass(client, part, index, parts.length);
+    const parsed = await readPass(client, buildPrompt(part, index, parts.length), SYSTEM_PROMPT);
     if (parsed) results.push(parsed);
   }
+  return assemble(results, text, parts.length);
+}
+
+/**
+ * Reads a policy document that has no extractable text, from the PDF itself.
+ *
+ * One pass, never chunked: there is no text to split on, and the page count of
+ * a policy schedule sits far inside what a single request takes.
+ */
+export async function extractPolicyFactsFromScan(pdfBase64: string): Promise<PolicyFacts | null> {
+  if (!process.env.ANTHROPIC_API_KEY) return null;
+
+  const client = new Anthropic();
+  const parsed = await readPass(
+    client,
+    [
+      { type: "document", source: { type: "base64", media_type: "application/pdf", data: pdfBase64 } },
+      { type: "text", text: buildPrompt("", 0, 1) },
+    ],
+    SCAN_SYSTEM_PROMPT
+  );
+  return assemble(parsed ? [parsed] : [], null, 1);
+}
+
+/**
+ * Turns raw passes into checked facts.
+ *
+ * `text` is the document's own text, or null when it had none to extract and
+ * the pages were read as images. That is the single difference between the two
+ * paths: with text, a quote must be found in it; without, the quote stands on
+ * its own and is shown to the person to check. Every other test below runs
+ * either way.
+ */
+function assemble(results: RawPass[], text: string | null, passes: number): PolicyFacts | null {
   if (results.length === 0) return null;
 
   const grounded = <T>(entry: { quote?: unknown } | null, verify: () => T | null): T | null => {
-    if (!entry || typeof entry.quote !== "string" || !quoteAppearsIn(entry.quote, text)) return null;
+    if (!entry || typeof entry.quote !== "string") return null;
+    if (text !== null && !quoteAppearsIn(entry.quote, text)) return null;
     return verify();
   };
 
@@ -266,7 +348,8 @@ export async function extractPolicyFacts(text: string): Promise<PolicyFacts | nu
     maturityDate: first((p) => readDate(p.maturity_date)),
     valuedAt: first((p) => readDate(p.valued_at)),
     keyTerms: collectKeyTerms(results, text),
-    passes: parts.length,
+    passes,
+    readFrom: text === null ? "scan" : "text",
   };
 
   // A policy that matures before it starts means one of the two dates was read

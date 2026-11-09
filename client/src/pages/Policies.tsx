@@ -334,7 +334,8 @@ export default function Policies() {
           </button>
           {notice && <p style={{ fontSize: "0.8rem", color: "var(--critical)", marginTop: "0.5rem" }}>{notice}</p>}
           <p style={{ fontSize: "0.73rem", color: "var(--text-muted)", marginTop: "0.6rem" }}>
-            It has to be a text PDF rather than a scan — a photographed document has no text to read.
+            A scan works too — a posted letter with no text in it is read from its pages instead, and says so
+            when you confirm the figures.
           </p>
         </div>
       ),

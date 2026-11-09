@@ -3,7 +3,7 @@ import { Router } from "express";
 import { db, withTransaction } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { extractPdfText, looksLikePdf } from "../services/pdfStatement.js";
-import { extractPolicyFacts } from "../services/policyDocument.js";
+import { extractPolicyFacts, extractPolicyFactsFromScan } from "../services/policyDocument.js";
 
 /**
  * Life insurance policies.
@@ -80,6 +80,9 @@ policiesRouter.get("/", async (req, res) => {
 policiesRouter.post("/preview", async (req, res) => {
   const { content_base64, content } = req.body as { content_base64?: unknown; content?: unknown };
   let text: string;
+  // Set when the file is a PDF, so a document with no extractable text can be
+  // read from its pages instead of being refused — see below.
+  let pdfBase64: string | null = null;
 
   if (typeof content_base64 === "string") {
     const buffer = Buffer.from(content_base64, "base64");
@@ -87,7 +90,12 @@ policiesRouter.post("/preview", async (req, res) => {
     // it outright — so the conversion is not the formality it looks like.
     const bytes = new Uint8Array(buffer);
     try {
-      text = looksLikePdf(bytes) ? await extractPdfText(bytes) : buffer.toString("utf8");
+      if (looksLikePdf(bytes)) {
+        pdfBase64 = content_base64;
+        text = await extractPdfText(bytes);
+      } else {
+        text = buffer.toString("utf8");
+      }
     } catch (err) {
       console.error("Policy text extraction failed:", err);
       res.status(422).json({ error: "That PDF couldn't be opened. If it's password-protected, save an unlocked copy and try again." });
@@ -100,15 +108,22 @@ policiesRouter.post("/preview", async (req, res) => {
     return;
   }
 
-  if (text.trim().length < 50) {
+  // A posted policy letter arrives as a photograph of a page, and a PDF of one
+  // extracts to nothing — the Momentum premium-increase letter that prompted
+  // this came out as a single character, with the whole benefit schedule
+  // sitting on page two. Refusing it told the owner the details weren't there
+  // when they plainly were, so a PDF with no text is read from its pages
+  // instead. Anything else with no text in it really is unreadable.
+  const scanned = text.trim().length < 50;
+  if (scanned && !pdfBase64) {
     res.status(422).json({
-      error: "Nothing readable in that file — if it's a scan rather than a text PDF, the details can't be read from it.",
+      error: "Nothing readable in that file — it has no text in it and isn't a PDF whose pages can be read.",
     });
     return;
   }
 
   try {
-    const facts = await extractPolicyFacts(text);
+    const facts = scanned ? await extractPolicyFactsFromScan(pdfBase64!) : await extractPolicyFacts(text);
     if (!facts) {
       res.status(503).json({ error: "Reading policy documents is unavailable — the AI key is not configured. You can still enter the figures by hand." });
       return;
