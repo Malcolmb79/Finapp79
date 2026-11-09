@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import {
   chunk,
   collectKeyTerms,
-  quoteAppearsIn,
+  groundQuote,
   rawField,
   verifyDate,
   verifyNumber,
@@ -304,10 +304,19 @@ export async function extractPolicyFactsFromScan(pdfBase64: string): Promise<Pol
 function assemble(results: RawPass[], text: string | null, passes: number): PolicyFacts | null {
   if (results.length === 0) return null;
 
-  const grounded = <T>(entry: { quote?: unknown } | null, verify: () => T | null): T | null => {
+  /**
+   * The entry with its quote checked against the document, and widened where
+   * it was too short to say what the figure is — a statement's summary block
+   * puts the label and its value on separate lines, so a faithful quote of the
+   * value is a handful of characters. See `groundQuote`. Null text means a
+   * scan, where there is nothing to check against.
+   */
+  const grounded = (raw: unknown): { value: unknown; quote: string } | null => {
+    const entry = rawField(raw);
     if (!entry || typeof entry.quote !== "string") return null;
-    if (text !== null && !quoteAppearsIn(entry.quote, text)) return null;
-    return verify();
+    if (text === null) return { value: entry.value, quote: entry.quote };
+    const quote = groundQuote(entry.quote, text);
+    return quote === null ? null : { value: entry.value, quote };
   };
 
   const first = <T>(pick: (parsed: RawPass) => T | null): T | null => {
@@ -319,15 +328,8 @@ function assemble(results: RawPass[], text: string | null, passes: number): Poli
   };
 
   /** A `{ value, quote }` number field, grounded in the document and in range. */
-  const readNumber = (raw: unknown, bounds: { min: number; max: number }) => {
-    const entry = rawField(raw);
-    return grounded(entry, () => verifyNumber(entry, bounds));
-  };
-
-  const readDate = (raw: unknown) => {
-    const entry = rawField(raw);
-    return grounded(entry, () => verifyDate(entry));
-  };
+  const readNumber = (raw: unknown, bounds: { min: number; max: number }) => verifyNumber(grounded(raw), bounds);
+  const readDate = (raw: unknown) => verifyDate(grounded(raw));
 
   const coverAmount = first((p) => readNumber(p.cover_amount, LIMITS.cover));
   const surrenderValue = first((p) => readNumber(p.surrender_value, LIMITS.surrender));

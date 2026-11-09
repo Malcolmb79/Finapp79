@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chunk, collectKeyTerms, quoteAppearsIn, verifyNumber, verifyDate } from "./loanContract.js";
+import { chunk, collectKeyTerms, groundQuote, quoteAppearsIn, verifyNumber, verifyDate } from "./loanContract.js";
 
 /**
  * These guard the one place in the app where a model reads figures rather than
@@ -105,6 +105,53 @@ describe("quoteAppearsIn", () => {
 
   it("rejects a fragment too short to be distinctive", () => {
     expect(quoteAppearsIn("R4,312.88", contract)).toBe(false);
+  });
+});
+
+/**
+ * A summary box puts the label on one line and the value alone on the next, so
+ * a faithful quote of a figure there is a handful of characters. Every one of
+ * an An Post statement's headline terms was read correctly and then thrown
+ * away by the length floor — these cover both halves of the fix: the short
+ * quote is kept, and it arrives carrying the label that says what it is.
+ */
+describe("groundQuote", () => {
+  const summary = [
+    "Your Account Summary",
+    "Original Loan Amount",
+    "€20,000.00",
+    "Borrowing Rate",
+    "5.70%",
+    "Original Loan Term",
+    "60 Months",
+  ].join("\n");
+
+  it("widens a short quote to carry its label", () => {
+    expect(groundQuote("€20,000.00", summary)).toBe("Original Loan Amount €20,000.00");
+    expect(groundQuote("5.70%", summary)).toBe("Borrowing Rate 5.70%");
+    expect(groundQuote("60 Months", summary)).toBe("Original Loan Term 60 Months");
+  });
+
+  // The case the length floor was right to fear: a bare figure that could have
+  // come from anywhere lends nothing to the field claiming it.
+  it("refuses a short quote that occurs more than once", () => {
+    expect(groundQuote("5.70%", `${summary}\nDefault rate 5.70%`)).toBeNull();
+  });
+
+  it("refuses a quote that isn't in the document at all", () => {
+    expect(groundQuote("€35,000.00", summary)).toBeNull();
+    expect(groundQuote("An arrangement fee of €1,500 is payable.", summary)).toBeNull();
+  });
+
+  // Long quotes keep the behaviour they had: returned as the model wrote them,
+  // with no uniqueness condition — a repeated clause is still a real clause.
+  it("passes a long quote through untouched", () => {
+    const source = "Credit life insurance of R89.50 per month is compulsory.";
+    expect(groundQuote(source, `${source} ${source}`)).toBe(source);
+  });
+
+  it("widens a short quote on the first line, where there is no line above", () => {
+    expect(groundQuote("5.70%", "5.70%\nBorrowing Rate")).toBe("5.70%");
   });
 });
 

@@ -190,6 +190,60 @@ export function quoteAppearsIn(quote: string, source: string): boolean {
   return flatten(source).includes(needle);
 }
 
+/** Below this a quote is not distinctive enough to stand on its own. */
+const MIN_DISTINCTIVE_QUOTE = 12;
+
+/**
+ * The quote to keep, or null if it isn't in the document.
+ *
+ * Long quotes pass through as they are — `quoteAppearsIn` above, unchanged.
+ * The work here is the short ones, and it exists because that length floor was
+ * throwing away correct answers.
+ *
+ * A summary box puts the label on one line and the value alone on the next:
+ *
+ *     Original Loan Amount
+ *     €20,000.00
+ *     Borrowing Rate
+ *     5.70%
+ *
+ * Quote the value faithfully and you have quoted nine characters. All three of
+ * an An Post loan statement's headline terms — the principal, the rate and the
+ * term — were read correctly and then dropped for being too short, while the
+ * figures buried in the transaction lines came through fine because those
+ * lines are long.
+ *
+ * So a short quote is kept, on a condition the long ones are not held to: it
+ * must occur exactly once in the document. An ambiguous short quote is the one
+ * the floor was right to fear — "R500" matching some unrelated fee clause and
+ * lending that figure false support — and a single occurrence is precisely the
+ * case where that cannot happen.
+ *
+ * It is then widened to carry the line above it, so what reaches the
+ * confirmation screen is "Original Loan Amount €20,000.00" rather than a bare
+ * number. That matters more than the check does: a person asked to confirm a
+ * principal cannot do anything with "€20,000.00" on its own either.
+ */
+export function groundQuote(quote: string, source: string): string | null {
+  const needle = flatten(quote);
+  if (!needle) return null;
+  if (!flatten(source).includes(needle)) return null;
+  if (needle.length >= MIN_DISTINCTIVE_QUOTE) return quote;
+
+  const lines = source.split(/\r?\n/);
+  const hits = lines.flatMap((line, index) => (flatten(line).includes(needle) ? [index] : []));
+  if (hits.length !== 1) return null;
+
+  const index = hits[0];
+  // Only ever one line of context, and only the line before. Reaching further
+  // would start pulling in the previous row of the box, which belongs to a
+  // different figure entirely.
+  return [lines[index - 1], lines[index]]
+    .map((line) => line?.trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
 /**
  * Re-reads a number out of the quote it was supposedly taken from.
  *
@@ -365,12 +419,18 @@ export async function extractLoanTermsFromScan(pdfBase64: string): Promise<LoanT
 function assemble(results: RawPass[], text: string | null, passes: number): LoanTerms | null {
   if (results.length === 0) return null;
 
-  // Every quote is checked against the document it supposedly came from, so a
-  // fabricated sentence is dropped however plausible it reads.
-  const grounded = <T>(entry: { quote?: unknown } | null, verify: () => T | null): T | null => {
+  /**
+   * The entry with its quote checked against the document it came from, so a
+   * fabricated sentence is dropped however plausible it reads — and widened
+   * where the quote was too short to say what it is. Null text means a scan,
+   * where there is nothing to check against.
+   */
+  const grounded = (raw: unknown): { value: unknown; quote: string } | null => {
+    const entry = rawField(raw);
     if (!entry || typeof entry.quote !== "string") return null;
-    if (text !== null && !quoteAppearsIn(entry.quote, text)) return null;
-    return verify();
+    if (text === null) return { value: entry.value, quote: entry.quote };
+    const quote = groundQuote(entry.quote, text);
+    return quote === null ? null : { value: entry.value, quote };
   };
 
   // First section to state a term wins: the headline figures appear in the
@@ -383,15 +443,8 @@ function assemble(results: RawPass[], text: string | null, passes: number): Loan
     return null;
   };
 
-  const readNumber = (raw: unknown, bounds: { min: number; max: number }) => {
-    const entry = rawField(raw);
-    return grounded(entry, () => verifyNumber(entry, bounds));
-  };
-
-  const readDate = (raw: unknown) => {
-    const entry = rawField(raw);
-    return grounded(entry, () => verifyDate(entry));
-  };
+  const readNumber = (raw: unknown, bounds: { min: number; max: number }) => verifyNumber(grounded(raw), bounds);
+  const readDate = (raw: unknown) => verifyDate(grounded(raw));
 
   const terms: LoanTerms = {
     principal: first((p) => readNumber(p.principal, LIMITS.principal)),
@@ -431,12 +484,13 @@ export function collectKeyTerms(results: { key_terms?: unknown }[], source: stri
       // as images — there is nothing to check a quote against. Every other
       // safeguard still applies; see the note on scanned documents in
       // policyDocument.ts.
-      if (source !== null && !quoteAppearsIn(item.quote, source)) continue;
+      const quote = source === null ? item.quote : groundQuote(item.quote, source);
+      if (quote === null) continue;
 
-      const key = flatten(item.quote);
+      const key = flatten(quote);
       if (seen.has(key)) continue;
       seen.add(key);
-      terms.push({ label: item.label, detail: item.detail, quote: item.quote });
+      terms.push({ label: item.label, detail: item.detail, quote });
     }
   }
 
