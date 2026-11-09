@@ -33,6 +33,7 @@ import { withinRange } from "../utils/dateRange.js";
 import { computeCanvasHeight, type CanvasRect } from "../utils/useCanvasItem.js";
 import { useMeasuredWidth } from "../utils/useMeasuredWidth.js";
 import AccountAvatar from "../components/AccountAvatar.js";
+import TransactionDetailModal from "../components/TransactionDetailModal.js";
 import { accountBalance, amountDrawn, isBorrowing, accountTxSums, visibleAccounts, visibleTransactions } from "../utils/accountBalance.js";
 import { budgetStatus } from "../utils/budgetStatus.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
@@ -169,6 +170,8 @@ export default function Dashboard() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
   const [allPolicies, setPolicies] = useState<Policy[]>([]);
+  // The transaction whose detail card is open, from the recent list.
+  const [openTransaction, setOpenTransaction] = useState<Transaction | null>(null);
   const [config, setConfig] = useState<DashboardConfig>(loadConfig);
   const [syncingAll, setSyncingAll] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -386,9 +389,19 @@ export default function Dashboard() {
     const name = tx.category_id != null ? (categoryNames.get(tx.category_id) ?? "Unknown") : "Uncategorized";
     spendByCategory.set(name, (spendByCategory.get(name) ?? 0) + Math.abs(tx.amount));
   }
+  // The chart is keyed by name because that is what it shows; the link needs
+  // the id back. "Uncategorized" is the one row with no id and the one most
+  // worth clicking, so it gets the sentinel the table understands.
+  const categoryIdByName = new Map(categories.map((c) => [c.name, c.id]));
   const categoryRows = [...spendByCategory.entries()]
     .sort((a, b) => b[1] - a[1])
-    .map(([label, value]) => ({ label, value }));
+    .map(([label, value]) => {
+      const id = categoryIdByName.get(label);
+      const filter = label === "Uncategorized" ? "none" : id != null ? String(id) : null;
+      // "Unknown" — a category id with no matching row — has nothing to
+      // filter by, so it stays unclickable rather than linking nowhere.
+      return { label, value, href: filter ? `/transactions?category=${encodeURIComponent(filter)}` : undefined };
+    });
 
   const accountNames = new Map(accounts.map((a) => [a.id, a.name]));
 
@@ -548,7 +561,24 @@ export default function Dashboard() {
         ) : (
           <div>
             {recentTransactions.map((tx) => (
-              <div className="tx-row" key={tx.id}>
+              // A button rather than a div: this opens the same detail card
+              // the transactions table opens, so it should be reachable by
+              // keyboard and announce itself as something that acts.
+              <button
+                type="button"
+                className="tx-row"
+                key={tx.id}
+                onClick={() => setOpenTransaction(tx)}
+                style={{
+                  width: "100%",
+                  background: "none",
+                  border: "none",
+                  textAlign: "left",
+                  cursor: "pointer",
+                  font: "inherit",
+                  color: "inherit",
+                }}
+              >
                 <div className="tx-row__icon">
                   {tx.amount >= 0 ? (
                     <ArrowDownRight size={15} color="var(--good)" />
@@ -564,7 +594,7 @@ export default function Dashboard() {
                   {tx.amount >= 0 ? "+" : ""}
                   {formatCurrency(tx.amount, tx.currency)}
                 </span>
-              </div>
+              </button>
             ))}
           </div>
         ),
@@ -795,6 +825,22 @@ export default function Dashboard() {
           );
         })}
       </div>
+
+      {/* The same detail card the transactions table opens, so a transaction
+          looks and behaves the same wherever it is clicked — and it is where
+          a category gets set, which is the usual reason for opening one. */}
+      {openTransaction && (
+        <TransactionDetailModal
+          transaction={openTransaction}
+          account={accounts.find((a) => a.id === openTransaction.account_id)}
+          categories={categories}
+          onClose={() => setOpenTransaction(null)}
+          onChange={() => {
+            setOpenTransaction(null);
+            refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

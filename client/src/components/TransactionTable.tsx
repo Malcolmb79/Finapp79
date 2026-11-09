@@ -1,5 +1,6 @@
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import type { Account, Category, Transaction } from "../api/client.js";
 import { cleanDescription } from "../utils/cleanDescription.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
@@ -25,12 +26,40 @@ export default function TransactionTable({
   onChange: () => void;
 }) {
   const [selected, setSelected] = useState<Transaction | null>(null);
-  const [accountId, setAccountId] = useState("");
-  const [query, setQuery] = useState("");
+  /**
+   * The filters live in the URL rather than in component state.
+   *
+   * That makes every "show me what is behind this number" elsewhere in the
+   * app a plain link — /transactions?category=none is the uncategorised pile
+   * — instead of each place needing its own drilled-down screen. It also
+   * means a filtered view survives a refresh and can be sent to someone.
+   */
+  const [searchParams, setSearchParams] = useSearchParams();
+  const accountId = searchParams.get("account") ?? "";
+  const query = searchParams.get("q") ?? "";
+
+  // Replace, not push: changing a filter is adjusting the current view, not
+  // a new place. Otherwise Back walks keystroke by keystroke through a
+  // search box rather than returning where you came from.
+  function setFilter(key: string, value: string) {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (value) next.set(key, value);
+        else next.delete(key);
+        return next;
+      },
+      { replace: true }
+    );
+  }
+
+  const setAccountId = (value: string) => setFilter("account", value);
+  const setQuery = (value: string) => setFilter("q", value);
   // "" is every category; UNCATEGORISED is the rows with none, which is a
   // real thing to look for rather than the absence of a filter — it is how
   // you find what still needs filing.
-  const [categoryFilter, setCategoryFilter] = useState("");
+  const categoryFilter = searchParams.get("category") ?? "";
+  const setCategoryFilter = (value: string) => setFilter("category", value);
 
   const accountsById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
   const categoryName = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
@@ -143,11 +172,16 @@ export default function TransactionTable({
         )}
         {(query || accountId || categoryFilter) && (
           <button
-            onClick={() => {
-              setQuery("");
-              setAccountId("");
-              setCategoryFilter("");
-            }}
+            onClick={() =>
+              setSearchParams(
+                (current) => {
+                  const next = new URLSearchParams(current);
+                  for (const key of ["q", "account", "category"]) next.delete(key);
+                  return next;
+                },
+                { replace: true }
+              )
+            }
             style={{ fontSize: "0.78rem" }}
           >
             Clear

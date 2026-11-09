@@ -1,8 +1,17 @@
+import { Link } from "react-router-dom";
 import { formatCurrency } from "../../utils/formatCurrency.js";
 
 export interface BarDatum {
   label: string;
   value: number;
+  /**
+   * Where this bar drills through to, when it drills through at all.
+   *
+   * A link rather than a click handler so it behaves like one: middle-click,
+   * open in a new tab, and a visible destination all come free, and the
+   * target is a real address rather than a hidden state change.
+   */
+  href?: string;
 }
 
 /**
@@ -47,8 +56,8 @@ export default function MagnitudeBarList({
     <div>
       {data.map((d) => {
         const pct = max > 0 ? (d.value / max) * 100 : 0;
-        return (
-          <div className="bar-list__row" key={d.label}>
+        const row = (
+          <>
             <div className="bar-list__meta">
               <span>{d.label}</span>
               <strong>{money(d.value)}</strong>
@@ -56,6 +65,22 @@ export default function MagnitudeBarList({
             <div className="bar-list__track">
               <div className="bar-list__fill" style={{ width: `${pct}%` }} />
             </div>
+          </>
+        );
+
+        return d.href ? (
+          <Link
+            className="bar-list__row"
+            key={d.label}
+            to={d.href}
+            title={`See the transactions in ${d.label}`}
+            style={{ display: "block", textDecoration: "none", color: "inherit" }}
+          >
+            {row}
+          </Link>
+        ) : (
+          <div className="bar-list__row" key={d.label}>
+            {row}
           </div>
         );
       })}
