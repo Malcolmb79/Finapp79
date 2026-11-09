@@ -408,3 +408,32 @@ ALTER TABLE transaction_rules ALTER COLUMN repays_account_id DROP NOT NULL;
 -- happening on it.
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS last_sync_at TEXT;
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS last_sync_error TEXT;
+
+-- One payment across several categories.
+--
+-- A correctness gap rather than a convenience: a supermarket shop that is
+-- half groceries and half a birthday present has no honest single category,
+-- and until now the choice was to file it wrong or leave it unfiled. Both put
+-- a figure in a budget that is not true.
+--
+-- The parent transaction keeps its own amount and category untouched. A split
+-- is a second, finer reading of the same money, and every total that works by
+-- category reads the splits where they exist and the parent where they do
+-- not — see categorySlices. Keeping the parent intact is what makes a split
+-- undoable: delete the rows and the transaction is exactly what it was.
+--
+-- No constraint that the parts sum to the whole, because the route enforces it
+-- and a half-entered split should fail with a sentence rather than a
+-- constraint violation. ON DELETE CASCADE because a split of a deleted
+-- transaction is not a record of anything.
+CREATE TABLE IF NOT EXISTS transaction_splits (
+  id TEXT PRIMARY KEY,               -- generated uuid
+  user_id TEXT REFERENCES users(id),
+  transaction_id TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+  category_id INTEGER REFERENCES categories(id),
+  amount DOUBLE PRECISION NOT NULL,  -- same sign convention as the parent
+  note TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_transaction_splits_tx ON transaction_splits (transaction_id);
+CREATE INDEX IF NOT EXISTS idx_transaction_splits_user ON transaction_splits (user_id);

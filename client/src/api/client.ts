@@ -62,6 +62,11 @@ export interface Transaction {
   source: "enablebanking" | "manual" | "csv";
   reviewed_at: string | null;
   /**
+   * This transaction read by category: its parts, when one payment covers
+   * several. Null when it is the ordinary single-category kind.
+   */
+  splits?: { category_id: number | null; amount: number }[] | null;
+  /**
    * The loan this payment repays, when a rule says so.
    *
    * Derived by the server on every read rather than stored, so removing the
@@ -681,6 +686,13 @@ export const api = {
   /** Files everything already uncategorized that this rule matches. */
   applyRule: (id: string) => request<{ filed: number }>(`/rules/${id}/apply`, { method: "POST" }),
   deleteRule: (id: string) => request<void>(`/rules/${id}`, { method: "DELETE" }),
+
+  /** Replaces a transaction's splits; an empty list makes it ordinary again. */
+  setSplits: (id: string, splits: { category_id: number | null; amount: number }[]) =>
+    request<{ splits: { category_id: number | null; amount: number }[] | null }>(`/transactions/${id}/splits`, {
+      method: "PUT",
+      body: JSON.stringify({ splits }),
+    }),
 
   createPolicy: (draft: PolicyDraft) => request<Policy>("/policies", { method: "POST", body: JSON.stringify(draft) }),
   updatePolicy: (id: string, patch: Partial<PolicyDraft>) =>

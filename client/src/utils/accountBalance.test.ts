@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Account } from "../api/client.js";
+import type { Account, Transaction } from "../api/client.js";
+import { categorySlices, splitsBalance } from "./splits.js";
 import { accountTxSums, repaymentMirrors, spendingTransactions, staleness, visibleAccounts, visibleTransactions } from "./accountBalance.js";
 
 function account(id: string, hidden?: boolean): Account {
@@ -198,5 +199,65 @@ describe("spendingTransactions and repaymentMirrors", () => {
 
   it("produces no mirror when nothing is a repayment", () => {
     expect(repaymentMirrors([{ account_id: "aib", amount: -20 }])).toEqual([]);
+  });
+});
+
+/**
+ * A split is a finer reading of the same money, so the one thing that must
+ * never happen is a transaction counting as more or less than it is.
+ */
+describe("categorySlices", () => {
+  const base = { id: "t1", account_id: "a", booking_date: "2026-11-01", currency: "EUR" } as unknown as Transaction;
+
+  it("gives an unsplit transaction exactly one slice — its own", () => {
+    const tx = { ...base, amount: -40, category_id: 3, splits: null };
+    expect(categorySlices(tx).map((s) => [s.category_id, s.amount])).toEqual([[3, -40]]);
+  });
+
+  it("gives a split transaction one slice per part", () => {
+    const tx = {
+      ...base,
+      amount: -40,
+      category_id: 3,
+      splits: [
+        { category_id: 3, amount: -25 },
+        { category_id: 9, amount: -15 },
+      ],
+    };
+    expect(categorySlices(tx).map((s) => [s.category_id, s.amount])).toEqual([
+      [3, -25],
+      [9, -15],
+    ]);
+  });
+
+  // The guarantee the whole feature rests on.
+  it("never changes what a transaction is worth in total", () => {
+    const tx = {
+      ...base,
+      amount: -40,
+      category_id: 3,
+      splits: [
+        { category_id: 3, amount: -25 },
+        { category_id: null, amount: -15 },
+      ],
+    };
+    expect(categorySlices(tx).reduce((sum, s) => sum + s.amount, 0)).toBeCloseTo(-40);
+  });
+});
+
+describe("splitsBalance", () => {
+  it("accepts parts that add up", () => {
+    expect(splitsBalance(-40, [-25, -15])).toBe(true);
+  });
+
+  // Floating point: 33.33 + 33.33 + 33.34 is not 100 to a computer, and a
+  // tenth of a cent is below the smallest unit anyone can enter.
+  it("tolerates the rounding a third of a sum produces", () => {
+    expect(splitsBalance(100, [33.33, 33.33, 33.34])).toBe(true);
+  });
+
+  it("rejects parts that do not", () => {
+    expect(splitsBalance(-40, [-25, -10])).toBe(false);
+    expect(splitsBalance(-40, [-25, -20])).toBe(false);
   });
 });

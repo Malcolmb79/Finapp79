@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { randomUUID } from "node:crypto";
-import { db } from "../db/client.js";
+import { db, withTransaction } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { suggestCategoriesWithAi, type MerchantSample } from "../services/aiCategorySuggestion.js";
 import { categoriseImport } from "../services/importCategorise.js";
 import { suggestCategoryId } from "../services/categorySuggestion.js";
 import { annotateRepayments, matchedCategoryId } from "../services/transactionRules.js";
+import { splitsBalance, type Split } from "../services/splits.js";
 import { listRules } from "./rules.js";
 import type { Transaction } from "../types.js";
 
@@ -47,7 +48,8 @@ transactionsRouter.get("/", async (req, res) => {
   if (!isPending) {
     // Which loan each payment repays, worked out here rather than stored, so
     // changing a rule changes the figures — see services/transactionRules.ts.
-    res.json(annotateRepayments(rows, await listRules(req.user!.id)));
+    const annotated = annotateRepayments(rows, await listRules(req.user!.id));
+    res.json(await withSplits(annotated, req.user!.id));
     return;
   }
 
@@ -246,4 +248,112 @@ transactionsRouter.delete("/:id", async (req, res) => {
     return;
   }
   res.status(204).send();
+});
+
+/**
+ * Attaches each transaction's splits, where it has any.
+ *
+ * One query for the lot rather than one per row: a split is rare enough that
+ * most of these come back empty, and a query per transaction would be hundreds
+ * of round trips to say "no" several hundred times.
+ */
+async function withSplits<T extends { id: string }>(rows: T[], userId: string): Promise<(T & { splits: Split[] | null })[]> {
+  if (rows.length === 0) return [];
+
+  const splits = (await db
+    .prepare("SELECT transaction_id, category_id, amount FROM transaction_splits WHERE user_id = ?")
+    .all(userId)) as unknown as { transaction_id: string; category_id: number | null; amount: number }[];
+
+  if (splits.length === 0) return rows.map((row) => ({ ...row, splits: null }));
+
+  const byTransaction = new Map<string, Split[]>();
+  for (const split of splits) {
+    const list = byTransaction.get(split.transaction_id) ?? [];
+    list.push({ category_id: split.category_id, amount: split.amount });
+    byTransaction.set(split.transaction_id, list);
+  }
+
+  // null rather than [] for an unsplit transaction: "no splits" and "split
+  // into nothing" would otherwise look the same to every reader downstream.
+  return rows.map((row) => ({ ...row, splits: byTransaction.get(row.id) ?? null }));
+}
+
+/**
+ * Replaces a transaction's splits wholesale.
+ *
+ * Wholesale rather than one at a time because the parts have to add up to the
+ * whole, and that can only be judged of a complete set — adding a part at a
+ * time would mean every intermediate state was invalid.
+ *
+ * An empty list removes the split, which is how a transaction goes back to
+ * being an ordinary one. Nothing about the parent changes either way.
+ */
+transactionsRouter.put("/:id/splits", async (req, res) => {
+  const transaction = (await db
+    .prepare("SELECT id, amount FROM transactions WHERE id = ? AND user_id = ?")
+    .get(req.params.id, req.user!.id)) as unknown as { id: string; amount: number } | undefined;
+
+  if (!transaction) {
+    res.status(404).json({ error: "No such transaction." });
+    return;
+  }
+
+  const { splits } = req.body as { splits?: unknown };
+  if (!Array.isArray(splits)) {
+    res.status(400).json({ error: "splits must be a list." });
+    return;
+  }
+
+  const parsed: Split[] = [];
+  for (const raw of splits) {
+    const amount = typeof raw?.amount === "number" ? raw.amount : Number(raw?.amount);
+    if (!Number.isFinite(amount)) {
+      res.status(400).json({ error: "Every part needs an amount." });
+      return;
+    }
+    const categoryId = raw?.category_id == null ? null : Number(raw.category_id);
+    if (categoryId !== null && !Number.isInteger(categoryId)) {
+      res.status(400).json({ error: "That category isn't valid." });
+      return;
+    }
+    if (categoryId !== null) {
+      const found = await db.prepare("SELECT id FROM categories WHERE id = ? AND user_id = ?").get(categoryId, req.user!.id);
+      if (!found) {
+        res.status(404).json({ error: "That category doesn't exist." });
+        return;
+      }
+    }
+    parsed.push({ category_id: categoryId, amount });
+  }
+
+  // A single part is not a split, it is the transaction — and storing it as
+  // one would quietly move the row's category out of the column everything
+  // else reads.
+  if (parsed.length === 1) {
+    res.status(400).json({ error: "A split needs at least two parts. Change the category instead." });
+    return;
+  }
+
+  // The whole point of the feature is that the parts describe the same money
+  // as the parent. Parts that don't add up would make spending by category
+  // disagree with the account balance, which is the kind of wrong figure
+  // nobody goes looking for.
+  if (parsed.length > 0 && !splitsBalance(transaction.amount, parsed)) {
+    const sum = parsed.reduce((running, split) => running + split.amount, 0);
+    res.status(400).json({
+      error: `The parts come to ${sum.toFixed(2)} but the transaction is ${transaction.amount.toFixed(2)}.`,
+    });
+    return;
+  }
+
+  await withTransaction(async (tx) => {
+    await tx.prepare("DELETE FROM transaction_splits WHERE transaction_id = ? AND user_id = ?").run(req.params.id, req.user!.id);
+    for (const split of parsed) {
+      await tx
+        .prepare("INSERT INTO transaction_splits (id, user_id, transaction_id, category_id, amount) VALUES (?, ?, ?, ?, ?)")
+        .run(randomUUID(), req.user!.id, req.params.id, split.category_id, split.amount);
+    }
+  });
+
+  res.json({ splits: parsed.length === 0 ? null : parsed });
 });

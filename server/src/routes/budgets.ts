@@ -18,10 +18,26 @@ budgetsRouter.get("/", async (req, res) => {
          b.category_id,
          c.name AS category_name,
          b.monthly_limit,
-         COALESCE(SUM(CASE WHEN t.amount < 0 AND t.booking_date >= ? THEN -t.amount ELSE 0 END), 0) AS spent
+         -- Reads the splits where a transaction has them and the transaction
+         -- itself where it does not, so a shop that was half groceries counts
+         -- half against the groceries budget. Grouping on t.category_id alone
+         -- would count the whole thing, or none of it, and either way the
+         -- budget would disagree with spending by category.
+         COALESCE(SUM(CASE WHEN s.amount < 0 AND s.booking_date >= ? THEN -s.amount ELSE 0 END), 0) AS spent
        FROM budgets b
        JOIN categories c ON c.id = b.category_id
-       LEFT JOIN transactions t ON t.category_id = b.category_id AND t.user_id = b.user_id AND t.reviewed_at IS NOT NULL
+       -- Each transaction as its category slices: its splits if it has any,
+       -- otherwise one slice that is the transaction itself. The LEFT JOIN
+       -- gives exactly that — one row per split, or one null-padded row for a
+       -- transaction with none, which COALESCE turns back into the
+       -- transaction. See services/splits.ts for why everything reads this way.
+       LEFT JOIN (
+         SELECT t.user_id, t.booking_date, t.reviewed_at,
+                COALESCE(sp.category_id, t.category_id) AS category_id,
+                COALESCE(sp.amount, t.amount) AS amount
+           FROM transactions t
+           LEFT JOIN transaction_splits sp ON sp.transaction_id = t.id
+       ) s ON s.category_id = b.category_id AND s.user_id = b.user_id AND s.reviewed_at IS NOT NULL
        WHERE b.user_id = ?
        GROUP BY b.id, c.name
        ORDER BY c.name`

@@ -2,6 +2,7 @@ import { Calendar, Landmark, Tag, Trash2, User, X } from "lucide-react";
 import { useState } from "react";
 import { api, type Account, type Category, type Transaction } from "../api/client.js";
 import CategorySelect from "./CategorySelect.js";
+import SplitEditor from "./SplitEditor.js";
 import { cleanDescription } from "../utils/cleanDescription.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 
@@ -127,6 +128,12 @@ export default function TransactionDetailModal({
         <p className="page-header__subtitle" style={{ marginTop: "1rem", marginBottom: 0 }}>
           {SOURCE_LABEL[transaction.source]}
         </p>
+
+        {/* Under the category, because it is the same question asked more
+            finely: not which one, but how much of each. */}
+        <div style={{ marginTop: "0.9rem" }}>
+          <SplitEditor transaction={transaction} categories={categories} onChanged={onChange} />
+        </div>
 
         {transaction.source === "manual" && (
           <button
