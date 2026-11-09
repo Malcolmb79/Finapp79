@@ -1,5 +1,6 @@
 import session from "express-session";
 import { db } from "../db/client.js";
+import { sessionTtlMs } from "./sessionTtl.js";
 
 /**
  * express-session's default MemoryStore explicitly warns it's not fit for
@@ -22,8 +23,11 @@ export class SqliteSessionStore extends session.Store {
   }
 
   set(sid: string, sessionData: session.SessionData, callback?: (err?: unknown) => void): void {
-    const maxAgeMs = sessionData.cookie.maxAge ?? 1000 * 60 * 60 * 24 * 7;
-    const expiresAt = new Date(Date.now() + maxAgeMs).toISOString();
+    // The store's own expiry decides how long a session lives, not the
+    // cookie's Max-Age — the cookie deliberately has none, so that it dies
+    // when the browser closes. Reading maxAge here would fall back to the old
+    // seven days and quietly undo that.
+    const expiresAt = new Date(Date.now() + sessionTtlMs()).toISOString();
     db.prepare(
       `INSERT INTO sessions (sid, data, expires_at) VALUES (?, ?, ?)
        ON CONFLICT (sid) DO UPDATE SET data = excluded.data, expires_at = excluded.expires_at`
@@ -46,9 +50,10 @@ export class SqliteSessionStore extends session.Store {
       .catch((err) => callback?.(err));
   }
 
-  touch(sid: string, sessionData: session.SessionData, callback?: () => void): void {
-    const maxAgeMs = sessionData.cookie.maxAge ?? 1000 * 60 * 60 * 24 * 7;
-    const expiresAt = new Date(Date.now() + maxAgeMs).toISOString();
+  // Called on each request that doesn't modify the session, which is what
+  // makes the lifetime an idle timeout rather than an absolute one.
+  touch(sid: string, _sessionData: session.SessionData, callback?: () => void): void {
+    const expiresAt = new Date(Date.now() + sessionTtlMs()).toISOString();
     db.prepare("UPDATE sessions SET expires_at = ? WHERE sid = ?")
       .run(expiresAt, sid)
       .then(() => callback?.())

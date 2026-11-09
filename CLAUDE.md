@@ -124,6 +124,15 @@ query, or one user's data leaks into another's response.
   active. There's no `setInterval` sweeping expired rows — that doesn't
   survive serverless — so `set()` probabilistically (~1%) calls
   `pruneExpiredSessions()` on write instead.
+- `src/auth/sessionTtl.ts` — how long a session lasts
+  (`SESSION_TTL_MINUTES`, default 60, capped at 1440). The session cookie in
+  `app.ts` carries **no** `maxAge` on purpose, so it's a browser-session
+  cookie that dies when the browser or app closes; the store's `expires_at`
+  is the real lifetime, and `rolling: true` + the store's `touch()` make it
+  an idle timeout rather than an absolute one. Don't reintroduce
+  `cookie.maxAge` — a persistent cookie is what previously let a reopened
+  app walk straight in days later, and `set()`/`touch()` reading
+  `sessionData.cookie.maxAge` would silently restore that too.
 - `src/auth/findOrCreateUser.ts` — resolves an OAuth callback profile (or
   email/password signup, via `createLocalUser`) to an app user: an existing
   `(provider, provider_user_id)` identity returns that user; otherwise an

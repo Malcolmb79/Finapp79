@@ -70,11 +70,19 @@ app.use(
     secret: process.env.SESSION_SECRET ?? "insecure-dev-only-fallback-secret",
     resave: false,
     saveUninitialized: false,
+    // Refreshes the expiry on each response, so the hour is idle time rather
+    // than a hard cut an hour after signing in — being thrown out mid-task is
+    // what makes people pick long sessions in the first place.
+    rolling: true,
     cookie: {
       httpOnly: true,
       secure: isProduction,
       sameSite: "lax",
-      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+      // No maxAge on purpose: a cookie with no Max-Age dies when the browser
+      // or app closes, so reopening asks for a passkey instead of resuming.
+      // The session's real lifetime is the store's expiry — see sessionTtl.ts.
+      // It was a persistent seven-day cookie, which is why a second window or
+      // the next day walked straight in.
     },
   })
 );
