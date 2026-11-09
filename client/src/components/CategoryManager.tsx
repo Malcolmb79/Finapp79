@@ -90,7 +90,20 @@ export default function CategoryManager({ onCreated }: { onCreated: () => void }
               : "You have no categories yet. These are broad everyday ones meant to be reused across many transactions — untick anything you don't want."}
           </p>
 
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem 0.9rem", marginBottom: "0.7rem" }}>
+          {/* Bounded and scrollable, so the confirm buttons below stay in
+              view. Unbounded, fourteen wrapped checkboxes pushed them past
+              the bottom of the card — the action was reachable only by
+              scrolling inside a panel that gave no sign there was more. */}
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "0.4rem 0.9rem",
+              marginBottom: "0.7rem",
+              maxHeight: 132,
+              overflowY: "auto",
+            }}
+          >
             {starter.map((category) => (
               <label key={category} style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.85rem" }}>
                 <input
@@ -110,7 +123,24 @@ export default function CategoryManager({ onCreated }: { onCreated: () => void }
             ))}
           </div>
 
-          <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+          {/* Stuck to the bottom of the card's scrolling area. The card is
+              260–330px tall and this panel is ~390, so the buttons sat below
+              the fold: reachable by scrolling inside the card, but with
+              nothing to suggest there was anything down there. Sticky keeps
+              them in view at any card size, which beats sizing the card for
+              its largest moment and leaving it half empty the rest of the
+              time. */}
+          <div
+            style={{
+              display: "flex",
+              gap: "0.4rem",
+              alignItems: "center",
+              position: "sticky",
+              bottom: 0,
+              background: "var(--card-plane, var(--page-plane))",
+              paddingTop: "0.4rem",
+            }}
+          >
             <button type="button" className="btn-accent" onClick={addChosen} disabled={busy || chosen.size === 0}>
               {busy ? <Loader2 size={13} className="spin" /> : null}
               Add {chosen.size} {chosen.size === 1 ? "category" : "categories"}

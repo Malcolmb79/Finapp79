@@ -15,7 +15,9 @@ import { useCanvasLayout } from "../utils/useCanvasLayout.js";
 // should behave the same wherever it appears.
 const WIDGETS = [
   { id: "pending", defaultWidth: 328, defaultHeight: 360 },
-  { id: "categories", defaultWidth: 328, defaultHeight: 260 },
+  // Tall enough for the starter-set panel, which only appears on an account
+  // with no categories — the one moment this card is at its largest.
+  { id: "categories", defaultWidth: 328, defaultHeight: 330 },
   { id: "add", defaultWidth: 328, defaultHeight: 280 },
   { id: "all", defaultWidth: 672, defaultHeight: 520 },
 ];
