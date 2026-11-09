@@ -10,6 +10,9 @@ function formatDateHeader(dateStr: string): string {
   return date.toLocaleDateString(undefined, { weekday: undefined, year: "numeric", month: "long", day: "numeric" });
 }
 
+/** Sentinel for "has no category" — distinct from "" , which is no filter. */
+const UNCATEGORISED = "none";
+
 export default function TransactionTable({
   transactions,
   categories,
@@ -24,6 +27,10 @@ export default function TransactionTable({
   const [selected, setSelected] = useState<Transaction | null>(null);
   const [accountId, setAccountId] = useState("");
   const [query, setQuery] = useState("");
+  // "" is every category; UNCATEGORISED is the rows with none, which is a
+  // real thing to look for rather than the absence of a filter — it is how
+  // you find what still needs filing.
+  const [categoryFilter, setCategoryFilter] = useState("");
 
   const accountsById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
   const categoryName = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
@@ -37,10 +44,29 @@ export default function TransactionTable({
   }, [transactions]);
   const filterableAccounts = accounts.filter((a) => countByAccount.has(a.id));
 
+  // Same reasoning as the accounts above: only categories that actually have
+  // transactions are worth offering. Uncategorised is counted alongside them,
+  // since "nothing filed yet" is the most useful of these to pick.
+  const { countByCategory, uncategorisedCount } = useMemo(() => {
+    const counts = new Map<number, number>();
+    let none = 0;
+    for (const tx of transactions) {
+      if (tx.category_id == null) none++;
+      else counts.set(tx.category_id, (counts.get(tx.category_id) ?? 0) + 1);
+    }
+    return { countByCategory: counts, uncategorisedCount: none };
+  }, [transactions]);
+  const filterableCategories = categories.filter((c) => countByCategory.has(c.id));
+
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return transactions.filter((tx) => {
       if (accountId && tx.account_id !== accountId) return false;
+      if (categoryFilter === UNCATEGORISED) {
+        if (tx.category_id != null) return false;
+      } else if (categoryFilter && tx.category_id !== Number(categoryFilter)) {
+        return false;
+      }
       if (!needle) return true;
       // Searches what's on screen plus the things you'd think to search by —
       // the account it's on and what it's filed under.
@@ -57,7 +83,7 @@ export default function TransactionTable({
         .toLowerCase()
         .includes(needle);
     });
-  }, [transactions, accountId, query, accountsById, categoryName]);
+  }, [transactions, accountId, categoryFilter, query, accountsById, categoryName]);
 
   const groups = useMemo(() => {
     const byDate = new Map<string, Transaction[]>();
@@ -97,11 +123,30 @@ export default function TransactionTable({
             ))}
           </select>
         )}
-        {(query || accountId) && (
+        {(filterableCategories.length > 0 || uncategorisedCount > 0) && (
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            style={{ fontSize: "0.82rem", maxWidth: 170 }}
+            aria-label="Filter by category"
+          >
+            <option value="">All categories ({transactions.length})</option>
+            {uncategorisedCount > 0 && (
+              <option value={UNCATEGORISED}>Uncategorized ({uncategorisedCount})</option>
+            )}
+            {filterableCategories.map((c) => (
+              <option key={c.id} value={String(c.id)}>
+                {c.name} ({countByCategory.get(c.id)})
+              </option>
+            ))}
+          </select>
+        )}
+        {(query || accountId || categoryFilter) && (
           <button
             onClick={() => {
               setQuery("");
               setAccountId("");
+              setCategoryFilter("");
             }}
             style={{ fontSize: "0.78rem" }}
           >
@@ -112,7 +157,7 @@ export default function TransactionTable({
 
       {/* Says what's being looked at rather than leaving a short list to be
           mistaken for the whole history. */}
-      {(query || accountId) && (
+      {(query || accountId || categoryFilter) && (
         <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", margin: "0 0 0.5rem" }}>
           {visible.length} of {transactions.length} shown
         </p>
