@@ -1,6 +1,7 @@
 import { Check, Loader2, Plus, Search, Sparkles, X } from "lucide-react";
 import { useState } from "react";
 import { api, type Account, type Category, type PendingTransaction } from "../../api/client.js";
+import { errorMessage } from "../../utils/errorMessage.js";
 import CategorySelect from "../CategorySelect.js";
 import { cleanDescription } from "../../utils/cleanDescription.js";
 import { formatCurrency } from "../../utils/formatCurrency.js";
@@ -27,6 +28,7 @@ export default function PendingReviewWidget({
   const [query, setQuery] = useState("");
   const [accountId, setAccountId] = useState<string>("");
   const [suggesting, setSuggesting] = useState(false);
+  const [suggestNote, setSuggestNote] = useState<string | null>(null);
   const [proposed, setProposed] = useState<string[]>([]);
   // The categories the dropdowns offer: the prop, plus any created inline here
   // before the parent has refetched (see the `setKnown` below).
@@ -57,6 +59,16 @@ export default function PendingReviewWidget({
         return next;
       });
       setProposed(result.proposed);
+      // The server says why it had nothing, so the button can never again
+      // just swallow a click and look broken.
+      const applied = result.suggestions.filter((s) => s.categoryId != null || s.proposedCategory).length;
+      // Only claim "nothing new" when there were actually rows to look at —
+      // with none, the server already returns a null note and saying every
+      // row is categorised would be a statement about an empty list.
+      const nothingNew = result.suggestions.length > 0 && applied === 0;
+      setSuggestNote(result.note ?? (nothingNew ? "Nothing new to suggest — every row already has a category." : null));
+    } catch (err) {
+      setSuggestNote(errorMessage(err, "Couldn't get suggestions just then."));
     } finally {
       setSuggesting(false);
     }
@@ -192,6 +204,15 @@ export default function PendingReviewWidget({
           Approve {visible.length === transactions.length ? "all" : visible.length}
         </button>
       </div>
+
+      {/* The reason nothing came back. Without this the button answered a
+          click with no visible change, which reads as broken rather than as
+          "there is nothing to suggest" or "the server has no API key". */}
+      {suggestNote && (
+        <p role="status" style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: "0 0 0.6rem" }}>
+          {suggestNote}
+        </p>
+      )}
 
       {proposed.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap", marginBottom: "0.6rem" }}>

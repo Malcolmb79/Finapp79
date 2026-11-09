@@ -109,7 +109,7 @@ transactionsRouter.post("/categorise-pending", async (req, res) => {
     )
     .all(req.user!.id)) as unknown as { id: string; description: string | null; counterparty: string | null }[];
 
-  const { suggestions, proposed } = await categoriseImport(req.user!.id, rows);
+  const { suggestions, proposed, note } = await categoriseImport(req.user!.id, rows);
 
   // Keyed by transaction id rather than position: the list can be re-fetched
   // or reordered between asking and applying, and an index would then attach
@@ -117,6 +117,9 @@ transactionsRouter.post("/categorise-pending", async (req, res) => {
   res.json({
     suggestions: rows.map((row, index) => ({ id: row.id, ...suggestions[index] })),
     proposed,
+    // Passed through so the widget can say why nothing came back, instead of
+    // appearing to ignore the click.
+    note,
   });
 });
 

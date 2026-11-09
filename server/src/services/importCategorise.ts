@@ -33,6 +33,20 @@ export interface RowSuggestion {
   proposedCategory: string | null;
 }
 
+export interface CategorisationResult {
+  suggestions: RowSuggestion[];
+  proposed: string[];
+  /**
+   * Why there are no suggestions, when there are none.
+   *
+   * Null on success, and null when there was nothing to categorise in the
+   * first place. Every other empty result carries a sentence, because a
+   * button that returns nothing and explains nothing reads as broken — which
+   * is exactly how the missing-API-key case was being experienced.
+   */
+  note: string | null;
+}
+
 const SCHEMA = {
   type: "object",
   properties: {
@@ -60,20 +74,32 @@ function merchantOf(row: Categorisable): string {
 export async function categoriseImport(
   userId: string,
   rows: Categorisable[]
-): Promise<{ suggestions: RowSuggestion[]; proposed: string[] }> {
+): Promise<CategorisationResult> {
   const empty = rows.map(() => ({ categoryId: null, proposedCategory: null }));
-  if (rows.length === 0) return { suggestions: empty, proposed: [] };
+  const nothing = (note: string | null) => ({ suggestions: empty, proposed: [], note });
+
+  if (rows.length === 0) return nothing(null);
+
+  // Checked before the categories are loaded, not after: without a key the
+  // query can't be used for anything, and keeping this first means the case
+  // can be tested without a database at all.
+  //
+  // An unset key is a supported configuration — the user categorises by hand
+  // — but it used to return silently, and a button that answers a click with
+  // nothing and says nothing is indistinguishable from a broken one. Every
+  // path that produces no suggestions now says which path it was.
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return nothing("Category suggestions need an Anthropic API key on the server. You can still set categories by hand.");
+  }
 
   const categories = (await db
     .prepare("SELECT id, name FROM categories WHERE user_id = ?")
     .all(userId)) as unknown as { id: number; name: string }[];
 
-  // An unset key is a supported configuration: the dialog simply shows no
-  // suggestions and the user categorises by hand.
-  if (!process.env.ANTHROPIC_API_KEY) return { suggestions: empty, proposed: [] };
-
   const merchants = [...new Set(rows.map(merchantOf).filter((m) => m !== ""))].slice(0, MAX_MERCHANTS);
-  if (merchants.length === 0) return { suggestions: empty, proposed: [] };
+  if (merchants.length === 0) {
+    return nothing("Nothing to go on — these rows carry no merchant or description to categorise by.");
+  }
 
   const byName = new Map(categories.map((c) => [c.name.toLowerCase(), c.id]));
 
@@ -104,7 +130,7 @@ export async function categoriseImport(
     });
 
     const text = response.content.find((block) => block.type === "text");
-    if (!text || text.type !== "text") return { suggestions: empty, proposed: [] };
+    if (!text || text.type !== "text") return nothing("The categoriser replied with nothing usable. Worth trying again.");
 
     const parsed = JSON.parse(text.text) as { assignments: { merchant: string; category: string }[] };
     const byMerchant = new Map<string, RowSuggestion>();
@@ -125,11 +151,12 @@ export async function categoriseImport(
     return {
       suggestions: rows.map((row) => byMerchant.get(merchantOf(row)) ?? { categoryId: null, proposedCategory: null }),
       proposed: [...proposed].sort(),
+      note: null,
     };
   } catch (err) {
     // A categorisation failure must never block the import — the user still
     // gets every row, just without suggestions.
     console.error("Import categorisation failed:", err);
-    return { suggestions: empty, proposed: [] };
+    return nothing("The categoriser could not be reached. Worth trying again.");
   }
 }

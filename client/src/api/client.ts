@@ -494,6 +494,8 @@ export const api = {
     request<{
       suggestions: { id: string; categoryId: number | null; proposedCategory: string | null }[];
       proposed: string[];
+      /** Why there are no suggestions, when there are none. Null on success. */
+      note: string | null;
     }>("/transactions/categorise-pending", { method: "POST" }),
   createTransaction: (tx: Partial<Transaction>) =>
     request<Transaction>("/transactions", { method: "POST", body: JSON.stringify(tx) }),
@@ -595,6 +597,8 @@ export const api = {
   fxRates: (base = "EUR") => request<FxRates>(`/fx?base=${base}`),
 
   listCategories: () => request<Category[]>("/categories"),
+  /** A starter set for an account with no categories. Writes nothing. */
+  starterCategories: () => request<{ suggestions: string[]; hasAny: boolean }>("/categories/starter"),
   createCategory: (name: string, parentId?: number | null) =>
     request<Category>("/categories", { method: "POST", body: JSON.stringify({ name, parent_id: parentId ?? null }) }),
 
