@@ -240,6 +240,25 @@ export default function PendingReviewWidget({
               {/* Named only when more than one account has rows waiting —
                   otherwise it's the same word on every line. */}
               {filterableAccounts.length > 1 && accountName.has(t.account_id) && ` · ${accountName.get(t.account_id)}`}
+              {/* A rule is marked too, and for the opposite reason to the AI
+                  badge: that one says check this, this one says you already
+                  decided this — which is what makes it safe to approve
+                  without reading. */}
+              {t.suggestion_source === "rule" && !(t.id in selections) && (
+                <span
+                  title="Filed by one of your rules"
+                  style={{
+                    marginLeft: "0.4rem",
+                    padding: "0.05rem 0.3rem",
+                    borderRadius: 4,
+                    fontSize: "0.7rem",
+                    background: "color-mix(in srgb, var(--good) 18%, transparent)",
+                    color: "var(--good)",
+                  }}
+                >
+                  Rule
+                </span>
+              )}
               {t.suggestion_source === "ai" && !(t.id in selections) && (
                 <span
                   title="Suggested by AI — check before approving"

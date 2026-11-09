@@ -5,7 +5,7 @@ import { requireAuth } from "../middleware/requireAuth.js";
 import { suggestCategoriesWithAi, type MerchantSample } from "../services/aiCategorySuggestion.js";
 import { categoriseImport } from "../services/importCategorise.js";
 import { suggestCategoryId } from "../services/categorySuggestion.js";
-import { annotateRepayments } from "../services/transactionRules.js";
+import { annotateRepayments, matchedCategoryId } from "../services/transactionRules.js";
 import { listRules } from "./rules.js";
 import type { Transaction } from "../types.js";
 
@@ -51,11 +51,17 @@ transactionsRouter.get("/", async (req, res) => {
     return;
   }
 
-  // The user's own reviewed history is the first and best source — a category
-  // they actually chose for this merchant beats any model guess, so the AI
-  // categoriser below never gets a chance to override one.
+  // A rule outranks everything below it. History is what the owner tended to
+  // do and the model is a guess; a rule is a standing instruction they wrote
+  // down, so it is the one answer here that was actually asked for.
+  const rules = await listRules(req.user!.id);
+  const ruleSuggestions = rows.map((t) => matchedCategoryId(t, rules));
+
+  // The user's own reviewed history is next — a category they actually chose
+  // for this merchant beats any model guess, so the AI categoriser below never
+  // gets a chance to override one.
   const historySuggestions = await Promise.all(
-    rows.map((t) => suggestCategoryId(req.user!.id, t.counterparty ?? t.description))
+    rows.map((t, i) => (ruleSuggestions[i] != null ? null : suggestCategoryId(req.user!.id, t.counterparty ?? t.description)))
   );
 
   // Only merchants history can't place go to the model, deduped by match key
@@ -63,7 +69,7 @@ transactionsRouter.get("/", async (req, res) => {
   // twelve.
   const unplaced = new Map<string, MerchantSample>();
   rows.forEach((t, i) => {
-    if (historySuggestions[i] != null) return;
+    if (ruleSuggestions[i] != null || historySuggestions[i] != null) return;
     const label = t.counterparty ?? t.description;
     if (!label) return;
     const matchKey = label.toLowerCase();
@@ -80,14 +86,15 @@ transactionsRouter.get("/", async (req, res) => {
     rows.map((t, i) => {
       const label = t.counterparty ?? t.description;
       const aiSuggestion = label ? aiSuggestions.get(label.toLowerCase()) ?? null : null;
-      const suggested = historySuggestions[i] ?? aiSuggestion;
+      const suggested = ruleSuggestions[i] ?? historySuggestions[i] ?? aiSuggestion;
       return {
         ...t,
         suggested_category_id: suggested,
         // Lets the review UI distinguish "you've filed this merchant here
         // before" from "this is a guess" — the user approves either way, but
         // a guess is the one worth actually reading before clicking through.
-        suggestion_source: suggested == null ? null : historySuggestions[i] != null ? "history" : "ai",
+        suggestion_source:
+          suggested == null ? null : ruleSuggestions[i] != null ? "rule" : historySuggestions[i] != null ? "history" : "ai",
       };
     })
   );

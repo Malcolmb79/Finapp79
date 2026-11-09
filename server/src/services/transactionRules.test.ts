@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { annotateRepayments, repaidAccountId, type TransactionRule } from "./transactionRules.js";
+import { annotateRepayments, matchedCategoryId, repaidAccountId, type TransactionRule } from "./transactionRules.js";
 
 const LOAN = "loan-anpost";
 const AIB = "acct-aib";
@@ -10,6 +10,7 @@ const rule = (over: Partial<TransactionRule> = {}): TransactionRule => ({
   match_text: "AN POST",
   match_account_id: AIB,
   repays_account_id: LOAN,
+  category_id: null,
   ...over,
 });
 
@@ -92,5 +93,51 @@ describe("annotateRepayments", () => {
 
   it("marks everything null when there are no rules", () => {
     expect(annotateRepayments([tx()], []).map((r) => r.repays_account_id)).toEqual([null]);
+  });
+});
+
+/**
+ * The categorisation half. Unlike a repayment, this is written once and then
+ * stored — so the question these guard is which rule claims a transaction, and
+ * that money coming in is filed too.
+ */
+describe("matchedCategoryId", () => {
+  const filing = (over: Partial<TransactionRule> = {}): TransactionRule =>
+    rule({ repays_account_id: null, category_id: 7, ...over });
+
+  it("files a transaction its text matches", () => {
+    expect(matchedCategoryId(tx(), [filing()])).toBe(7);
+  });
+
+  // The opposite of a repayment, which only ever claims an outflow: a salary
+  // or a refund has as much right to a category as a purchase.
+  it("files money coming in as readily as money going out", () => {
+    expect(matchedCategoryId(tx({ amount: 2400 }), [filing()])).toBe(7);
+  });
+
+  it("respects the account a rule names", () => {
+    expect(matchedCategoryId(tx({ account_id: BARCLAYS }), [filing()])).toBeNull();
+    expect(matchedCategoryId(tx({ account_id: BARCLAYS }), [filing({ match_account_id: null })])).toBe(7);
+  });
+
+  it("takes the first rule that matches", () => {
+    expect(matchedCategoryId(tx(), [filing({ id: "r0", category_id: 3 }), filing()])).toBe(3);
+  });
+
+  // A rule can honestly do both, which is why the two actions are separate
+  // columns rather than one.
+  it("reads both actions off a single rule", () => {
+    const both = rule({ category_id: 7 });
+    expect(matchedCategoryId(tx(), [both])).toBe(7);
+    expect(repaidAccountId(tx(), [both])).toBe(LOAN);
+  });
+
+  it("ignores a rule that only repays", () => {
+    expect(matchedCategoryId(tx(), [rule()])).toBeNull();
+  });
+
+  it("says nothing when no rule matches", () => {
+    expect(matchedCategoryId(tx({ description: "TESCO" }), [filing()])).toBeNull();
+    expect(matchedCategoryId(tx(), [])).toBeNull();
   });
 });

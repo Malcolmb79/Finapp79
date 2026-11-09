@@ -385,3 +385,18 @@ CREATE TABLE IF NOT EXISTS transaction_rules (
 );
 
 CREATE INDEX IF NOT EXISTS idx_transaction_rules_user ON transaction_rules (user_id);
+
+-- The second thing a rule can say: file this merchant here, always.
+-- Separate from repays_account_id rather than one "action" column, because a
+-- rule can honestly do both -- an An Post direct debit repays the loan AND
+-- belongs under Loan repayments -- and a single action would force a choice
+-- that does not exist.
+--
+-- The table shipped a few hours before this column, so it is an ALTER for the
+-- same reason as users.email_verified_at above: a CREATE TABLE IF NOT EXISTS
+-- is a no-op against a table that already exists without it.
+ALTER TABLE transaction_rules ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES categories(id);
+
+-- A rule with neither action does nothing at all, which is a rule nobody
+-- meant to write. The routes refuse one; this is the backstop.
+ALTER TABLE transaction_rules ALTER COLUMN repays_account_id DROP NOT NULL;

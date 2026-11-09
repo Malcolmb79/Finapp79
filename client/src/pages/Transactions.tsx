@@ -1,6 +1,7 @@
-import { Inbox, List, Plus, Tag } from "lucide-react";
+import { Inbox, List, Plus, Tag, Wand2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import CategoryManager from "../components/CategoryManager.js";
+import CategoryRules from "../components/CategoryRules.js";
 import CsvImport from "../components/CsvImport.js";
 import TransactionForm from "../components/TransactionForm.js";
 import TransactionTable from "../components/TransactionTable.js";
@@ -18,6 +19,7 @@ const WIDGETS = [
   // Tall enough for the starter-set panel, which only appears on an account
   // with no categories — the one moment this card is at its largest.
   { id: "categories", defaultWidth: 328, defaultHeight: 330 },
+  { id: "rules", defaultWidth: 328, defaultHeight: 300 },
   { id: "add", defaultWidth: 328, defaultHeight: 280 },
   { id: "all", defaultWidth: 672, defaultHeight: 520 },
 ];
@@ -68,6 +70,12 @@ export default function Transactions() {
       icon: Tag,
       accentVar: "--accent-2",
       body: <CategoryManager onCreated={refreshCategories} />,
+    },
+    rules: {
+      title: "Filing rules",
+      icon: Wand2,
+      accentVar: "--accent-2",
+      body: <CategoryRules categories={categories} accounts={accounts} onApplied={refresh} />,
     },
     add: {
       title: "Add transactions",

@@ -24,7 +24,10 @@ export interface TransactionRule {
   match_text: string;
   /** Null means any account, though the UI always names one. */
   match_account_id: string | null;
-  repays_account_id: string;
+  /** The loan these payments repay, if that is what the rule says. */
+  repays_account_id: string | null;
+  /** The category these go under, if that is what the rule says. */
+  category_id: number | null;
 }
 
 /** The fields matching needs — any transaction-shaped row will do. */
@@ -53,19 +56,47 @@ interface Matchable {
 export function repaidAccountId(tx: Matchable, rules: TransactionRule[]): string | null {
   if (tx.amount >= 0) return null;
 
-  const haystack = `${tx.description ?? ""} ${tx.counterparty ?? ""}`.toLowerCase();
-
-  for (const rule of rules) {
+  for (const rule of matching(tx, rules)) {
+    if (!rule.repays_account_id) continue;
     if (rule.repays_account_id === tx.account_id) continue;
-    if (rule.match_account_id && rule.match_account_id !== tx.account_id) continue;
-    const needle = rule.match_text.trim().toLowerCase();
-    // An empty match would attribute every outflow on the account, which is
-    // never what anyone meant to write.
-    if (!needle) continue;
-    if (haystack.includes(needle)) return rule.repays_account_id;
+    return rule.repays_account_id;
   }
 
   return null;
+}
+
+/**
+ * The category a rule files this transaction under, or null.
+ *
+ * Unlike the repayment above, this is not read back on every request. A
+ * category is a stored, hand-editable column: deriving it would mean a rule
+ * silently overruling every correction the owner has ever made to a
+ * transaction it happens to match. So a rule writes the category once — when
+ * the transaction arrives, or when the owner asks for it to be applied to what
+ * is already there — and after that the stored value is the truth.
+ *
+ * Money coming in is matched too, unlike a repayment: a salary or a refund has
+ * as much right to a category as a purchase.
+ */
+export function matchedCategoryId(tx: Matchable, rules: TransactionRule[]): number | null {
+  for (const rule of matching(tx, rules)) {
+    if (rule.category_id != null) return rule.category_id;
+  }
+  return null;
+}
+
+/** The rules whose text and account match, in the order they were written. */
+function matching(tx: Matchable, rules: TransactionRule[]): TransactionRule[] {
+  const haystack = `${tx.description ?? ""} ${tx.counterparty ?? ""}`.toLowerCase();
+
+  return rules.filter((rule) => {
+    if (rule.match_account_id && rule.match_account_id !== tx.account_id) return false;
+    const needle = rule.match_text.trim().toLowerCase();
+    // An empty match would claim every transaction on the account, which is
+    // never what anyone meant to write.
+    if (!needle) return false;
+    return haystack.includes(needle);
+  });
 }
 
 /** Each transaction with the loan it repays attached, for the client to use. */

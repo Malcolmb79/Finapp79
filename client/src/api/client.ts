@@ -75,14 +75,17 @@ export interface TransactionRule {
   id: string;
   match_text: string;
   match_account_id: string | null;
-  repays_account_id: string;
+  /** The loan these payments repay, if that is what the rule says. */
+  repays_account_id: string | null;
+  /** The category these go under, if that is what the rule says. */
+  category_id: number | null;
 }
 
 export interface PendingTransaction extends Transaction {
   suggested_category_id: number | null;
   // "history" = the user has filed this merchant before; "ai" = a guess from
   // the categoriser that's worth a look before approving.
-  suggestion_source: "history" | "ai" | null;
+  suggestion_source: "rule" | "history" | "ai" | null;
 }
 
 /** One statement import, identified by exactly when it was done. */
@@ -664,8 +667,15 @@ export const api = {
     request<PolicyFacts>("/policies/preview", { method: "POST", body: JSON.stringify({ content_base64: contentBase64 }) }),
 
   listRules: () => request<TransactionRule[]>("/rules"),
-  createRule: (rule: { match_text: string; match_account_id: string | null; repays_account_id: string }) =>
-    request<TransactionRule>("/rules", { method: "POST", body: JSON.stringify(rule) }),
+  createRule: (rule: {
+    match_text: string;
+    match_account_id: string | null;
+    repays_account_id?: string;
+    category_id?: number;
+  }) => request<TransactionRule>("/rules", { method: "POST", body: JSON.stringify(rule) }),
+
+  /** Files everything already uncategorized that this rule matches. */
+  applyRule: (id: string) => request<{ filed: number }>(`/rules/${id}/apply`, { method: "POST" }),
   deleteRule: (id: string) => request<void>(`/rules/${id}`, { method: "DELETE" }),
 
   createPolicy: (draft: PolicyDraft) => request<Policy>("/policies", { method: "POST", body: JSON.stringify(draft) }),
