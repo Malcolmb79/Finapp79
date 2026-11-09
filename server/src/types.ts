@@ -20,6 +20,8 @@ export interface Transaction {
   source: "enablebanking" | "manual" | "csv";
   created_at: string;
   reviewed_at: string | null;
+  /** The loan this payment repays, derived from the rules on every read. */
+  repays_account_id?: string | null;
 }
 
 export interface Category {

@@ -34,7 +34,7 @@ import { computeCanvasHeight, type CanvasRect } from "../utils/useCanvasItem.js"
 import { useMeasuredWidth } from "../utils/useMeasuredWidth.js";
 import AccountAvatar from "../components/AccountAvatar.js";
 import TransactionDetailModal from "../components/TransactionDetailModal.js";
-import { accountBalance, amountDrawn, isBorrowing, accountTxSums, visibleAccounts, visibleTransactions } from "../utils/accountBalance.js";
+import { accountBalance, amountDrawn, isBorrowing, accountTxSums, repaymentMirrors, spendingTransactions, visibleAccounts, visibleTransactions } from "../utils/accountBalance.js";
 import { budgetStatus } from "../utils/budgetStatus.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { monthsToPayoff } from "../utils/payoff.js";
@@ -289,20 +289,32 @@ export default function Dashboard() {
   const { items: convertedTx, dropped: droppedCurrencies } = inBase(withinRange(transactions, range), rates);
   const missingRates = [...new Set([...unconvertible, ...droppedCurrencies])];
 
-  const monthDelta = convertedTx
+  /**
+   * Two readings of the same transactions, because the two questions differ.
+   *
+   * `worthTx` carries both halves of a loan repayment, so paying a debt nets
+   * to zero rather than looking like a loss. `spendTx` carries neither half,
+   * because money that went into a debt was not spent. Using one list for both
+   * gets one of them wrong whichever way round it is done.
+   */
+  const worthTx = [...convertedTx, ...repaymentMirrors(convertedTx)];
+  const spendTx = spendingTransactions(convertedTx);
+
+  const monthDelta = worthTx
     .filter((tx) => tx.booking_date.startsWith(thisMonthKey))
     .reduce((sum, tx) => sum + tx.amount, 0);
 
   const income = convertedTx.filter((tx) => tx.amount > 0).reduce((sum, tx) => sum + tx.amount, 0);
-  const expenses = Math.abs(convertedTx.filter((tx) => tx.amount < 0).reduce((sum, tx) => sum + tx.amount, 0));
+  const expenses = Math.abs(spendTx.filter((tx) => tx.amount < 0).reduce((sum, tx) => sum + tx.amount, 0));
 
   const monthKeys = [...new Set(convertedTx.map((tx) => tx.booking_date.slice(0, 7)))].sort().slice(-6);
   const monthFlows: MonthFlow[] = monthKeys.map((key) => {
     const monthTx = convertedTx.filter((tx) => tx.booking_date.startsWith(key));
+    const monthSpend = spendTx.filter((tx) => tx.booking_date.startsWith(key));
     return {
       label: monthLabel(key),
       income: monthTx.filter((tx) => tx.amount > 0).reduce((s, tx) => s + tx.amount, 0),
-      expenses: Math.abs(monthTx.filter((tx) => tx.amount < 0).reduce((s, tx) => s + tx.amount, 0)),
+      expenses: Math.abs(monthSpend.filter((tx) => tx.amount < 0).reduce((s, tx) => s + tx.amount, 0)),
       // What the bar is made of, so clicking it opens exactly that.
       month: key,
     };
@@ -329,9 +341,9 @@ export default function Dashboard() {
    * before a policy's first one.
    */
   const netWorthTrend: TrendPoint[] = (() => {
-    if (convertedTx.length === 0) return [];
+    if (worthTx.length === 0) return [];
 
-    const sorted = [...convertedTx].sort((a, b) => a.booking_date.localeCompare(b.booking_date));
+    const sorted = [...worthTx].sort((a, b) => a.booking_date.localeCompare(b.booking_date));
     const total = sorted.reduce((sum, tx) => sum + tx.amount, 0);
     // What the accounts held before any of this was recorded. Accounts only —
     // the policies are put back per point below.
@@ -383,7 +395,7 @@ export default function Dashboard() {
   // All time by default: a fresh dashboard on the 1st of the month would
   // otherwise show an empty chart and look broken.
   const categoryRange = config.ranges.category ?? "all";
-  const categoryTx = categoryRange === "month" ? convertedTx.filter((tx) => tx.booking_date.startsWith(thisMonthKey)) : convertedTx;
+  const categoryTx = categoryRange === "month" ? spendTx.filter((tx) => tx.booking_date.startsWith(thisMonthKey)) : spendTx;
 
   const spendByCategory = new Map<string, number>();
   for (const tx of categoryTx) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Account } from "../api/client.js";
-import { staleness, visibleAccounts, visibleTransactions } from "./accountBalance.js";
+import { accountTxSums, repaymentMirrors, spendingTransactions, staleness, visibleAccounts, visibleTransactions } from "./accountBalance.js";
 
 function account(id: string, hidden?: boolean): Account {
   return { id, name: id, currency: "EUR", source: "manual", hidden } as Account;
@@ -124,5 +124,79 @@ describe("staleness", () => {
 
   it("says nothing when the timestamp is unreadable, rather than guessing", () => {
     expect(staleness(manual("not a date"), NOW)).toBeNull();
+  });
+});
+
+/**
+ * A loan repayment is the one transaction in the app that has to be two facts
+ * at once: money left the current account, and what is owed went down. These
+ * cover both halves and, just as importantly, that neither is counted twice.
+ */
+describe("accountTxSums with repayments", () => {
+  const AIB = "aib";
+  const LOAN = "loan";
+  const accounts = [account(AIB), account(LOAN)];
+  const payment = {
+    account_id: AIB,
+    booking_date: "2026-11-01",
+    amount: -383.87,
+    repays_account_id: LOAN,
+  };
+
+  it("takes the payment off the funding account and off what is owed", () => {
+    const sums = accountTxSums(accounts, [payment]);
+    expect(sums.get(AIB)).toBeCloseTo(-383.87);
+    // Positive against a liability, whose balance is negative: paying a debt
+    // moves it towards zero.
+    expect(sums.get(LOAN)).toBeCloseTo(383.87);
+  });
+
+  it("leaves an ordinary transaction alone", () => {
+    const sums = accountTxSums(accounts, [{ account_id: AIB, booking_date: "2026-11-01", amount: -20 }]);
+    expect(sums.get(AIB)).toBeCloseTo(-20);
+    expect(sums.has(LOAN)).toBe(false);
+  });
+
+  // The loan's own balance was entered on a date; payments before it are
+  // already inside that figure, and counting them again pays it off twice.
+  it("honours the loan's own anchor, not the funding account's", () => {
+    const anchored = [
+      account(AIB),
+      { ...account(LOAN), balance_is_manual: true, balance_synced_at: "2026-11-05T00:00:00Z" } as Account,
+    ];
+    const sums = accountTxSums(anchored, [payment]);
+    expect(sums.get(AIB)).toBeCloseTo(-383.87);
+    expect(sums.has(LOAN)).toBe(false);
+  });
+
+  it("never mirrors a payment onto the account it is already on", () => {
+    const sums = accountTxSums(accounts, [{ ...payment, account_id: LOAN }]);
+    expect(sums.get(LOAN)).toBeCloseTo(-383.87);
+  });
+});
+
+describe("spendingTransactions and repaymentMirrors", () => {
+  const rows = [
+    { account_id: "aib", amount: -383.87, repays_account_id: "loan" },
+    { account_id: "aib", amount: -20, repays_account_id: null },
+    { account_id: "aib", amount: 2000, repays_account_id: null },
+  ];
+
+  it("keeps a repayment out of spending", () => {
+    expect(spendingTransactions(rows).map((r) => r.amount)).toEqual([-20, 2000]);
+  });
+
+  // The two halves together are what make paying a debt net to nothing, which
+  // is the truth: it leaves you exactly as wealthy as you were.
+  it("mirrors the repayment so net worth is unchanged by it", () => {
+    const mirrors = repaymentMirrors(rows);
+    expect(mirrors).toHaveLength(1);
+    expect(mirrors[0]).toMatchObject({ account_id: "loan", amount: 383.87, repays_account_id: null });
+    const net = [...rows, ...mirrors].reduce((sum, r) => sum + r.amount, 0);
+    expect(net).toBeCloseTo(1980);
+  });
+
+  it("produces no mirror when nothing is a repayment", () => {
+    expect(repaymentMirrors([{ account_id: "aib", amount: -20 }])).toEqual([]);
   });
 });

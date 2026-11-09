@@ -61,6 +61,21 @@ export interface Transaction {
   counterparty: string | null;
   source: "enablebanking" | "manual" | "csv";
   reviewed_at: string | null;
+  /**
+   * The loan this payment repays, when a rule says so.
+   *
+   * Derived by the server on every read rather than stored, so removing the
+   * rule removes the attribution — see the server's transactionRules.ts.
+   */
+  repays_account_id?: string | null;
+}
+
+/** A standing instruction for what a transaction means. */
+export interface TransactionRule {
+  id: string;
+  match_text: string;
+  match_account_id: string | null;
+  repays_account_id: string;
 }
 
 export interface PendingTransaction extends Transaction {
@@ -647,6 +662,11 @@ export const api = {
   /** Reads a policy document. Writes nothing — the details come back for review. */
   previewPolicyDocument: (contentBase64: string) =>
     request<PolicyFacts>("/policies/preview", { method: "POST", body: JSON.stringify({ content_base64: contentBase64 }) }),
+
+  listRules: () => request<TransactionRule[]>("/rules"),
+  createRule: (rule: { match_text: string; match_account_id: string | null; repays_account_id: string }) =>
+    request<TransactionRule>("/rules", { method: "POST", body: JSON.stringify(rule) }),
+  deleteRule: (id: string) => request<void>(`/rules/${id}`, { method: "DELETE" }),
 
   createPolicy: (draft: PolicyDraft) => request<Policy>("/policies", { method: "POST", body: JSON.stringify(draft) }),
   updatePolicy: (id: string, patch: Partial<PolicyDraft>) =>

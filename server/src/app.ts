@@ -19,6 +19,7 @@ import { fxRouter } from "./routes/fx.js";
 import { importStatementRouter } from "./routes/importStatement.js";
 import { passkeysRouter } from "./routes/passkeys.js";
 import { policiesRouter } from "./routes/policies.js";
+import { rulesRouter } from "./routes/rules.js";
 import { savingsRouter } from "./routes/savings.js";
 import { transactionsRouter } from "./routes/transactions.js";
 
@@ -104,6 +105,7 @@ app.use("/api/debt-advisor", debtAdvisorRouter);
 app.use("/api/plan", planRouter);
 app.use("/api/categories", categoriesRouter);
 app.use("/api/budgets", budgetsRouter);
+app.use("/api/rules", rulesRouter);
 app.use("/api/debts", debtsRouter);
 app.use("/api/savings", savingsRouter);
 app.use("/api/policies", policiesRouter);

@@ -8,7 +8,7 @@ import CashFlowCard, { type MonthFlow } from "../components/dashboard/CashFlowCa
 import MagnitudeBarList from "../components/dashboard/MagnitudeBarList.js";
 import StatTile from "../components/dashboard/StatTile.js";
 import { api, type Account, type Category, type Transaction } from "../api/client.js";
-import { visibleTransactions } from "../utils/accountBalance.js";
+import { spendingTransactions, visibleTransactions } from "../utils/accountBalance.js";
 import { useAccountScope, useDateRange } from "../contexts/ViewFilterContext.js";
 import { dateRangeLabel, rangeMonthCount, withinRange } from "../utils/dateRange.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
@@ -52,10 +52,13 @@ export default function Analytics() {
   const monthKeys = [...new Set(convertedTx.map((tx) => tx.booking_date.slice(0, 7)))].sort().slice(-TREND_MONTHS);
   const monthFlows: MonthFlow[] = monthKeys.map((key) => {
     const monthTx = convertedTx.filter((tx) => tx.booking_date.startsWith(key));
+    // Spending only on the expenses side: a loan repayment leaves the account
+    // but is not money spent — see spendingTransactions.
+    const monthSpend = spendingTransactions(monthTx);
     return {
       label: monthLabel(key),
       income: monthTx.filter((tx) => tx.amount > 0).reduce((s, tx) => s + tx.amount, 0),
-      expenses: Math.abs(monthTx.filter((tx) => tx.amount < 0).reduce((s, tx) => s + tx.amount, 0)),
+      expenses: Math.abs(monthSpend.filter((tx) => tx.amount < 0).reduce((s, tx) => s + tx.amount, 0)),
     };
   });
 
@@ -67,7 +70,9 @@ export default function Analytics() {
   // the chosen span. Trends keep their full series and say so.
   const rangeMonths = selectedMonths == null ? monthKeys : monthKeys.slice(-selectedMonths);
   const inRange = (date: string) => selectedMonths == null || rangeMonths.includes(date.slice(0, 7));
-  const rangedTx = convertedTx.filter((tx) => inRange(tx.booking_date));
+  // Every total built from this one - spend, share, largest, recurring - is
+  // about spending, so loan repayments are out of all of them.
+  const rangedTx = spendingTransactions(convertedTx).filter((tx) => inRange(tx.booking_date));
   // Matched on the month keys rather than the labels, which are now formatted
   // for reading and no longer look like "2026-07".
   const rangedFlows = monthFlows.filter((_, i) => selectedMonths == null || rangeMonths.includes(monthKeys[i]));

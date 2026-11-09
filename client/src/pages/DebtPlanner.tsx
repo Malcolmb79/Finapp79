@@ -3,7 +3,8 @@ import MonthlyPlan from "../components/MonthlyPlan.js";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type Account, type Transaction } from "../api/client.js";
+import { api, type Account, type Transaction, type TransactionRule } from "../api/client.js";
+import RepaymentRule from "../components/RepaymentRule.js";
 import { accountTypeLabel, amountDrawn, facilityLabel, isBorrowing, accountTxSums, visibleAccounts, visibleTransactions } from "../utils/accountBalance.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { sumInBase, useFxRates } from "../utils/fx.js";
@@ -21,7 +22,21 @@ import { monthsToPayoff } from "../utils/payoff.js";
  * they add is that the payoff picture covers everything owed rather than only
  * what was typed in twice.
  */
-function AccountDebtRow({ account, txSum }: { account: Account; txSum: number }) {
+function AccountDebtRow({
+  account,
+  txSum,
+  accounts,
+  rules,
+  repaymentCount,
+  onRulesChanged,
+}: {
+  account: Account;
+  txSum: number;
+  accounts: Account[];
+  rules: TransactionRule[];
+  repaymentCount: number;
+  onRulesChanged: () => void;
+}) {
   const owed = amountDrawn(account, txSum);
   const payment = account.loan_monthly_payment ?? 0;
   const rate = account.loan_rate ?? 0;
@@ -65,6 +80,18 @@ function AccountDebtRow({ account, txSum }: { account: Account; txSum: number })
           </Link>
         </div>
         <div className="account-row__meta">{detail.join(" · ")}</div>
+        {/* Only for accounts repaid from elsewhere. A credit card or an
+            overdraft is paid on the account it lives on, so its balance
+            already moves on its own and a rule would double it. */}
+        {account.account_type === "loan" && (
+          <RepaymentRule
+            account={account}
+            accounts={accounts}
+            rules={rules}
+            matched={repaymentCount}
+            onChanged={onRulesChanged}
+          />
+        )}
       </div>
       <span className="account-row__balance">{formatCurrency(owed, account.currency)}</span>
     </div>
@@ -74,10 +101,12 @@ function AccountDebtRow({ account, txSum }: { account: Account; txSum: number })
 export default function DebtPlanner() {
   const [allAccounts, setAccounts] = useState<Account[]>([]);
   const [allTransactions, setTransactions] = useState<Transaction[]>([]);
+  const [rules, setRules] = useState<TransactionRule[]>([]);
 
   const refresh = useCallback(() => {
     api.listAccounts().then(setAccounts);
     api.listTransactions().then(setTransactions);
+    api.listRules().then(setRules);
   }, []);
 
   useEffect(refresh, [refresh]);
@@ -91,6 +120,13 @@ export default function DebtPlanner() {
   // is an opening balance that transactions move rather than a frozen
   // number — see accountTxSums.
   const byAccount = accountTxSums(accounts, transactions);
+  // What each rule is actually claiming, so a rule that matches nothing can
+  // say so rather than looking the same as one that works.
+  const repaymentCounts = new Map<string, number>();
+  for (const tx of allTransactions) {
+    if (!tx.repays_account_id) continue;
+    repaymentCounts.set(tx.repays_account_id, (repaymentCounts.get(tx.repays_account_id) ?? 0) + 1);
+  }
   // Anything that is borrowing or could be: an overdrawn balance is debt
   // whatever the account is called, and an arranged facility belongs in the
   // picture even before it's drawn on. Account type isn't the test — a cheque
@@ -164,7 +200,15 @@ export default function DebtPlanner() {
               </p>
             )}
             {borrowing.map((a) => (
-              <AccountDebtRow key={a.id} account={a} txSum={byAccount.get(a.id) ?? 0} />
+              <AccountDebtRow
+                key={a.id}
+                account={a}
+                txSum={byAccount.get(a.id) ?? 0}
+                accounts={allAccounts}
+                rules={rules}
+                repaymentCount={repaymentCounts.get(a.id) ?? 0}
+                onRulesChanged={refresh}
+              />
             ))}
           </>
         ),

@@ -5,6 +5,8 @@ import { requireAuth } from "../middleware/requireAuth.js";
 import { suggestCategoriesWithAi, type MerchantSample } from "../services/aiCategorySuggestion.js";
 import { categoriseImport } from "../services/importCategorise.js";
 import { suggestCategoryId } from "../services/categorySuggestion.js";
+import { annotateRepayments } from "../services/transactionRules.js";
+import { listRules } from "./rules.js";
 import type { Transaction } from "../types.js";
 
 export const transactionsRouter = Router();
@@ -43,7 +45,9 @@ transactionsRouter.get("/", async (req, res) => {
   const rows = (await db.prepare(query).all(...params)) as unknown as Transaction[];
 
   if (!isPending) {
-    res.json(rows);
+    // Which loan each payment repays, worked out here rather than stored, so
+    // changing a rule changes the figures — see services/transactionRules.ts.
+    res.json(annotateRepayments(rows, await listRules(req.user!.id)));
     return;
   }
 

@@ -170,7 +170,7 @@ export function accountBalance(account: Account, txSum: number): number {
  */
 export function accountTxSums(
   accounts: Account[],
-  transactions: { account_id: string; booking_date: string; amount: number }[]
+  transactions: { account_id: string; booking_date: string; amount: number; repays_account_id?: string | null }[]
 ): Map<string, number> {
   const anchors = new Map<string, string | null>();
   for (const account of accounts) {
@@ -180,15 +180,71 @@ export function accountTxSums(
   }
 
   const sums = new Map<string, number>();
-  for (const tx of transactions) {
-    const anchor = anchors.get(tx.account_id);
+  const add = (accountId: string, bookingDate: string, amount: number) => {
+    const anchor = anchors.get(accountId);
     // Strictly after: a transaction booked on the day the balance was entered
     // is assumed to be in it, which is the safer of the two mistakes — it
     // understates a change rather than inventing one.
-    if (anchor && tx.booking_date <= anchor) continue;
-    sums.set(tx.account_id, (sums.get(tx.account_id) ?? 0) + tx.amount);
+    if (anchor && bookingDate <= anchor) return;
+    sums.set(accountId, (sums.get(accountId) ?? 0) + amount);
+  };
+
+  for (const tx of transactions) {
+    add(tx.account_id, tx.booking_date, tx.amount);
+
+    // A loan repayment is two facts: money left the current account, which is
+    // the line above, and what is owed went down, which is this one. The sign
+    // flips because the payment is an outflow where it happened and a
+    // reduction of a debt where it lands — a liability's balance is negative,
+    // so paying it moves that balance towards zero.
+    //
+    // The loan's own anchor applies, not the funding account's: a payment made
+    // before the loan's balance was last entered is already inside that
+    // figure, and counting it again would pay the loan off twice over.
+    if (tx.repays_account_id && tx.repays_account_id !== tx.account_id) {
+      add(tx.repays_account_id, tx.booking_date, -tx.amount);
+    }
   }
   return sums;
+}
+
+/**
+ * Transactions that are spending, as opposed to money moving between accounts.
+ *
+ * A loan repayment leaves the current account, so it is a real outflow and
+ * belongs in the balance. It is not spending: the money became equity in a
+ * debt rather than going out of the picture. Counting it as both would show
+ * €383.87 of expenditure alongside €383.87 of improved net worth — the same
+ * money twice, in opposite directions.
+ *
+ * The same reasoning the monthly plan already applies to debt minimums and
+ * policy premiums that match a transaction.
+ */
+export function spendingTransactions<T extends { repays_account_id?: string | null }>(transactions: T[]): T[] {
+  return transactions.filter((tx) => !tx.repays_account_id);
+}
+
+/**
+ * The other half of each repayment, as transactions in their own right.
+ *
+ * Net worth is the opposite case to spending above. A repayment genuinely
+ * moves money, so dropping it would be wrong — but counting only the half
+ * that happened on the current account shows net worth falling by €383.87 on
+ * the day a loan got €383.87 smaller. The two halves have to be counted
+ * together, and then they cancel, which is the truth: paying a debt leaves you
+ * exactly as wealthy as you were.
+ *
+ * Appended to the list rather than folded into it, because the originals are
+ * still real transactions on the account they happened on. These are not —
+ * nothing lands on a loan — which is why they are derived here and never
+ * stored.
+ */
+export function repaymentMirrors<T extends { account_id: string; amount: number; repays_account_id?: string | null }>(
+  transactions: T[]
+): T[] {
+  return transactions
+    .filter((tx) => tx.repays_account_id && tx.repays_account_id !== tx.account_id)
+    .map((tx) => ({ ...tx, account_id: tx.repays_account_id!, amount: -tx.amount, repays_account_id: null }));
 }
 
 /**

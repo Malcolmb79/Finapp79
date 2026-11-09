@@ -358,3 +358,30 @@ CREATE TABLE IF NOT EXISTS savings_goals (
   target_date TEXT,                  -- nullable ISO date
   created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
 );
+
+-- A standing instruction for what a transaction means, matched on its text.
+--
+-- A personal loan is repaid by a direct debit that lands on whichever account
+-- funds it — the An Post loan's €383.87 appears on AIB, the sterling ones on
+-- Barclays — and nothing at all appears on the loan. So the loan's balance sat
+-- frozen at whatever was last typed in while the payments went out month after
+-- month.
+--
+-- A rule is the durable answer rather than tagging each payment as it arrives:
+-- it is written once and every future payment is attributed by it. Matching on
+-- text scoped to one account is what makes it safe — "AN POST" on AIB is the
+-- loan, and the same words on a different account are not.
+--
+-- No amount in the rule on purpose. Repayments change when a rate moves or a
+-- loan is settled early, and a rule pinned to €383.87 would silently stop
+-- matching at exactly the moment the figure mattered most.
+CREATE TABLE IF NOT EXISTS transaction_rules (
+  id TEXT PRIMARY KEY,               -- generated uuid
+  user_id TEXT REFERENCES users(id),
+  match_text TEXT NOT NULL,          -- case-insensitive substring of description/counterparty
+  match_account_id TEXT REFERENCES accounts(id),  -- null = any account
+  repays_account_id TEXT NOT NULL REFERENCES accounts(id),
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
+);
+
+CREATE INDEX IF NOT EXISTS idx_transaction_rules_user ON transaction_rules (user_id);
