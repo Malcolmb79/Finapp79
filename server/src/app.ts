@@ -20,6 +20,7 @@ import { importStatementRouter } from "./routes/importStatement.js";
 import { passkeysRouter } from "./routes/passkeys.js";
 import { policiesRouter } from "./routes/policies.js";
 import { rulesRouter } from "./routes/rules.js";
+import { cronRouter } from "./routes/cron.js";
 import { savingsRouter } from "./routes/savings.js";
 import { transactionsRouter } from "./routes/transactions.js";
 
@@ -106,6 +107,9 @@ app.use("/api/plan", planRouter);
 app.use("/api/categories", categoriesRouter);
 app.use("/api/budgets", budgetsRouter);
 app.use("/api/rules", rulesRouter);
+// No requireAuth: a scheduled invocation has no session. It guards itself
+// with CRON_SECRET — see routes/cron.ts.
+app.use("/api/cron", cronRouter);
 app.use("/api/debts", debtsRouter);
 app.use("/api/savings", savingsRouter);
 app.use("/api/policies", policiesRouter);

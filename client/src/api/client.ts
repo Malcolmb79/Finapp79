@@ -204,6 +204,10 @@ export interface Account {
   hidden?: boolean;
   /** When a statement was last imported here. Null on accounts never imported to. */
   last_import_at?: string | null;
+  /** When the nightly schedule last reached this account. */
+  last_sync_at?: string | null;
+  /** What went wrong the last time, if anything did. */
+  last_sync_error?: string | null;
   /** The most recent transaction date any import brought in — how current the account is. */
   last_imported_date?: string | null;
 }

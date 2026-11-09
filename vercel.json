@@ -8,6 +8,9 @@
       "maxDuration": 300
     }
   },
+  "crons": [
+    { "path": "/api/cron/sync", "schedule": "0 6 * * *" }
+  ],
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api" },
     { "source": "/(.*)", "destination": "/" }

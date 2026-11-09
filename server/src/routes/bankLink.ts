@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { createHash, randomUUID } from "node:crypto";
-import { db, withTransaction } from "../db/client.js";
+import { db } from "../db/client.js";
+import { recordSyncAttempt, syncAccount } from "../services/accountSync.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import * as enableBanking from "../services/enableBanking.js";
 import type { RemoteTransaction } from "../services/enableBanking.js";
@@ -82,18 +83,13 @@ bankLinkRouter.post("/sessions", async (req, res) => {
   res.json({ linkedAccounts: session.accounts.map((a) => a.uid) });
 });
 
-function signedAmount(tx: RemoteTransaction): number {
-  const magnitude = Math.abs(Number(tx.transaction_amount.amount));
-  return tx.credit_debit_indicator === "DBIT" ? -magnitude : magnitude;
-}
-
 // Some banks (via Enable Banking's remittance_information) include a
 // structured metadata blob in curly braces alongside the real payee name
 // — e.g. a Barclays entry might come as two array elements, "ANTHROPIC"
 // and "{ TransactionSubType : Purchase, PaymentInitiationDateTime : ... }".
 // Drop any element that's just that blob, then strip inline brace content
 // too in case a bank concatenates it onto the same element instead.
-function cleanRemittanceInfo(parts: string[] | undefined): string | null {
+export function cleanRemittanceInfo(parts: string[] | undefined): string | null {
   const cleaned = (parts ?? [])
     .filter((p) => !p.trim().startsWith("{"))
     .join(" ")
@@ -103,7 +99,7 @@ function cleanRemittanceInfo(parts: string[] | undefined): string | null {
   return cleaned || null;
 }
 
-function transactionId(accountUid: string, tx: RemoteTransaction): string {
+export function transactionId(accountUid: string, tx: RemoteTransaction): string {
   if (tx.transaction_id) return tx.transaction_id;
   if (tx.entry_reference) return `${accountUid}:${tx.entry_reference}`;
   const hashInput = `${accountUid}:${tx.booking_date}:${tx.transaction_amount.amount}:${(tx.remittance_information ?? []).join(" ")}`;
@@ -150,91 +146,17 @@ bankLinkRouter.post("/accounts/:accountId/sync", async (req, res) => {
     return;
   }
 
-  const transactions = await enableBanking.listAccountTransactions(accountId);
-
-  let synced = 0;
-  await withTransaction(async (tx) => {
-    const insert = tx.prepare(
-      `INSERT INTO transactions (id, user_id, account_id, booking_date, amount, currency, description, counterparty, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'enablebanking')
-       ON CONFLICT (id) DO NOTHING`
-    );
-    for (const t of transactions) {
-      const result = await insert.run(
-        transactionId(accountId, t),
-        req.user!.id,
-        accountId,
-        t.booking_date,
-        signedAmount(t),
-        t.transaction_amount.currency,
-        cleanRemittanceInfo(t.remittance_information),
-        t.creditor?.name ?? t.debtor?.name ?? null
-      );
-      if (result.changes > 0) synced++;
-    }
-  });
-
-  // Best-effort: a bank not supporting balance retrieval shouldn't fail the
-  // whole sync, since the transactions above already succeeded.
+  // The same code the nightly schedule runs — see services/accountSync.ts for
+  // why this is shared rather than duplicated.
   try {
-    const balances = await enableBanking.getAccountBalances(accountId);
-    const booked = pickBalance(balances, BOOKED_BALANCE_TYPES);
-    const reported = pickBalance(balances, AVAILABLE_BALANCE_TYPES);
-    // When a bank sends only one usable figure it lands in both lists, and
-    // storing it twice renders as "€3,099.26 available" under a balance of
-    // €3,099.26 — noise dressed up as information. It is not the bank's own
-    // available funds either: AIB's app shows €6,599.26 there, the balance
-    // plus the overdraft, a number the API never sends. So this is kept only
-    // when it says something the balance doesn't, and what's spendable is
-    // otherwise reconstructed from the overdraft (see accountAvailable).
-    const available = reported !== null && reported !== booked ? reported : null;
-    if (booked !== null || available !== null) {
-      // A balance set by hand is a deliberate correction, so a sync leaves it
-      // alone — clearing it in the UI is what hands the account back to the
-      // bank's figure. available_balance has no manual counterpart, so it
-      // always takes the fresh number.
-      await db
-        .prepare(
-          `UPDATE accounts
-              SET balance = ?,
-                  synced_balance = ?,
-                  available_balance = ?,
-                  balance_synced_at = ?,
-                  balance_is_manual = FALSE
-            WHERE id = ?`
-        )
-        // The bank's figure wins, and the manual flag is cleared with it.
-        //
-        // A hand-set balance used to survive every later sync, so an account
-        // corrected by hand once never updated again — it read as simply
-        // stuck. A manual figure is an override until the bank says otherwise,
-        // which is the only version of "override" that doesn't quietly stop
-        // the account working.
-        .run(booked, booked, available, new Date().toISOString(), accountId);
-    }
+    const result = await syncAccount(accountId, req.user!.id, { transactionId, cleanRemittanceInfo });
+    await recordSyncAttempt(accountId, null);
+    res.json(result);
   } catch (err) {
-    console.error(`Failed to sync balance for account ${accountId}:`, err);
+    // Recorded even here, so a failure the owner saw by pressing the button
+    // still shows on the account afterwards rather than vanishing with the
+    // error toast.
+    await recordSyncAttempt(accountId, err instanceof Error ? err.message : "sync failed");
+    throw err;
   }
-
-  // The overdraft is on the account details resource, not the balances one.
-  // Only filled in when it hasn't been set by hand — an entered figure is the
-  // user's own statement about their facility and outranks the bank's.
-  //
-  // Plenty of banks send nothing here: AIB returns credit_limit: null while
-  // its own app shows an arranged overdraft of 3,500 against the account. So
-  // this fills the field in where it can and the UI still has to let the
-  // figure be entered by hand.
-  try {
-    const details = await enableBanking.getAccountDetails(accountId);
-    const limit = details.credit_limit ? Number(details.credit_limit.amount) : null;
-    if (limit !== null && Number.isFinite(limit)) {
-      await db
-        .prepare("UPDATE accounts SET overdraft_limit = ? WHERE id = ? AND overdraft_limit IS NULL")
-        .run(Math.abs(limit), accountId);
-    }
-  } catch (err) {
-    console.error(`Failed to sync overdraft limit for account ${accountId}:`, err);
-  }
-
-  res.json({ synced, totalFetched: transactions.length });
 });

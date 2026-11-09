@@ -79,7 +79,7 @@ connections, so BEGIN on one and an INSERT on another wouldn't actually be
 in the same transaction. Its callback receives a `tx` with its own
 `.prepare()`, bound to that one connection; callers use `tx.prepare(...)`
 inside the callback instead of the outer `db.prepare(...)` (see
-`bankLink.ts`'s sync route or `importCsv.ts`).
+`services/accountSync.ts` or `importCsv.ts`).
 
 Deliberately on Express 5, not 4: Express 4 doesn't catch rejected promises
 thrown inside `async (req, res) =>` route handlers, so an unhandled
@@ -327,6 +327,24 @@ why, and for the migration that added it retroactively.
   and only the ones that match no transaction are subtracted from the surplus.
   A premium debited from a tracked account is already inside `typicalSpend` —
   the same double-count the plan already avoids for debt minimums.
+
+
+### Scheduled syncing
+
+`vercel.json`'s `crons` entry calls `GET /api/cron/sync` once a day, and
+nothing else calls it. It is deliberately not behind `requireAuth` — a
+scheduled invocation has no session by definition — so it guards itself with
+`CRON_SECRET`, which Vercel sends as a bearer token. With that unset the route
+is open in dev and shut in production, so a deployment where nobody set the
+secret fails closed rather than open (`routes/cron.ts`).
+
+The sync itself lives in `services/accountSync.ts` so the schedule runs
+exactly what the button runs. Two implementations of "sync an account" would
+drift, and the one that drifts is always the one nobody is watching. Failures
+are recorded per account (`last_sync_at` / `last_sync_error`) and shown on the
+Accounts page: an Enable Banking authorisation lapses after roughly 90 days,
+and an account that silently stops updating looks exactly like an account with
+nothing happening on it.
 
 ## Deployment (Vercel)
 

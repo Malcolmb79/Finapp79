@@ -560,6 +560,20 @@ export default function Accounts() {
                         {a.last_imported_date && <> · covers to {a.last_imported_date}</>}
                       </div>
                     )}
+                    {/* The nightly sync is unattended, so its failures have to
+                        surface where the account is. A bank authorisation
+                        lapses after about 90 days, and without this the
+                        account just stops updating — which looks exactly like
+                        an account with nothing happening on it. */}
+                    {a.last_sync_error && (
+                      <div
+                        className="account-row__meta"
+                        style={{ fontSize: "0.72rem", color: "var(--critical)", display: "flex", alignItems: "center", gap: "0.3rem" }}
+                      >
+                        <AlertTriangle size={12} />
+                        Sync failed{a.last_sync_at ? ` ${relativeDay(a.last_sync_at)}` : ""} — {a.last_sync_error}
+                      </div>
+                    )}
                   </div>
                   {/* Two uploads that read the same file completely
                       differently, so they are labelled rather than left as

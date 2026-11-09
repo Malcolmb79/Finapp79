@@ -400,3 +400,11 @@ ALTER TABLE transaction_rules ADD COLUMN IF NOT EXISTS category_id INTEGER REFER
 -- A rule with neither action does nothing at all, which is a rule nobody
 -- meant to write. The routes refuse one; this is the backstop.
 ALTER TABLE transaction_rules ALTER COLUMN repays_account_id DROP NOT NULL;
+
+-- When the schedule last reached this account, and what went wrong if
+-- anything did. An expired bank authorisation (they lapse after roughly 90
+-- days) is the common failure, and without somewhere to record it the account
+-- simply stops updating -- which looks exactly like an account with nothing
+-- happening on it.
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS last_sync_at TEXT;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS last_sync_error TEXT;
