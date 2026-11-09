@@ -2,6 +2,7 @@ import { Landmark, LineChart, Scale, Sparkles } from "lucide-react";
 import MonthlyPlan from "../components/MonthlyPlan.js";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, type Account, type Transaction } from "../api/client.js";
 import { accountTypeLabel, amountDrawn, facilityLabel, isBorrowing, accountTxSums, visibleAccounts, visibleTransactions } from "../utils/accountBalance.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
@@ -51,7 +52,18 @@ function AccountDebtRow({ account, txSum }: { account: Account; txSum: number })
   return (
     <div className="account-row" style={{ flexWrap: "wrap" }}>
       <div className="account-row__info">
-        <div className="account-row__name">{account.name}</div>
+        {/* Nothing on this page is editable, so the name is free to be the way
+            through to the payments themselves — which is the question a payoff
+            estimate raises: what have I actually been paying it? */}
+        <div className="account-row__name">
+          <Link
+            to={`/transactions?account=${encodeURIComponent(account.id)}`}
+            style={{ color: "inherit", textDecoration: "none", borderBottom: "1px dotted var(--text-muted)" }}
+            title={`Show transactions on ${account.name}`}
+          >
+            {account.name}
+          </Link>
+        </div>
         <div className="account-row__meta">{detail.join(" · ")}</div>
       </div>
       <span className="account-row__balance">{formatCurrency(owed, account.currency)}</span>

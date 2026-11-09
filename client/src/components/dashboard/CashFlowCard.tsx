@@ -1,11 +1,33 @@
+import { Link } from "react-router-dom";
 import { formatCurrency } from "../../utils/formatCurrency.js";
 import { useMeasuredSize } from "../../utils/useMeasuredSize.js";
 import StatTile from "./StatTile.js";
+
+/**
+ * The transaction list, windowed to one calendar month.
+ *
+ * The last day is computed rather than assumed — day 0 of the next month is
+ * the previous month's last day, which gets February and the 30-day months
+ * right without a table of lengths.
+ */
+function monthHref(month: string): string {
+  const [year, m] = month.split("-").map(Number);
+  const lastDay = new Date(year, m, 0).getDate();
+  return `/transactions?from=${month}-01&to=${month}-${String(lastDay).padStart(2, "0")}`;
+}
 
 export interface MonthFlow {
   label: string;
   income: number;
   expenses: number;
+  /**
+   * Where this bar's figures came from, as `YYYY-MM`.
+   *
+   * Set so the bar can be opened: a month's income and spending are a question
+   * with an answer underneath them, and the answer is that month's
+   * transactions.
+   */
+  month?: string;
 }
 
 const BAR_MAX_THICKNESS = 20;
@@ -81,12 +103,27 @@ export default function CashFlowCard({
               const baseline = chartHeight - 1;
               const x1 = slotX + slot / 2 - barWidth - 2;
               const x2 = slotX + slot / 2 + 2;
-              return (
-                <g key={m.label}>
+              const bars = (
+                <>
                   <rect x={x1} y={baseline - incomeH} width={barWidth} height={incomeH} rx="4" fill="var(--seq-450)" />
                   <rect x={x2} y={baseline - expenseH} width={barWidth} height={expenseH} rx="4" fill="var(--text-muted)" opacity="0.55" />
-                  <title>{`${m.label}: ${money(m.income)} in, ${money(m.expenses)} out`}</title>
-                </g>
+                  {/* A transparent rect over the whole slot, so the month can
+                      be hit anywhere above its label rather than only on two
+                      thin bars — a month that barely spent anything has almost
+                      no bar to aim at. */}
+                  <rect x={slotX} y={0} width={slot} height={chartHeight} fill="transparent" />
+                  <title>
+                    {`${m.label}: ${money(m.income)} in, ${money(m.expenses)} out`}
+                    {m.month ? " — open this month" : ""}
+                  </title>
+                </>
+              );
+              return m.month ? (
+                <Link key={m.label} to={monthHref(m.month)} style={{ cursor: "pointer" }}>
+                  {bars}
+                </Link>
+              ) : (
+                <g key={m.label}>{bars}</g>
               );
             })}
           </svg>

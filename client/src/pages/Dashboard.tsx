@@ -303,6 +303,8 @@ export default function Dashboard() {
       label: monthLabel(key),
       income: monthTx.filter((tx) => tx.amount > 0).reduce((s, tx) => s + tx.amount, 0),
       expenses: Math.abs(monthTx.filter((tx) => tx.amount < 0).reduce((s, tx) => s + tx.amount, 0)),
+      // What the bar is made of, so clicking it opens exactly that.
+      month: key,
     };
   });
 

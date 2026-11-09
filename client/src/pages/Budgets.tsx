@@ -2,8 +2,18 @@ import { Pencil, Plus, Sparkles, Target } from "lucide-react";
 import BudgetAdviser from "../components/BudgetAdviser.js";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, type Budget, type Category } from "../api/client.js";
 import { budgetStatus } from "../utils/budgetStatus.js";
+
+/**
+ * The first of the current month, matching the window `GET /api/budgets`
+ * counts `spent` over — so a drill-through from a budget opens exactly the
+ * transactions that figure is made of.
+ */
+function monthStart(): string {
+  return `${new Date().toISOString().slice(0, 7)}-01`;
+}
 
 export default function Budgets() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -126,7 +136,17 @@ export default function Budgets() {
                 return (
                   <div className="budget-row" key={b.id}>
                     <div className="budget-row__meta">
-                      <span>{b.category_name}</span>
+                      {/* Windowed to this month, because that is what `spent`
+                          counts. Linking to the category's whole history would
+                          open a list adding up to a different number than the
+                          one it was clicked from. */}
+                      <Link
+                        to={`/transactions?category=${b.category_id}&from=${monthStart()}`}
+                        style={{ color: "inherit", textDecoration: "none", borderBottom: "1px dotted var(--text-muted)" }}
+                        title={`Show this month's ${b.category_name} transactions`}
+                      >
+                        {b.category_name}
+                      </Link>
                       {/* The limit is editable in place: a figure agreed with
                           the adviser is a starting point, and changing it
                           shouldn't mean deleting the budget and setting it

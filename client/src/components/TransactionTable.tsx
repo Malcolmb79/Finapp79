@@ -1,4 +1,4 @@
-import { ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { Account, Category, Transaction } from "../api/client.js";
@@ -13,6 +13,26 @@ function formatDateHeader(dateStr: string): string {
 
 /** Sentinel for "has no category" — distinct from "" , which is no filter. */
 const UNCATEGORISED = "none";
+
+/**
+ * Names the date window in the words the figure that set it would use.
+ *
+ * A whole calendar month says the month's name, because that is what was
+ * clicked on a cash flow bar — "1–31 Mar" is the same span described worse.
+ */
+function dateWindowLabel(from: string, to: string): string {
+  const month = (iso: string) =>
+    new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { month: "short", year: "numeric" });
+  const day = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+
+  if (from && to) {
+    const lastOfMonth = new Date(Number(to.slice(0, 4)), Number(to.slice(5, 7)), 0).getDate();
+    const wholeMonth = from.slice(8) === "01" && from.slice(0, 7) === to.slice(0, 7) && Number(to.slice(8)) === lastOfMonth;
+    if (wholeMonth) return month(from);
+    return `${day(from)} – ${day(to)}`;
+  }
+  return from ? `From ${day(from)}` : `Up to ${day(to)}`;
+}
 
 export default function TransactionTable({
   transactions,
@@ -37,6 +57,17 @@ export default function TransactionTable({
   const [searchParams, setSearchParams] = useSearchParams();
   const accountId = searchParams.get("account") ?? "";
   const query = searchParams.get("q") ?? "";
+  /**
+   * An inclusive booking-date window, as two ISO dates.
+   *
+   * Every figure that describes a period — a month's spending on a cash flow
+   * bar, a budget's spend so far — needs this to drill into, because without
+   * it the list that opens covers a different span than the number clicked and
+   * adds up to something else. A window is set by a link rather than by a
+   * control here: it arrives already matching the figure it came from.
+   */
+  const from = searchParams.get("from") ?? "";
+  const to = searchParams.get("to") ?? "";
 
   // Replace, not push: changing a filter is adjusting the current view, not
   // a new place. Otherwise Back walks keystroke by keystroke through a
@@ -91,6 +122,10 @@ export default function TransactionTable({
     const needle = query.trim().toLowerCase();
     return transactions.filter((tx) => {
       if (accountId && tx.account_id !== accountId) return false;
+      // Both ends inclusive: a window of a calendar month is written as its
+      // first and last day, and an exclusive end would quietly drop the 31st.
+      if (from && tx.booking_date < from) return false;
+      if (to && tx.booking_date > to) return false;
       if (categoryFilter === UNCATEGORISED) {
         if (tx.category_id != null) return false;
       } else if (categoryFilter && tx.category_id !== Number(categoryFilter)) {
@@ -112,7 +147,9 @@ export default function TransactionTable({
         .toLowerCase()
         .includes(needle);
     });
-  }, [transactions, accountId, categoryFilter, query, accountsById, categoryName]);
+  }, [transactions, accountId, categoryFilter, query, from, to, accountsById, categoryName]);
+
+  const filtered = Boolean(query || accountId || categoryFilter || from || to);
 
   const groups = useMemo(() => {
     const byDate = new Map<string, Transaction[]>();
@@ -170,13 +207,40 @@ export default function TransactionTable({
             ))}
           </select>
         )}
-        {(query || accountId || categoryFilter) && (
+        {/* The window has no control of its own — it arrives on a link from
+            whatever figure was clicked. So it is shown as a chip that can be
+            dropped, rather than filtering the list with nothing on screen
+            saying so. */}
+        {(from || to) && (
+          <button
+            // Both ends in one call. Two successive setSearchParams updaters
+            // are batched and each is handed the same pre-update params, so
+            // the second overwrites the first's result and one end survives.
+            onClick={() =>
+              setSearchParams(
+                (current) => {
+                  const next = new URLSearchParams(current);
+                  next.delete("from");
+                  next.delete("to");
+                  return next;
+                },
+                { replace: true }
+              )
+            }
+            title="Show every date"
+            style={{ fontSize: "0.78rem", display: "flex", alignItems: "center", gap: "0.3rem" }}
+          >
+            {dateWindowLabel(from, to)}
+            <X size={12} />
+          </button>
+        )}
+        {filtered && (
           <button
             onClick={() =>
               setSearchParams(
                 (current) => {
                   const next = new URLSearchParams(current);
-                  for (const key of ["q", "account", "category"]) next.delete(key);
+                  for (const key of ["q", "account", "category", "from", "to"]) next.delete(key);
                   return next;
                 },
                 { replace: true }
@@ -191,7 +255,7 @@ export default function TransactionTable({
 
       {/* Says what's being looked at rather than leaving a short list to be
           mistaken for the whole history. */}
-      {(query || accountId || categoryFilter) && (
+      {filtered && (
         <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", margin: "0 0 0.5rem" }}>
           {visible.length} of {transactions.length} shown
         </p>

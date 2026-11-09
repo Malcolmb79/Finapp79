@@ -105,6 +105,11 @@ export default function Accounts() {
   // number — see accountTxSums.
   const byAccount = accountTxSums(accounts, transactions);
 
+  // What's behind each balance, so the row can offer to show it. An account
+  // with nothing on it says so rather than offering an empty list.
+  const txCount = new Map<string, number>();
+  for (const tx of transactions) txCount.set(tx.account_id, (txCount.get(tx.account_id) ?? 0) + 1);
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
@@ -794,6 +799,18 @@ export default function Accounts() {
                         </span>
                         <Pencil size={12} color="var(--text-muted)" />
                       </button>
+                      {/* The balance is a figure you can ask about: this is
+                          the way through to what it's made of. Sits under the
+                          number rather than on the row's name, which is
+                          already the rename control. */}
+                      {(txCount.get(a.id) ?? 0) > 0 && (
+                        <Link
+                          to={`/transactions?account=${encodeURIComponent(a.id)}`}
+                          style={{ display: "block", fontSize: "0.72rem", color: "var(--accent)", textDecoration: "none" }}
+                        >
+                          {txCount.get(a.id)} transactions →
+                        </Link>
+                      )}
                       {/* Always sits under the balance, so the two figures can
                           be read against each other the way the bank's own app
                           shows them. A facility is borrowing, so it lands here
