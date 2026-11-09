@@ -1,10 +1,11 @@
-import { Landmark, LineChart, Scale, Sparkles } from "lucide-react";
+import { Landmark, LineChart, Pencil, Scale, Sparkles } from "lucide-react";
 import MonthlyPlan from "../components/MonthlyPlan.js";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Account, type Transaction, type TransactionRule } from "../api/client.js";
 import RepaymentRule from "../components/RepaymentRule.js";
+import LoanTermsEditor from "../components/LoanTermsEditor.js";
 import { accountTypeLabel, amountDrawn, facilityLabel, isBorrowing, accountTxSums, visibleAccounts, visibleTransactions } from "../utils/accountBalance.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { sumInBase, useFxRates } from "../utils/fx.js";
@@ -17,10 +18,11 @@ import { monthsToPayoff } from "../utils/payoff.js";
 /**
  * A borrowing account, as the planner shows it.
  *
- * These aren't editable here — the balance comes from the account and the
- * terms from its agreement, so the place to change either is the account. What
- * they add is that the payoff picture covers everything owed rather than only
- * what was typed in twice.
+ * Every term the payoff maths uses is editable here, because this is where
+ * the maths is shown: a rate that moved between statements, a payment that
+ * changed, a figure the agreement reader got wrong. Reading an agreement is
+ * still the better route when there is one — it comes with the sentence each
+ * figure was read from — but it cannot be the only one.
  */
 function AccountDebtRow({
   account,
@@ -41,6 +43,7 @@ function AccountDebtRow({
   const payment = account.loan_monthly_payment ?? 0;
   const rate = account.loan_rate ?? 0;
   const months = owed > 0 && payment > 0 ? monthsToPayoff(owed, rate, payment) : null;
+  const [editing, setEditing] = useState(false);
 
   const detail = [
     accountTypeLabel(account),
@@ -67,9 +70,9 @@ function AccountDebtRow({
   return (
     <div className="account-row" style={{ flexWrap: "wrap" }}>
       <div className="account-row__info">
-        {/* Nothing on this page is editable, so the name is free to be the way
-            through to the payments themselves — which is the question a payoff
-            estimate raises: what have I actually been paying it? */}
+        {/* The name goes through to the payments themselves, which is the
+            question a payoff estimate raises: what have I actually been paying
+            it? Editing lives on the pencil beside the figure instead. */}
         <div className="account-row__name">
           <Link
             to={`/transactions?account=${encodeURIComponent(account.id)}`}
@@ -79,7 +82,19 @@ function AccountDebtRow({
             {account.name}
           </Link>
         </div>
-        <div className="account-row__meta">{detail.join(" · ")}</div>
+        {editing ? (
+          <LoanTermsEditor
+            account={account}
+            owed={owed}
+            onSaved={() => {
+              setEditing(false);
+              onRulesChanged();
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        ) : (
+          <div className="account-row__meta">{detail.join(" · ")}</div>
+        )}
         {/* Only for accounts repaid from elsewhere. A credit card or an
             overdraft is paid on the account it lives on, so its balance
             already moves on its own and a rule would double it. */}
@@ -93,7 +108,24 @@ function AccountDebtRow({
           />
         )}
       </div>
-      <span className="account-row__balance">{formatCurrency(owed, account.currency)}</span>
+      <button
+        onClick={() => setEditing((open) => !open)}
+        title="Edit this debt’s terms"
+        aria-label={`Edit the terms of ${account.name}`}
+        style={{
+          background: "transparent",
+          border: "none",
+          padding: 0,
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          gap: "0.35rem",
+          marginLeft: "auto",
+        }}
+      >
+        <span className="account-row__balance">{formatCurrency(owed, account.currency)}</span>
+        <Pencil size={12} color="var(--text-muted)" />
+      </button>
     </div>
   );
 }
