@@ -35,7 +35,7 @@ const FREQUENCY_LABEL: Record<string, string> = {
 function PolicyCard({ policy, onChanged }: { policy: Policy; onChanged: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [reading, setReading] = useState(false);
-  const [facts, setFacts] = useState<PolicyFacts | null>(null);
+  const [facts, setFacts] = useState<PolicyFacts[] | null>(null);
   const [form, setForm] = useState<PolicyFormMode | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -47,7 +47,9 @@ function PolicyCard({ policy, onChanged }: { policy: Policy; onChanged: () => vo
     setReading(true);
     setNotice(null);
     try {
-      setFacts(await api.previewPolicyDocument(await fileToBase64(file)));
+      const read = await api.previewPolicyDocument(await fileToBase64(file));
+      if (read.length === 0) setNotice("Nothing in that document looked like a policy.");
+      else setFacts(read);
     } catch (err) {
       setNotice(err instanceof Error ? err.message : "Could not read that document.");
     } finally {
@@ -284,7 +286,7 @@ function PolicyCard({ policy, onChanged }: { policy: Policy; onChanged: () => vo
 
 export default function Policies() {
   const [policies, setPolicies] = useState<Policy[]>([]);
-  const [facts, setFacts] = useState<PolicyFacts | null>(null);
+  const [facts, setFacts] = useState<PolicyFacts[] | null>(null);
   const [adding, setAdding] = useState(false);
   const [reading, setReading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -313,7 +315,9 @@ export default function Policies() {
     setReading(true);
     setNotice(null);
     try {
-      setFacts(await api.previewPolicyDocument(await fileToBase64(file)));
+      const read = await api.previewPolicyDocument(await fileToBase64(file));
+      if (read.length === 0) setNotice("Nothing in that document looked like a policy.");
+      else setFacts(read);
     } catch (err) {
       setNotice(err instanceof Error ? err.message : "Could not read that document.");
     } finally {

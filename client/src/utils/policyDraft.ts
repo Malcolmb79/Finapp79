@@ -121,10 +121,27 @@ export function emptyDraft(currency = "EUR"): PolicyDraftFields {
   };
 }
 
-export function draftFromFacts(facts: PolicyFacts, existing?: Policy | null): PolicyDraftFields {
+/**
+ * A name that tells one benefit from another.
+ *
+ * Two death benefits on one schedule routinely share a policy number, so the
+ * number cannot do this on its own — the document's own benefit number is what
+ * separates them, and failing that their position in the document. The insurer
+ * alone would give both the same name and leave the owner guessing which card
+ * was which.
+ */
+export function benefitLabel(facts: PolicyFacts, index: number): string {
+  const insurer = facts.insurer ?? "Life policy";
+  if (facts.siblings <= 1) return insurer;
+
+  const numbered = facts.benefitName?.match(/benefit\s*(?:number\s*)?(\d+)/i);
+  return numbered ? `${insurer} — benefit ${numbered[1]}` : `${insurer} — ${index + 1}`;
+}
+
+export function draftFromFacts(facts: PolicyFacts, existing?: Policy | null, index = 0): PolicyDraftFields {
   return {
     ...emptyDraft(),
-    name: existing?.name ?? facts.insurer ?? "Life policy",
+    name: existing?.name ?? benefitLabel(facts, index),
     insurer: existing?.insurer ?? facts.insurer ?? "",
     policyNumber: existing?.policy_number ?? facts.policyNumber ?? "",
     currency: existing?.currency ?? facts.currency ?? "USD",

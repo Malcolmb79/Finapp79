@@ -18,6 +18,7 @@ import {
 } from "../utils/accountBalance.js";
 import { bankAccess } from "../utils/bankAccess.js";
 import { fileToBase64 } from "../utils/fileBytes.js";
+import { accountRef } from "../utils/accountRef.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 
 /**
@@ -546,6 +547,14 @@ export default function Accounts() {
                       {a.hidden && <span style={{ color: "var(--critical)" }}>Hidden from totals · </span>}
                       {accountTypeLabel(a)} ·{" "}
                       {a.source === "enablebanking" ? a.institution_name ?? "Linked via Enable Banking" : "Manual"} · {a.currency}
+                      {/* The number is what separates two accounts of the same
+                          type at the same bank, which a name often doesn't.
+                          Shortened: the tail is the part a bank quotes back,
+                          and the rest has no business sitting on an open
+                          screen. */}
+                      {accountRef(a) && (
+                        <span title="The last digits of this account's number"> · {accountRef(a)}</span>
+                      )}
                     </div>
                     {/* On the row rather than only inside the history panel:
                         whether an account is up to date is the question you

@@ -63,9 +63,26 @@ import {
 
 const MODEL = "claude-opus-5";
 
+/**
+ * One policy read out of a document.
+ *
+ * A reader returns a list of these, because one document regularly describes
+ * more than one: a life policy schedule often carries a death benefit per life
+ * assured, each with its own cover amount. The document-level facts — insurer,
+ * currency, key terms, how it was read — are repeated on each, so a single
+ * policy is exactly what it always was and a caller that wants one can take
+ * the first without unwrapping anything.
+ */
 export interface PolicyFacts {
   insurer: string | null;
   policyNumber: string | null;
+  /**
+   * What the document calls this benefit, when it names them.
+   *
+   * The thing that tells two benefits apart when they share a policy number,
+   * which on a schedule covering two lives they usually do.
+   */
+  benefitName: string | null;
   currency: string | null;
   /** Sum assured — what pays out on death. Protection, never wealth. */
   coverAmount: ExtractedField<number> | null;
@@ -73,6 +90,19 @@ export interface PolicyFacts {
   surrenderValue: ExtractedField<number> | null;
   premium: ExtractedField<number> | null;
   premiumFrequency: "monthly" | "quarterly" | "annual" | null;
+  /**
+   * A premium the document states only as a combined figure across benefits.
+   *
+   * Kept apart from `premium` rather than divided between the policies. A
+   * schedule that quotes one total for two benefits has not said what either
+   * costs, and splitting it evenly would be inventing the answer. Set only
+   * when the document gives no per-benefit premium, so a screen can show what
+   * was actually stated and let the figures be assigned by someone who knows.
+   */
+  totalPremium: ExtractedField<number> | null;
+  totalPremiumFrequency: "monthly" | "quarterly" | "annual" | null;
+  /** How many policies the document described in all, this one included. */
+  siblings: number;
   startDate: ExtractedField<string> | null;
   maturityDate: ExtractedField<string> | null;
   /** The date the figures above were true on — a statement's "as at". */
@@ -101,21 +131,37 @@ function field(type: "number" | "string", description: string) {
   };
 }
 
-const SCHEMA = {
+/**
+ * One policy or benefit, as the document describes it.
+ *
+ * Separate from the document around it because a schedule routinely covers
+ * more than one. A single life policy can carry two death benefits, one per
+ * life assured, each with its own cover and sometimes its own premium — and
+ * reading such a document into one set of fields produced something that was
+ * not either of them: the cover of the first benefit beside the premium of
+ * both. Nothing on screen looked wrong, which is what made it worth fixing.
+ */
+const POLICY_ITEM = {
   type: "object",
   properties: {
-    insurer: { type: ["string", "null"], description: "The insurance company's name" },
-    policy_number: { type: ["string", "null"] },
-    currency: { type: ["string", "null"], description: "ISO code, e.g. ZAR, GBP, EUR" },
+    policy_number: { type: ["string", "null"], description: "The policy or benefit number, exactly as printed" },
+    benefit_name: {
+      type: ["string", "null"],
+      description:
+        "What the document calls this benefit, e.g. 'Death Benefit - Life 1'. This is how two benefits sharing one policy number are told apart, so give it whenever the document names them.",
+    },
     cover_amount: field(
       "number",
-      "The sum assured / cover amount / benefit payable on death, as a plain number. NOT any cash or fund value."
+      "The sum assured / cover amount / benefit payable on death FOR THIS BENEFIT ONLY, as a plain number. NOT any cash or fund value, and never a total across benefits."
     ),
     surrender_value: field(
       "number",
-      "The surrender value / cash value / fund value / investment value — what the policy is worth if cashed in today, as a plain number. Null for a pure risk or term policy, which has none."
+      "The surrender value / cash value / fund value / investment value — what this policy is worth if cashed in today, as a plain number. Null for a pure risk or term policy, which has none."
     ),
-    premium: field("number", "The recurring premium, as a plain number"),
+    premium: field(
+      "number",
+      "The recurring premium FOR THIS BENEFIT ONLY, as a plain number. Null where the document gives only a combined or total premium across benefits — report that as total_premium instead, never here."
+    ),
     // Enum with no sibling `type`. Declaring both is rejected outright —
     // "Enum value 'monthly' does not match declared type '['string','null']'"
     // — because the enum's values are checked against the union rather than
@@ -125,6 +171,37 @@ const SCHEMA = {
     start_date: field("string", "Date the policy commenced, as YYYY-MM-DD"),
     maturity_date: field("string", "Date the policy matures or expires, as YYYY-MM-DD"),
     valued_at: field("string", "The 'as at' date the values on this statement were calculated, as YYYY-MM-DD"),
+  },
+  required: [
+    "policy_number",
+    "benefit_name",
+    "cover_amount",
+    "surrender_value",
+    "premium",
+    "premium_frequency",
+    "start_date",
+    "maturity_date",
+    "valued_at",
+  ],
+  additionalProperties: false,
+} as const;
+
+const SCHEMA = {
+  type: "object",
+  properties: {
+    insurer: { type: ["string", "null"], description: "The insurance company's name" },
+    currency: { type: ["string", "null"], description: "ISO code, e.g. ZAR, GBP, EUR" },
+    policies: {
+      type: "array",
+      description:
+        "One entry per distinct policy or benefit the document describes. A schedule listing two death benefits has two entries, even when they share a policy number.",
+      items: POLICY_ITEM,
+    },
+    total_premium: field(
+      "number",
+      "A premium the document states as a combined or total figure across all the benefits, as a plain number. Null when every premium is stated per benefit."
+    ),
+    total_premium_frequency: { enum: ["monthly", "quarterly", "annual", null] },
     key_terms: {
       type: "array",
       description: "Everything else the policyholder should know: exclusions, waiting periods, premium escalation, cessions, loans against the policy",
@@ -140,19 +217,7 @@ const SCHEMA = {
       },
     },
   },
-  required: [
-    "insurer",
-    "policy_number",
-    "currency",
-    "cover_amount",
-    "surrender_value",
-    "premium",
-    "premium_frequency",
-    "start_date",
-    "maturity_date",
-    "valued_at",
-    "key_terms",
-  ],
+  required: ["insurer", "currency", "policies", "total_premium", "total_premium_frequency", "key_terms"],
   additionalProperties: false,
 } as const;
 
@@ -197,6 +262,8 @@ export function dropConfusedSurrender(
 const DISTINCTION = [
   "The cover amount and the surrender value are different things and must never be confused: the cover amount (sum assured) is paid out on death, while the surrender value (also called cash value, fund value or investment value) is what the policy is worth if cashed in today.",
   "A term or pure risk policy has a cover amount and no surrender value. Where the document states no cash, fund or surrender value, report surrender_value as null — never repeat the cover amount there.",
+  "One document often describes more than one policy or benefit: a schedule may list a death benefit for each life assured. Report one entry in policies for each, even where they share a policy number, and name each in benefit_name. Never merge two benefits into one entry, and never put one benefit's cover beside another's premium.",
+  "Where a premium is stated only as a combined or total figure across benefits, report it as total_premium and leave each policy's own premium null. Do not divide a total between benefits.",
 ];
 
 const SYSTEM_PROMPT = [
@@ -225,12 +292,14 @@ const SCAN_SYSTEM_PROMPT = [
 function buildPrompt(part: string, index: number, total: number): string {
   return [
     total > 1
-      ? `Extract the details of this life insurance policy. This is section ${index + 1} of ${total} — report only what appears in this section and null for the rest.`
-      : "Extract the details of this life insurance policy.",
+      ? `Extract the policies this document describes. This is section ${index + 1} of ${total} — report only what appears in this section and null for the rest.`
+      : "Extract the policies this document describes.",
     "",
     "Report null for anything the document does not state. Do not calculate a missing field from the others.",
     "",
-    "cover_amount is the benefit paid on death. surrender_value is what the policy is worth if cashed in today — look for 'surrender value', 'cash value', 'fund value', 'investment value' or 'policy value'. If the document gives no such figure, surrender_value is null.",
+    "List one entry in policies for every distinct policy or benefit. A schedule showing two death benefits — one per life assured — has two entries, even when one policy number covers both. Give each a benefit_name from the document's own wording so they can be told apart, and never combine two into one entry.",
+    "",
+    "cover_amount is the benefit paid on death, for that benefit alone. surrender_value is what the policy is worth if cashed in today — look for 'surrender value', 'cash value', 'fund value', 'investment value' or 'policy value'. If the document gives no such figure, surrender_value is null.",
     "",
     "For key_terms, list what the policyholder should know beyond the headline figures: exclusions, waiting periods, premium escalation or review terms, cessions, loans taken against the policy, what happens if a premium is missed, beneficiaries. Leave it empty if the section states none.",
     // The scanned path passes no text — the document is attached to the
@@ -256,7 +325,7 @@ async function readPass(client: Anthropic, content: PromptContent, system: strin
   return JSON.parse(block.text);
 }
 
-export async function extractPolicyFacts(text: string): Promise<PolicyFacts | null> {
+export async function extractPolicyFacts(text: string): Promise<PolicyFacts[] | null> {
   if (!process.env.ANTHROPIC_API_KEY) return null;
 
   const client = new Anthropic();
@@ -277,7 +346,7 @@ export async function extractPolicyFacts(text: string): Promise<PolicyFacts | nu
  * One pass, never chunked: there is no text to split on, and the page count of
  * a policy schedule sits far inside what a single request takes.
  */
-export async function extractPolicyFactsFromScan(pdfBase64: string): Promise<PolicyFacts | null> {
+export async function extractPolicyFactsFromScan(pdfBase64: string): Promise<PolicyFacts[] | null> {
   if (!process.env.ANTHROPIC_API_KEY) return null;
 
   const client = new Anthropic();
@@ -301,7 +370,7 @@ export async function extractPolicyFactsFromScan(pdfBase64: string): Promise<Pol
  * its own and is shown to the person to check. Every other test below runs
  * either way.
  */
-function assemble(results: RawPass[], text: string | null, passes: number): PolicyFacts | null {
+export function assemble(results: RawPass[], text: string | null, passes: number): PolicyFacts[] | null {
   if (results.length === 0) return null;
 
   /**
@@ -331,36 +400,112 @@ function assemble(results: RawPass[], text: string | null, passes: number): Poli
   const readNumber = (raw: unknown, bounds: { min: number; max: number }) => verifyNumber(grounded(raw), bounds);
   const readDate = (raw: unknown) => verifyDate(grounded(raw));
 
-  const coverAmount = first((p) => readNumber(p.cover_amount, LIMITS.cover));
-  const surrenderValue = first((p) => readNumber(p.surrender_value, LIMITS.surrender));
+  const frequency = (raw: unknown) =>
+    typeof raw === "string" && FREQUENCIES.has(raw) ? (raw as "monthly" | "quarterly" | "annual") : null;
 
-  const facts: PolicyFacts = {
-    insurer: first((p) => (typeof p.insurer === "string" && p.insurer ? p.insurer : null)),
-    policyNumber: first((p) => (typeof p.policy_number === "string" && p.policy_number ? p.policy_number : null)),
-    currency: first((p) => (typeof p.currency === "string" && /^[A-Z]{3}$/.test(p.currency) ? p.currency : null)),
-    coverAmount,
-    surrenderValue: dropConfusedSurrender(coverAmount, surrenderValue),
-    premium: first((p) => readNumber(p.premium, LIMITS.premium)),
-    premiumFrequency: first((p) =>
-      typeof p.premium_frequency === "string" && FREQUENCIES.has(p.premium_frequency)
-        ? (p.premium_frequency as "monthly" | "quarterly" | "annual")
-        : null
-    ),
-    startDate: first((p) => readDate(p.start_date)),
-    maturityDate: first((p) => readDate(p.maturity_date)),
-    valuedAt: first((p) => readDate(p.valued_at)),
-    keyTerms: collectKeyTerms(results, text),
-    passes,
-    readFrom: text === null ? "scan" : "text",
+  const insurer = first((p) => (typeof p.insurer === "string" && p.insurer ? p.insurer : null));
+  const currency = first((p) => (typeof p.currency === "string" && /^[A-Z]{3}$/.test(p.currency) ? p.currency : null));
+  const totalPremium = first((p) => readNumber(p.total_premium, LIMITS.premium));
+  const totalPremiumFrequency = first((p) => frequency(p.total_premium_frequency));
+  const keyTerms = collectKeyTerms(results, text);
+  const readFrom = text === null ? "scan" : "text";
+
+  /**
+   * Every policy entry across every pass.
+   *
+   * A long document is read in overlapping sections, so the same benefit can
+   * come back from two of them. They are merged on identity below rather than
+   * concatenated, or a two-benefit schedule read in three passes would produce
+   * six policies.
+   */
+  const entries: RawPass[] = [];
+  for (const parsed of results) {
+    if (Array.isArray(parsed.policies)) {
+      for (const entry of parsed.policies) {
+        if (entry && typeof entry === "object") entries.push(entry as RawPass);
+      }
+    }
+  }
+  if (entries.length === 0) return null;
+
+  /**
+   * What makes two entries the same policy.
+   *
+   * The number when there is one, and the benefit's name when there is not —
+   * which is the case that matters, because two benefits sharing a policy
+   * number are exactly the pair this had to stop merging. Falling back to the
+   * cover amount keeps two unnamed, unnumbered benefits apart rather than
+   * collapsing them into one.
+   */
+  const identity = (entry: RawPass): string => {
+    const number = typeof entry.policy_number === "string" ? entry.policy_number.trim() : "";
+    const name = typeof entry.benefit_name === "string" ? entry.benefit_name.trim().toLowerCase() : "";
+    const cover = rawField(entry.cover_amount)?.value;
+    return `${number}|${name}|${name || number ? "" : String(cover ?? "")}`;
   };
 
-  // A policy that matures before it starts means one of the two dates was read
-  // off the wrong line. Neither can be trusted, so both go — same reasoning as
-  // the loan reader's start/end pair.
-  if (facts.startDate && facts.maturityDate && facts.maturityDate.value <= facts.startDate.value) {
-    facts.startDate = null;
-    facts.maturityDate = null;
+  const merged = new Map<string, RawPass[]>();
+  for (const entry of entries) {
+    const key = identity(entry);
+    merged.set(key, [...(merged.get(key) ?? []), entry]);
   }
 
-  return facts;
+  const policies: PolicyFacts[] = [];
+  for (const group of merged.values()) {
+    // Within one policy, the same "first non-null wins" rule the document
+    // level uses — a section that mentions the benefit without restating a
+    // figure must not blank one an earlier section gave.
+    const pick = <T>(choose: (entry: RawPass) => T | null): T | null => {
+      for (const entry of group) {
+        const value = choose(entry);
+        if (value) return value;
+      }
+      return null;
+    };
+
+    const coverAmount = pick((e) => readNumber(e.cover_amount, LIMITS.cover));
+    const surrenderValue = pick((e) => readNumber(e.surrender_value, LIMITS.surrender));
+
+    const facts: PolicyFacts = {
+      insurer,
+      policyNumber: pick((e) => (typeof e.policy_number === "string" && e.policy_number ? e.policy_number : null)),
+      benefitName: pick((e) => (typeof e.benefit_name === "string" && e.benefit_name ? e.benefit_name : null)),
+      currency,
+      coverAmount,
+      surrenderValue: dropConfusedSurrender(coverAmount, surrenderValue),
+      premium: pick((e) => readNumber(e.premium, LIMITS.premium)),
+      premiumFrequency: pick((e) => frequency(e.premium_frequency)),
+      totalPremium,
+      totalPremiumFrequency,
+      siblings: merged.size,
+      startDate: pick((e) => readDate(e.start_date)),
+      maturityDate: pick((e) => readDate(e.maturity_date)),
+      valuedAt: pick((e) => readDate(e.valued_at)),
+      keyTerms,
+      passes,
+      readFrom,
+    };
+
+    // A policy that matures before it starts means one of the two dates was
+    // read off the wrong line. Neither can be trusted, so both go — same
+    // reasoning as the loan reader's start/end pair.
+    if (facts.startDate && facts.maturityDate && facts.maturityDate.value <= facts.startDate.value) {
+      facts.startDate = null;
+      facts.maturityDate = null;
+    }
+
+    policies.push(facts);
+  }
+
+  // A lone policy carries no combined premium: with nothing to share it with,
+  // a "total" is simply that policy's premium, and leaving it in the other
+  // field would have the screen warn about a split that cannot arise.
+  if (policies.length === 1 && policies[0].totalPremium && !policies[0].premium) {
+    policies[0].premium = policies[0].totalPremium;
+    policies[0].premiumFrequency = policies[0].premiumFrequency ?? totalPremiumFrequency;
+    policies[0].totalPremium = null;
+    policies[0].totalPremiumFrequency = null;
+  }
+
+  return policies;
 }

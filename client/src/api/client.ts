@@ -212,6 +212,8 @@ export interface LoanStatus {
 export interface Account {
   id: string;
   name: string;
+  /** The account number the bank gave it, where there is one. */
+  iban?: string | null;
   currency: string;
   source: "enablebanking" | "manual";
   /** Defaults to "current" for accounts created before types existed. */
@@ -419,15 +421,34 @@ export interface Policy {
   valuations: PolicyValuation[];
 }
 
-/** A figure read out of a policy document, with the sentence it came from. */
+/**
+ * One policy read out of a document, with the sentence each figure came from.
+ *
+ * A document yields a list of these: a life schedule regularly carries a death
+ * benefit per life assured, and reading such a document into one set of fields
+ * produced something that was neither of them — the cover of one benefit
+ * beside the premium of both.
+ */
 export interface PolicyFacts {
   insurer: string | null;
   policyNumber: string | null;
+  /** How the document names this benefit, when two share a policy number. */
+  benefitName: string | null;
   currency: string | null;
   coverAmount: ExtractedField<number> | null;
   surrenderValue: ExtractedField<number> | null;
   premium: ExtractedField<number> | null;
   premiumFrequency: "monthly" | "quarterly" | "annual" | null;
+  /**
+   * A premium the document states only as one combined figure for several
+   * benefits. Never divided between them — a schedule quoting one total has
+   * not said what either costs, and splitting it would be inventing the
+   * answer.
+   */
+  totalPremium: ExtractedField<number> | null;
+  totalPremiumFrequency: "monthly" | "quarterly" | "annual" | null;
+  /** How many policies the document described in all, this one included. */
+  siblings: number;
   startDate: ExtractedField<string> | null;
   maturityDate: ExtractedField<string> | null;
   valuedAt: ExtractedField<string> | null;
@@ -766,7 +787,7 @@ export const api = {
 
   /** Reads a policy document. Writes nothing — the details come back for review. */
   previewPolicyDocument: (contentBase64: string) =>
-    request<PolicyFacts>("/policies/preview", { method: "POST", body: JSON.stringify({ content_base64: contentBase64 }) }),
+    request<PolicyFacts[]>("/policies/preview", { method: "POST", body: JSON.stringify({ content_base64: contentBase64 }) }),
 
   household: () => request<HouseholdState>("/household"),
   inviteToHousehold: (email: string, role: "viewer" | "editor") =>
