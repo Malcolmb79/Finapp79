@@ -672,6 +672,27 @@ th {
   color: var(--accent);
 }
 
+/* A button that reads as a link, for an action offered inside a sentence —
+   "enter one by hand" in the middle of an empty state, say. It has to undo the
+   global button styling above, which gives every button a surface and a
+   border; left as a button it would sit in the prose as a grey box. A button
+   rather than an anchor because it goes nowhere: an <a> with no href is not
+   reachable by keyboard, and one with href="#" lies about what it does. */
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.link-button:hover {
+  background: none;
+  color: var(--accent);
+  text-decoration: none;
+}
+
 .card__drag-handle {
   cursor: grab;
   color: var(--text-muted);

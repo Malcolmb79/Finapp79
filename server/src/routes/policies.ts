@@ -55,8 +55,14 @@ async function listPolicies(userId: string) {
 
   const valuations = (await db
     .prepare(
+      // `created_at` breaks the tie, and the tie is not hypothetical: a policy
+      // created and then given its figures on the same day has two rows with
+      // the same `valued_at`. Without a second ordering key the newest of them
+      // arrives in whatever order the database felt like, and
+      // `valuationAsAt` on the client has no way to pick the correction over
+      // the thing it corrected.
       `SELECT policy_id, valued_at, cover_amount, surrender_value
-         FROM policy_valuations WHERE user_id = ? ORDER BY valued_at`
+         FROM policy_valuations WHERE user_id = ? ORDER BY valued_at, created_at`
     )
     .all(userId)) as unknown as { policy_id: string }[];
 

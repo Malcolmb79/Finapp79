@@ -76,7 +76,15 @@ export function valuationAsAt(policy: Policy, date: string): { cover_amount: num
   let latest: Policy["valuations"][number] | null = null;
   for (const valuation of policy.valuations) {
     if (valuation.valued_at > date) continue;
-    if (!latest || valuation.valued_at > latest.valued_at) latest = valuation;
+    // `>=`, not `>`: two statements can carry the same "as at" date, and when
+    // they do the later-recorded one is the correction. A strict `>` kept the
+    // first instead, which is how a policy created and then given its figures
+    // on the same day ended up contributing its new surrender value to the
+    // headline and the old blank one to the trend — the two disagreeing with
+    // nothing on screen to explain it. The list arrives ordered by
+    // `valued_at, created_at`, so the last of an equal-dated run is the
+    // newest. See the valuations query in server/src/routes/policies.ts.
+    if (!latest || valuation.valued_at >= latest.valued_at) latest = valuation;
   }
   return latest;
 }

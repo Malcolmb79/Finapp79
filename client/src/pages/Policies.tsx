@@ -1,6 +1,7 @@
-import { AlertTriangle, Loader2, Trash2, Umbrella, Upload } from "lucide-react";
+import { AlertTriangle, Loader2, Pencil, Plus, Trash2, Umbrella, Upload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
+import PolicyFormModal, { type PolicyFormMode } from "../components/PolicyFormModal.js";
 import PolicyImportModal from "../components/PolicyImportModal.js";
 import { api, type NetWorthSource, type Policy, type PolicyFacts } from "../api/client.js";
 import { useRefresh } from "../contexts/RefreshContext.js";
@@ -35,6 +36,7 @@ function PolicyCard({ policy, onChanged }: { policy: Policy; onChanged: () => vo
   const fileRef = useRef<HTMLInputElement>(null);
   const [reading, setReading] = useState(false);
   const [facts, setFacts] = useState<PolicyFacts | null>(null);
+  const [form, setForm] = useState<PolicyFormMode | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -177,7 +179,7 @@ function PolicyCard({ policy, onChanged }: { policy: Policy; onChanged: () => vo
 
       {!canCount(policy) && (
         <p style={{ fontSize: "0.73rem", color: "var(--text-muted)", margin: "0.35rem 0 0" }}>
-          No figures recorded yet — upload a statement and it can be counted.
+          No figures recorded yet — upload a statement or record them by hand, and it can be counted.
         </p>
       )}
 
@@ -238,6 +240,16 @@ function PolicyCard({ policy, onChanged }: { policy: Policy; onChanged: () => vo
         <button type="button" onClick={() => fileRef.current?.click()} disabled={reading}>
           {reading ? <Loader2 size={13} className="spin" /> : <Upload size={13} />} Newer statement
         </button>
+        {/* The same thing the upload does, for a figure that arrived in the
+            post or over the phone. It writes a dated valuation rather than
+            editing the policy, so the card and the net worth trend move
+            together — see PolicyFormModal. */}
+        <button type="button" onClick={() => setForm("figures")} disabled={busy}>
+          <Plus size={13} /> Record figures
+        </button>
+        <button type="button" onClick={() => setForm("details")} disabled={busy}>
+          <Pencil size={13} /> Edit details
+        </button>
         <button type="button" onClick={remove} disabled={busy}>
           <Trash2 size={13} /> Remove
         </button>
@@ -254,6 +266,18 @@ function PolicyCard({ policy, onChanged }: { policy: Policy; onChanged: () => vo
           }}
         />
       )}
+
+      {form && (
+        <PolicyFormModal
+          mode={form}
+          policy={policy}
+          onClose={() => setForm(null)}
+          onSaved={() => {
+            setForm(null);
+            onChanged();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -261,6 +285,7 @@ function PolicyCard({ policy, onChanged }: { policy: Policy; onChanged: () => vo
 export default function Policies() {
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [facts, setFacts] = useState<PolicyFacts | null>(null);
+  const [adding, setAdding] = useState(false);
   const [reading, setReading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -307,8 +332,9 @@ export default function Policies() {
       render: () => (
         <div>
           <p style={{ fontSize: "0.83rem", margin: "0 0 0.6rem" }}>
-            Upload a policy statement or schedule. The cover amount, surrender value, premium and dates are read out of
-            it and shown beside the wording they came from, for you to check before anything is saved.
+            Upload a policy statement or schedule and the cover amount, surrender value, premium and dates are read out
+            of it, shown beside the wording they came from for you to check before anything is saved. Or type one in
+            yourself, which is the way in for a policy whose paperwork isn&apos;t to hand.
           </p>
           <input
             ref={fileRef}
@@ -321,18 +347,41 @@ export default function Policies() {
               if (file) readStatement(file);
             }}
           />
-          <button type="button" className="btn-accent" onClick={() => fileRef.current?.click()} disabled={reading}>
-            {reading ? (
-              <>
-                <Loader2 size={14} className="spin" /> Reading the document…
-              </>
-            ) : (
-              <>
-                <Upload size={14} /> Choose a statement
-              </>
-            )}
-          </button>
-          {notice && <p style={{ fontSize: "0.8rem", color: "var(--critical)", marginTop: "0.5rem" }}>{notice}</p>}
+          <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+            <button type="button" className="btn-accent" onClick={() => fileRef.current?.click()} disabled={reading}>
+              {reading ? (
+                <>
+                  <Loader2 size={14} className="spin" /> Reading the document…
+                </>
+              ) : (
+                <>
+                  <Upload size={14} /> Choose a statement
+                </>
+              )}
+            </button>
+            <button type="button" onClick={() => setAdding(true)} disabled={reading}>
+              <Plus size={14} /> Enter by hand
+            </button>
+          </div>
+          {/* Reading a document can fail for reasons that have nothing to do
+              with the document — no AI key configured, or the reader giving up
+              part-way. The server's own answer to that is "you can still enter
+              the figures by hand", so the error says where that is. */}
+          {notice && (
+            <p style={{ fontSize: "0.8rem", color: "var(--critical)", marginTop: "0.5rem" }}>
+              {notice}{" "}
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => {
+                  setNotice(null);
+                  setAdding(true);
+                }}
+              >
+                Enter it by hand instead.
+              </button>
+            </p>
+          )}
           <p style={{ fontSize: "0.73rem", color: "var(--text-muted)", marginTop: "0.6rem" }}>
             A scan works too — a posted letter with no text in it is read from its pages instead, and says so
             when you confirm the figures.
@@ -349,7 +398,13 @@ export default function Policies() {
       defaultHeight: 460,
       render: () =>
         policies.length === 0 ? (
-          <p className="empty-state">No policies yet.</p>
+          <p className="empty-state">
+            No policies yet — upload a statement above, or{" "}
+            <button type="button" className="link-button" onClick={() => setAdding(true)}>
+              enter one by hand
+            </button>
+            .
+          </p>
         ) : (
           <>
             {policies.map((policy) => (
@@ -379,6 +434,21 @@ export default function Policies() {
           onClose={() => setFacts(null)}
           onSaved={() => {
             setFacts(null);
+            refresh();
+          }}
+        />
+      )}
+
+      {adding && (
+        <PolicyFormModal
+          mode="create"
+          // Whatever the last policy was in, rather than a hardcoded default:
+          // somebody with one rand policy is overwhelmingly likely to be
+          // adding a second.
+          defaultCurrency={policies[policies.length - 1]?.currency}
+          onClose={() => setAdding(false)}
+          onSaved={() => {
+            setAdding(false);
             refresh();
           }}
         />

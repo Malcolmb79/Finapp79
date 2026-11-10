@@ -100,6 +100,41 @@ describe("valuationAsAt", () => {
   it("knows nothing before the first statement", () => {
     expect(valuationAsAt(withHistory, "2025-01-01")).toBeNull();
   });
+
+  /**
+   * Two statements can carry the same "as at" date, and the later-recorded one
+   * is the correction. This is not a corner case: creating a policy by hand
+   * and then recording its figures does it on day one, and taking the first of
+   * the pair put the new surrender value on the card and the old blank one on
+   * the net worth trend, with nothing on screen to say why they differed.
+   *
+   * The list arrives ordered by `valued_at, created_at`, so the last of an
+   * equal-dated run is the newest.
+   */
+  it("prefers the later-recorded of two statements with the same date", () => {
+    const sameDay = policy({
+      valuations: [
+        { policy_id: "p1", valued_at: "2026-11-10", cover_amount: 250_000, surrender_value: null },
+        { policy_id: "p1", valued_at: "2026-11-10", cover_amount: 250_000, surrender_value: 3250.75 },
+      ],
+    });
+    expect(valuationAsAt(sameDay, "2026-11-10")?.surrender_value).toBe(3250.75);
+  });
+
+  // The headline reads the policy's own columns and the trend reads the
+  // history, so the two agreeing on today's date is the invariant that keeps a
+  // net worth total and the end of its own line from contradicting each other.
+  it("agrees with the policy's own figures as at today", () => {
+    const counted = policy({
+      surrender_value: 3250.75,
+      net_worth_source: "surrender",
+      valuations: [
+        { policy_id: "p1", valued_at: "2026-11-10", cover_amount: 250_000, surrender_value: null },
+        { policy_id: "p1", valued_at: "2026-11-10", cover_amount: 250_000, surrender_value: 3250.75 },
+      ],
+    });
+    expect(policyContribution(counted)).toBe(valuationAsAt(counted, "2026-11-10")?.surrender_value);
+  });
 });
 
 /**
