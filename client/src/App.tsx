@@ -14,6 +14,7 @@ import ForgotPassword from "./pages/ForgotPassword.js";
 import Login from "./pages/Login.js";
 import Policies from "./pages/Policies.js";
 import ResetPassword from "./pages/ResetPassword.js";
+import Investments from "./pages/Investments.js";
 import Savings from "./pages/Savings.js";
 import Settings from "./pages/Settings.js";
 import Transactions from "./pages/Transactions.js";
@@ -95,6 +96,7 @@ export default function App() {
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/debt-planner" element={<DebtPlanner />} />
         <Route path="/savings" element={<Savings />} />
+        <Route path="/investments" element={<Investments />} />
         <Route path="/policies" element={<Policies />} />
         <Route path="/settings" element={<Settings />} />
       </Route>

@@ -414,6 +414,30 @@ export interface PolicyFacts {
   readFrom: "text" | "scan";
 }
 
+export interface HoldingPrice {
+  priced_at: string;
+  unit_price: number;
+}
+
+export type HoldingKind = "equity" | "fund" | "bond" | "crypto" | "other";
+
+/**
+ * An investment holding. Quantity and price stay separate columns because
+ * only the split says why a value moved - see utils/holdingValue.ts.
+ */
+export interface Holding {
+  id: string;
+  name: string;
+  ticker: string | null;
+  kind: HoldingKind;
+  quantity: number;
+  unit_cost: number | null;
+  currency: string;
+  created_at: string;
+  /** Every price ever recorded, oldest first. */
+  prices: HoldingPrice[];
+}
+
 export interface PolicyDraft {
   name: string;
   insurer?: string | null;
@@ -680,6 +704,24 @@ export const api = {
   /** Reads a policy document. Writes nothing — the details come back for review. */
   previewPolicyDocument: (contentBase64: string) =>
     request<PolicyFacts>("/policies/preview", { method: "POST", body: JSON.stringify({ content_base64: contentBase64 }) }),
+
+  listHoldings: () => request<Holding[]>("/holdings"),
+  createHolding: (draft: {
+    name: string;
+    ticker?: string | null;
+    kind?: HoldingKind;
+    quantity: number;
+    unit_cost?: number | null;
+    currency?: string;
+    unit_price?: number;
+    priced_at?: string;
+  }) => request<Holding>("/holdings", { method: "POST", body: JSON.stringify(draft) }),
+  updateHolding: (id: string, patch: Partial<{ name: string; ticker: string | null; kind: HoldingKind; quantity: number; unit_cost: number | null }>) =>
+    request<Holding>(`/holdings/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  /** Appends a price, keeping every earlier one — that history is what lets the trend be honest. */
+  priceHolding: (id: string, unit_price: number, priced_at?: string) =>
+    request<Holding>(`/holdings/${id}/price`, { method: "POST", body: JSON.stringify({ unit_price, priced_at }) }),
+  deleteHolding: (id: string) => request<void>(`/holdings/${id}`, { method: "DELETE" }),
 
   listRules: () => request<TransactionRule[]>("/rules"),
   createRule: (rule: {

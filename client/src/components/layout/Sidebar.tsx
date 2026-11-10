@@ -1,4 +1,5 @@
 import {
+  TrendingUp,
   BarChart3,
   Landmark,
   LayoutDashboard,
@@ -12,10 +13,11 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { api, type Account, type Policy, type Transaction } from "../../api/client.js";
+import { api, type Account, type Holding, type Policy, type Transaction } from "../../api/client.js";
 import { useAuth } from "../../contexts/AuthContext.js";
 import { accountBalance, accountTxSums, visibleAccounts, visibleTransactions } from "../../utils/accountBalance.js";
 import { formatCurrency } from "../../utils/formatCurrency.js";
+import { holdingContributions } from "../../utils/holdingValue.js";
 import { policyContributions } from "../../utils/policyValue.js";
 import { sumInBase, useFxRates } from "../../utils/fx.js";
 import { useAccountScope } from "../../contexts/ViewFilterContext.js";
@@ -29,6 +31,7 @@ const NAV_ITEMS = [
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/debt-planner", label: "Debt Planner", icon: PiggyBank },
   { to: "/savings", label: "Savings", icon: PiggyBank },
+  { to: "/investments", label: "Investments", icon: TrendingUp },
   { to: "/policies", label: "Policies", icon: Umbrella },
 ];
 
@@ -36,6 +39,7 @@ export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onC
   const [allTransactions, setTransactions] = useState<Transaction[]>([]);
   const [allAccounts, setAccounts] = useState<Account[]>([]);
   const [policies, setPolicies] = useState<Policy[]>([]);
+  const [holdings, setHoldings] = useState<Holding[]>([]);
   const { user, logout } = useAuth();
 
   // The sidebar lives outside the router, so it mounts once and would
@@ -47,6 +51,7 @@ export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onC
   useEffect(() => {
     api.listTransactions().then(setTransactions);
     api.listAccounts().then(setAccounts);
+    api.listHoldings().then(setHoldings).catch(() => {});
     api.listPolicies().then(setPolicies);
   }, [version]);
 
@@ -79,6 +84,9 @@ export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onC
     [
       ...accounts.map((a) => ({ amount: accountBalance(a, byAccount.get(a.id) ?? 0), currency: a.currency })),
       ...(scope ? [] : policyContributions(policies)),
+      // And investments, on exactly the same terms — a figure here that left
+      // them out would disagree with the dashboard about the same number.
+      ...(scope ? [] : holdingContributions(holdings)),
     ],
     rates
   );

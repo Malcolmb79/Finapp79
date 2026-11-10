@@ -15,6 +15,7 @@ import {
   type Budget,
   type Category,
   type PendingTransaction,
+  type Holding,
   type Policy,
   type SavingsGoal,
   type Transaction,
@@ -42,6 +43,7 @@ import { budgetStatus } from "../utils/budgetStatus.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { monthsToPayoff } from "../utils/payoff.js";
 import { countsAtCover, policyContribution, policyContributions, policyContributionsAt } from "../utils/policyValue.js";
+import { holdingContributions, holdingContributionsAt } from "../utils/holdingValue.js";
 
 /** How far back a widget looks, where that is a choice rather than a fixed span. */
 type WidgetRange = "month" | "3m" | "6m" | "1y" | "all";
@@ -180,6 +182,7 @@ export default function Dashboard() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
   const [allPolicies, setPolicies] = useState<Policy[]>([]);
+  const [allHoldings, setHoldings] = useState<Holding[]>([]);
   // The transaction whose detail card is open, from the recent list.
   const [openTransaction, setOpenTransaction] = useState<Transaction | null>(null);
   const [config, setConfig] = useState<DashboardConfig>(loadConfig);
@@ -202,6 +205,7 @@ export default function Dashboard() {
     api.listBudgets().then(setBudgets);
     api.listSavingsGoals().then(setSavingsGoals);
     api.listPolicies().then(setPolicies);
+    api.listHoldings().then(setHoldings).catch(() => {});
   }
 
   useEffect(refresh, []);
@@ -277,15 +281,19 @@ export default function Dashboard() {
   // policies drop out entirely while one is set — the same reasoning that keeps
   // a hidden account's transactions out with it.
   const policies = scope ? [] : allPolicies;
+  // Same reasoning as policies: a scope narrows to one account, and a holding
+  // is not that account, so investments drop out entirely while one is set.
+  const holdings = scope ? [] : allHoldings;
 
   // Accounts alone, kept apart from the headline because the trend below needs
   // it: the line is anchored on this figure and walked backwards through the
   // transactions, and a policy's value is not something the transactions move.
   const { converted: accountsNetWorth, unconvertible: accountsUnconvertible } = sumInBase(balances, rates);
   const { converted: policyTotal, unconvertible: policyUnconvertible } = sumInBase(policyContributions(policies), rates);
-  const netWorth = accountsNetWorth + policyTotal;
+  const { converted: holdingTotal, unconvertible: holdingUnconvertible } = sumInBase(holdingContributions(holdings), rates);
+  const netWorth = accountsNetWorth + policyTotal + holdingTotal;
 
-  const unconvertible = [...new Set([...accountsUnconvertible, ...policyUnconvertible])];
+  const unconvertible = [...new Set([...accountsUnconvertible, ...policyUnconvertible, ...holdingUnconvertible])];
   // Named so the reason net worth exceeds the accounts stays visible. A cover
   // amount pays out on death rather than being held now; counting it is the
   // user's call, but it should never become an anonymous part of a total.
@@ -385,7 +393,12 @@ export default function Dashboard() {
     const policiesOn = (date: string) => {
       let value = policyOnDate.get(date);
       if (value === undefined) {
-        value = sumInBase(policyContributionsAt(policies, date), rates).converted;
+        // Holdings join the trend the same way policies do: worth what they
+        // were priced at then, and absent before their first price rather
+        // than projected backwards at today it.
+        value =
+          sumInBase(policyContributionsAt(policies, date), rates).converted +
+          sumInBase(holdingContributionsAt(holdings, date), rates).converted;
         policyOnDate.set(date, value);
       }
       return value;

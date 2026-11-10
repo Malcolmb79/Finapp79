@@ -447,3 +447,47 @@ CREATE INDEX IF NOT EXISTS idx_transaction_splits_user ON transaction_splits (us
 -- from an account with nothing happening on it. One did exactly that for a
 -- week before anybody asked why.
 ALTER TABLE bank_connections ADD COLUMN IF NOT EXISTS valid_until TEXT;
+
+-- An investment holding: shares, funds, crypto, anything with a quantity and
+-- a price.
+--
+-- Kept apart from `accounts` for the same reason policies are: a holding has
+-- no transactions and no IBAN, and folding it in would offer it as a
+-- transaction target in every account dropdown and the statement importer.
+--
+-- Quantity and price are separate columns rather than one value, because the
+-- two move for different reasons and only the split tells you which happened.
+-- A holding worth 20% more because the price rose is a different fact from
+-- one worth 20% more because more was bought, and a single value column
+-- cannot tell them apart.
+CREATE TABLE IF NOT EXISTS holdings (
+  id TEXT PRIMARY KEY,               -- generated uuid
+  user_id TEXT REFERENCES users(id),
+  name TEXT NOT NULL,
+  ticker TEXT,                       -- optional; a fund may have none worth typing
+  kind TEXT NOT NULL DEFAULT 'equity', -- equity | fund | bond | crypto | other
+  quantity DOUBLE PRECISION NOT NULL DEFAULT 0,
+  -- What it cost, per unit, in the holding's own currency. The basis for
+  -- gain/loss, and never overwritten by a price update.
+  unit_cost DOUBLE PRECISION,
+  currency TEXT NOT NULL DEFAULT 'EUR',
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
+);
+
+CREATE INDEX IF NOT EXISTS idx_holdings_user ON holdings (user_id);
+
+-- One row per price ever recorded, not a single current price.
+--
+-- Same reasoning as policy_valuations: keeping the history is what lets the
+-- net worth trend show a holding from the first price onward, instead of
+-- projecting today's price back across months it was worth something else.
+CREATE TABLE IF NOT EXISTS holding_prices (
+  id TEXT PRIMARY KEY,               -- generated uuid
+  user_id TEXT REFERENCES users(id),
+  holding_id TEXT NOT NULL REFERENCES holdings(id) ON DELETE CASCADE,
+  priced_at TEXT NOT NULL,           -- ISO date
+  unit_price DOUBLE PRECISION NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
+);
+
+CREATE INDEX IF NOT EXISTS idx_holding_prices_holding ON holding_prices (holding_id, priced_at);
