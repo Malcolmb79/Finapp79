@@ -876,6 +876,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ code, state }),
     }),
-  syncAccount: (accountId: string) =>
-    request<{ synced: number; totalFetched: number }>(`/bank-link/accounts/${accountId}/sync`, { method: "POST" }),
+  /**
+   * Pulls new transactions. `full` re-asks for everything the bank still
+   * offers instead of starting from the newest one held — the way to fill a
+   * gap left behind by a run of failed syncs. `incomplete` comes back when
+   * the bank failed partway and this is only some of it.
+   */
+  syncAccount: (accountId: string, full = false) =>
+    request<{ synced: number; totalFetched: number; incomplete?: string }>(
+      `/bank-link/accounts/${accountId}/sync${full ? "?full=true" : ""}`,
+      { method: "POST" }
+    ),
 };

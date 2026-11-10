@@ -49,6 +49,19 @@ function pickBalance(balances: { balance_type?: string; balance_amount?: { amoun
 export async function syncAccount(
   accountId: string,
   userId: string,
+  options: {
+    /**
+     * Ignore what is already stored and ask for everything the bank will
+     * give.
+     *
+     * The ordinary sync starts from the newest transaction held, which is
+     * what gets a stuck account moving and what keeps a routine sync cheap.
+     * It also means a gap behind that point is never filled - and a gap is
+     * exactly what a run of failed syncs leaves. This is the way back for
+     * one.
+     */
+    full?: boolean;
+  },
   helpers: {
     transactionId: (accountId: string, t: RemoteTransaction) => string;
     cleanRemittanceInfo: (info: RemoteTransaction["remittance_information"]) => string | null;
@@ -68,9 +81,11 @@ export async function syncAccount(
    * behind the newest one already seen. Re-fetching them costs nothing: the
    * insert dedupes on id.
    */
-  const newest = (await db
-    .prepare("SELECT MAX(booking_date) AS latest FROM transactions WHERE account_id = ? AND user_id = ?")
-    .get(accountId, userId)) as unknown as { latest: string | null } | undefined;
+  const newest = options.full
+    ? undefined
+    : ((await db
+        .prepare("SELECT MAX(booking_date) AS latest FROM transactions WHERE account_id = ? AND user_id = ?")
+        .get(accountId, userId)) as unknown as { latest: string | null } | undefined);
 
   const from = newest?.latest
     ? new Date(Date.parse(`${newest.latest}T00:00:00Z`) - OVERLAP_DAYS * 86_400_000).toISOString().slice(0, 10)

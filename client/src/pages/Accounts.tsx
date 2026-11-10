@@ -52,6 +52,7 @@ export default function Accounts() {
   const [currency, setCurrency] = useState("USD");
   const [newType, setNewType] = useState<AccountType>("current");
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [savingRename, setSavingRename] = useState(false);
@@ -330,11 +331,22 @@ export default function Accounts() {
     }
   }
 
-  async function handleSync(accountId: string) {
+  async function handleSync(accountId: string, full = false) {
     setSyncingId(accountId);
+    setSyncNotice(null);
     try {
-      await api.syncAccount(accountId);
+      const result = await api.syncAccount(accountId, full);
+      // Said plainly either way. A sync that found nothing new and a sync
+      // that stopped halfway look identical from the outside, and the second
+      // is the one worth knowing about.
+      setSyncNotice(
+        result.incomplete
+          ? `Brought in ${result.synced}, then the bank stopped: ${result.incomplete}`
+          : `Brought in ${result.synced} new transaction${result.synced === 1 ? "" : "s"}.`
+      );
       refresh();
+    } catch (err) {
+      setSyncNotice(err instanceof Error ? err.message : "That sync failed.");
     } finally {
       setSyncingId(null);
     }
@@ -413,6 +425,10 @@ export default function Accounts() {
       <div className="card">
         <div className="card__header">
           <h2 className="card__title">All accounts</h2>
+          {/* What the last sync actually did. Without this a sync that found
+              nothing and one that stopped halfway look the same: a spinner
+              that stops. */}
+          {syncNotice && <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>{syncNotice}</span>}
         </div>
         {accounts.length === 0 ? (
           <p className="empty-state">No accounts yet — add one manually above or link a bank.</p>
@@ -660,9 +676,26 @@ export default function Accounts() {
                     </button>
                   )}
                   {a.source === "enablebanking" && (
-                    <button onClick={() => handleSync(a.id)} disabled={syncingId === a.id} title="Sync transactions" aria-label="Sync">
-                      <RefreshCw size={14} className={syncingId === a.id ? "spin" : undefined} />
-                    </button>
+                    <>
+                      <button onClick={() => handleSync(a.id)} disabled={syncingId === a.id} title="Sync transactions" aria-label="Sync">
+                        <RefreshCw size={14} className={syncingId === a.id ? "spin" : undefined} />
+                      </button>
+                      {/* The ordinary sync starts from the newest transaction
+                          held, which keeps it quick and is what gets a stuck
+                          account moving — but it never fills a gap behind
+                          that point, and a run of failed syncs leaves exactly
+                          such a gap. This re-asks for everything the bank
+                          still offers, which for most is about 90 days. */}
+                      <button
+                        onClick={() => handleSync(a.id, true)}
+                        disabled={syncingId === a.id}
+                        title="Re-fetch everything the bank still has, to fill a gap"
+                        aria-label={`Fetch full history for ${a.name}`}
+                        style={{ fontSize: "0.75rem", whiteSpace: "nowrap" }}
+                      >
+                        Full history
+                      </button>
+                    </>
                   )}
                   <button
                     onClick={() => showImports(a)}

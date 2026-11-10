@@ -45,7 +45,7 @@ cronRouter.get("/sync", async (req, res) => {
   // failed one.
   for (const account of accounts) {
     try {
-      const { synced, incomplete } = await syncAccount(account.id, account.user_id, { transactionId, cleanRemittanceInfo });
+      const { synced, incomplete } = await syncAccount(account.id, account.user_id, {}, { transactionId, cleanRemittanceInfo });
       await recordSyncAttempt(account.id, incomplete ?? null);
       results.push({ account: account.name, synced, ...(incomplete ? { incomplete } : {}) });
     } catch (err) {

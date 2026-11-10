@@ -154,7 +154,11 @@ bankLinkRouter.post("/accounts/:accountId/sync", async (req, res) => {
   // The same code the nightly schedule runs — see services/accountSync.ts for
   // why this is shared rather than duplicated.
   try {
-    const result = await syncAccount(accountId, req.user!.id, { transactionId, cleanRemittanceInfo });
+    // ?full=true re-pulls everything the bank still offers, rather than
+    // starting from what is already held. The way to fill a gap left behind
+    // by a run of failed syncs; the insert dedupes, so it costs only time.
+    const full = req.query.full === "true";
+    const result = await syncAccount(accountId, req.user!.id, { full }, { transactionId, cleanRemittanceInfo });
     // A partial pull is a success with a caveat, not a failure: what arrived
     // is saved, and the caveat is recorded so the account can say why it is
     // not fully caught up.
