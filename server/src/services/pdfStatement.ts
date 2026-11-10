@@ -111,13 +111,20 @@ async function extractPositionedRows(document: Awaited<ReturnType<typeof getDocu
     }
     if (items.length === 0) continue;
 
-    // Group into lines by y, then order the page top to bottom. PDF y grows
-    // upwards, so the largest y is the top of the page.
+    // One band per column of the page, read top to bottom in turn. On a
+    // single-column page the only band is the whole page and this changes
+    // nothing; on a two-column one it is what stops a row being stitched
+    // across the gutter.
     const lines: { y: number; items: PositionedItem[] }[] = [];
-    for (const item of items.sort((a, b) => b.y - a.y)) {
-      const line = lines.find((l) => Math.abs(l.y - item.y) <= LINE_TOLERANCE);
-      if (line) line.items.push(item);
-      else lines.push({ y: item.y, items: [item] });
+    for (const band of splitIntoBands(items)) {
+      const bandLines: { y: number; items: PositionedItem[] }[] = [];
+      // PDF y grows upwards, so the largest y is the top of the page.
+      for (const item of band.sort((a, b) => b.y - a.y)) {
+        const line = bandLines.find((l) => Math.abs(l.y - item.y) <= LINE_TOLERANCE);
+        if (line) line.items.push(item);
+        else bandLines.push({ y: item.y, items: [item] });
+      }
+      lines.push(...bandLines);
     }
     pages.push(lines);
   }
@@ -145,6 +152,102 @@ async function extractPositionedRows(document: Awaited<ReturnType<typeof getDocu
   }
 
   return pad(rows);
+}
+
+/**
+ * A vertical gutter has to be at least this wide to be a page gutter rather
+ * than the padding between two cells of one row. Cell padding runs to a few
+ * units; the gutter between two columns of a laid-out page is far wider.
+ */
+const BAND_MIN_GUTTER = 20;
+
+/**
+ * The gutter must fall inside the middle of the page. A wide left margin, or
+ * an amount column hard against the right edge, produces a broad empty strip
+ * that is not a gutter at all, and splitting on one would cut a real row in
+ * half.
+ */
+const BAND_EDGE_MARGIN = 0.22;
+
+/** Each side must hold this share of the page's text to count as a column. */
+const BAND_MIN_SHARE = 0.15;
+
+/**
+ * The page's columns of layout, as lists of the text in each.
+ *
+ * Not the columns of a table — the columns a page is *typeset* in. A credit
+ * card statement prints its transactions down the left of the page and
+ * unrelated prose down the right: terms, cashback, how interest works. Group
+ * such a page into rows by vertical position alone and every transaction is
+ * welded to whatever sentence happens to sit at the same height beside it, so
+ * "Tesco Stores PLC, Dublin ... £24.07" arrives carrying "Your previous
+ * Cashback balance £1.16" in the same row. Downstream that reads as a table
+ * whose description column is prose, which is exactly what it looked like:
+ * ten transactions found, two hundred rows discarded, and the descriptions
+ * that survived were sentence fragments.
+ *
+ * So the page is cut at its widest empty vertical strip first, and rows are
+ * built inside each piece. Returns the whole page as one band when there is no
+ * such strip, which is the common case and leaves those documents untouched.
+ */
+export function splitIntoBands(items: PositionedItem[]): PositionedItem[][] {
+  if (items.length < 20) return [items];
+
+  const left = Math.min(...items.map((i) => i.x));
+  const right = Math.max(...items.map((i) => i.x + i.width));
+  const span = right - left;
+  if (span <= 0) return [items];
+
+  const lowest = left + span * BAND_EDGE_MARGIN;
+  const highest = left + span * (1 - BAND_EDGE_MARGIN);
+
+  // Walk left to right tracking how far right anything has reached. A gap
+  // opens wherever the next run starts beyond that point.
+  const sorted = [...items].sort((a, b) => a.x - b.x);
+  let reach = sorted[0].x + sorted[0].width;
+  let best: { at: number; width: number } | null = null;
+
+  for (const item of sorted) {
+    const gap = item.x - reach;
+    if (gap >= BAND_MIN_GUTTER) {
+      const middle = reach + gap / 2;
+      if (middle > lowest && middle < highest && (!best || gap > best.width)) {
+        best = { at: reach, width: gap };
+      }
+    }
+    reach = Math.max(reach, item.x + item.width);
+  }
+
+  if (!best) return [items];
+
+  const boundary = best.at;
+  const leftBand = items.filter((i) => i.x < boundary);
+  const rightBand = items.filter((i) => i.x >= boundary);
+
+  // A split that leaves one side nearly empty found a margin, not a gutter.
+  const share = Math.min(leftBand.length, rightBand.length) / items.length;
+  if (share < BAND_MIN_SHARE) return [items];
+
+  // Both sides must have a structure of their own. This is what separates a
+  // page typeset in two columns from an ordinary table whose amounts are
+  // right-aligned a long way from its descriptions: that table's right-hand
+  // side is one column of figures lined up on a single edge, whereas a
+  // typeset column has its own headings, text and amounts at several. Without
+  // this check the wide gap before an amount column reads as a gutter, and
+  // splitting there would cut every row of a perfectly good table in half.
+  if (alignmentEdges(leftBand) < 2 || alignmentEdges(rightBand) < 2) return [items];
+
+  return [leftBand, rightBand];
+}
+
+/** How many distinct edges the text in a band lines up on. */
+function alignmentEdges(band: PositionedItem[]): number {
+  const edges: number[] = [];
+  for (const item of band) {
+    const anchor = anchorOf(item);
+    if (!edges.some((e) => Math.abs(e - anchor) <= COLUMN_GAP)) edges.push(anchor);
+  }
+  return edges.length;
 }
 
 // A column has to be used by at least this many lines to be a column rather

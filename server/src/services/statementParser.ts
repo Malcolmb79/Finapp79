@@ -652,11 +652,73 @@ function markerSign(raw: string): number {
   return /cr\.?$/i.test(raw.trim()) ? 1 : -1;
 }
 
+/**
+ * Headings that say which direction the rows beneath them run.
+ *
+ * A card statement does not mark its amounts at all — every figure is printed
+ * unsigned — but it does group them under headings, and the headings say
+ * everything: money paid towards the account under one, money spent under
+ * another. Without this, a statement's payment is imported as spending, which
+ * is the worst available outcome: it is the largest row, and it lands with the
+ * sign that makes the month look twice as bad as it was.
+ */
+const CREDIT_HEADING = /payments? (towards|to|received)|payments? and refunds|refunds?\b|credits?\b/i;
+const DEBIT_HEADING =
+  /transactions?, interest|interest and charges|how you'?ve used|purchases|cash advances|fees and charges|new transactions/i;
+
+/** Whether a row is a heading rather than a transaction. */
+function headingText(row: string[], dateColumn: number | null): string | null {
+  // A heading has no date where the dates are, and its text sits at the start
+  // of the line rather than in the description column.
+  if (dateColumn != null && hasDateShape(cell(row, dateColumn))) return null;
+  const first = (row[0] ?? "").trim();
+  return first === "" ? null : first;
+}
+
+/**
+ * The direction each row runs, from the heading it sits under.
+ *
+ * Returns null when the statement is not laid out in sections, so the ordinary
+ * sign handling is left alone. A statement needs both kinds of heading before
+ * this is used: one alone means a document that merely happens to contain the
+ * words, and inheriting a sign from it would be worse than inheriting nothing.
+ */
+export function sectionSigns(rows: string[][], dateColumn: number | null): (1 | -1)[] | null {
+  const signs: (1 | -1)[] = new Array(rows.length).fill(-1);
+  let current: 1 | -1 | null = null;
+  let sawCredit = false;
+  let sawDebit = false;
+
+  for (let i = 0; i < rows.length; i++) {
+    const heading = headingText(rows[i], dateColumn);
+    if (heading) {
+      if (CREDIT_HEADING.test(heading)) {
+        current = 1;
+        sawCredit = true;
+      } else if (DEBIT_HEADING.test(heading)) {
+        current = -1;
+        sawDebit = true;
+      }
+      // Any other heading leaves the current section running: a card
+      // statement prints "How you've used your card" inside the spending
+      // section, and sub-headings beneath it must not reset anything.
+    }
+    signs[i] = current ?? -1;
+  }
+
+  return sawCredit && sawDebit ? signs : null;
+}
+
 export function applyMapping(rows: string[][], mapping: StatementMapping): ParsedRow[] {
   const body = mapping.hasHeader ? rows.slice(1) : rows;
   const parsed: ParsedRow[] = [];
 
-  for (const row of body) {
+  // Only consulted where the amounts carry no sign of their own. A statement
+  // that marks its figures has already said which way they run, and the
+  // headings must not be allowed to overrule it.
+  const signs = mapping.signFromMarker ? null : sectionSigns(body, mapping.dateColumn);
+
+  for (const [index, row] of body.entries()) {
     const date = normaliseDate(cell(row, mapping.dateColumn), mapping.dateFormat, mapping.defaultYear);
     if (!date) continue;
 
@@ -667,6 +729,7 @@ export function applyMapping(rows: string[][], mapping: StatementMapping): Parse
       // The magnitude comes from the number, the direction from the marker
       // beside it — on these statements the number itself is always unsigned.
       if (amount != null && mapping.signFromMarker) amount = Math.abs(amount) * markerSign(raw);
+      else if (amount != null && signs) amount = Math.abs(amount) * signs[index];
     } else {
       const debit = normaliseAmount(cell(row, mapping.debitColumn), mapping.decimalSeparator);
       const credit = normaliseAmount(cell(row, mapping.creditColumn), mapping.decimalSeparator);
