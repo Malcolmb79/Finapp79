@@ -1,11 +1,13 @@
-import { Landmark, LineChart, Pencil, Scale, Sparkles } from "lucide-react";
+import { ImageUp, Landmark, LineChart, Loader2, Pencil, Scale, Sparkles } from "lucide-react";
 import MonthlyPlan from "../components/MonthlyPlan.js";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type Account, type Transaction, type TransactionRule } from "../api/client.js";
+import { api, type Account, type LoanStatus, type Transaction, type TransactionRule } from "../api/client.js";
 import RepaymentRule from "../components/RepaymentRule.js";
 import LoanTermsEditor from "../components/LoanTermsEditor.js";
+import LoanStatusModal from "../components/LoanStatusModal.js";
+import { fileToBase64 } from "../utils/fileBytes.js";
 import { accountTypeLabel, amountDrawn, facilityLabel, isBorrowing, accountTxSums, visibleAccounts, visibleTransactions } from "../utils/accountBalance.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { sumInBase, useFxRates } from "../utils/fx.js";
@@ -44,6 +46,22 @@ function AccountDebtRow({
   const rate = account.loan_rate ?? 0;
   const months = owed > 0 && payment > 0 ? monthsToPayoff(owed, rate, payment) : null;
   const [editing, setEditing] = useState(false);
+  const shotRef = useRef<HTMLInputElement>(null);
+  const [reading, setReading] = useState(false);
+  const [status, setStatus] = useState<LoanStatus | null>(null);
+  const [shotError, setShotError] = useState<string | null>(null);
+
+  async function readScreenshot(file: File) {
+    setReading(true);
+    setShotError(null);
+    try {
+      setStatus(await api.previewLoanStatus(account.id, await fileToBase64(file)));
+    } catch (err) {
+      setShotError(err instanceof Error ? err.message : "Could not read that screenshot.");
+    } finally {
+      setReading(false);
+    }
+  }
 
   const detail = [
     accountTypeLabel(account),
@@ -108,24 +126,64 @@ function AccountDebtRow({
           />
         )}
       </div>
-      <button
-        onClick={() => setEditing((open) => !open)}
-        title="Edit this debt’s terms"
-        aria-label={`Edit the terms of ${account.name}`}
-        style={{
-          background: "transparent",
-          border: "none",
-          padding: 0,
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          gap: "0.35rem",
-          marginLeft: "auto",
-        }}
-      >
-        <span className="account-row__balance">{formatCurrency(owed, account.currency)}</span>
-        <Pencil size={12} color="var(--text-muted)" />
-      </button>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", marginLeft: "auto" }}>
+        {/* A screenshot of the lender's own page is how anybody actually has
+            this figure to hand, so it sits next to the figure it updates
+            rather than behind a page of its own. */}
+        <input
+          ref={shotRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) readScreenshot(file);
+          }}
+        />
+        <button
+          onClick={() => shotRef.current?.click()}
+          disabled={reading}
+          title="Update from a screenshot of your lender’s page"
+          aria-label={`Update ${account.name} from a screenshot`}
+          style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", display: "flex" }}
+        >
+          {reading ? <Loader2 size={13} className="spin" /> : <ImageUp size={13} color="var(--text-muted)" />}
+        </button>
+        <button
+          onClick={() => setEditing((open) => !open)}
+          title="Edit this debt’s terms"
+          aria-label={`Edit the terms of ${account.name}`}
+          style={{
+            background: "transparent",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.35rem",
+          }}
+        >
+          <span className="account-row__balance">{formatCurrency(owed, account.currency)}</span>
+          <Pencil size={12} color="var(--text-muted)" />
+        </button>
+      </div>
+
+      {shotError && (
+        <p style={{ flexBasis: "100%", margin: "0.3rem 0 0", fontSize: "0.76rem", color: "var(--critical)" }}>{shotError}</p>
+      )}
+
+      {status && (
+        <LoanStatusModal
+          account={account}
+          status={status}
+          onClose={() => setStatus(null)}
+          onSaved={() => {
+            setStatus(null);
+            onRulesChanged();
+          }}
+        />
+      )}
     </div>
   );
 }

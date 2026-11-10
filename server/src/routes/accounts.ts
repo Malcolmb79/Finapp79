@@ -5,6 +5,7 @@ import { requireAuth } from "../middleware/requireAuth.js";
 import { matchBankFromWeb, matchBankToAccount } from "../services/bankMatch.js";
 import { fetchLogoDataUri } from "../services/webLogo.js";
 import { extractLoanTerms, extractLoanTermsFromScan } from "../services/loanContract.js";
+import { extractLoanStatus, sniffImageType } from "../services/loanStatus.js";
 import { extractPdfText, looksLikePdf } from "../services/pdfStatement.js";
 
 export const accountsRouter = Router();
@@ -352,6 +353,54 @@ accountsRouter.post("/:id/loan-contract/preview", async (req, res) => {
   } catch (err) {
     console.error("Contract reading failed:", err);
     res.status(502).json({ error: "Reading the agreement failed part-way through. Worth trying again." });
+  }
+});
+
+/**
+ * Reads a screenshot of a lender's loan page and returns where the loan
+ * stands, for confirmation.
+ *
+ * Writes nothing, like the contract reader beside it. Separate from that one
+ * because the documents answer different questions: an agreement says what was
+ * agreed and never says what is left, and the figure anybody actually wants to
+ * update is the one in their lender's app.
+ */
+accountsRouter.post("/:id/loan-status/preview", async (req, res) => {
+  const account = await db
+    .prepare("SELECT id FROM accounts WHERE id = ? AND user_id = ?")
+    .get(req.params.id, req.user!.id);
+  if (!account) {
+    res.status(404).json({ error: "account not found" });
+    return;
+  }
+
+  const { content_base64 } = req.body as { content_base64?: unknown };
+  if (typeof content_base64 !== "string") {
+    res.status(400).json({ error: "no image content" });
+    return;
+  }
+
+  // The file's own first bytes, not the extension or whatever the upload
+  // claimed: a mislabelled file would otherwise reach the API as a media type
+  // it isn't and come back as an opaque 400.
+  const mediaType = sniffImageType(new Uint8Array(Buffer.from(content_base64, "base64")));
+  if (!mediaType) {
+    res.status(422).json({ error: "That doesn't look like an image. A PNG, JPEG, GIF or WebP screenshot works." });
+    return;
+  }
+
+  try {
+    const status = await extractLoanStatus(content_base64, mediaType);
+    if (!status) {
+      res.status(503).json({
+        error: "Reading screenshots is unavailable — the AI key is not configured. You can still type the figures in by hand.",
+      });
+      return;
+    }
+    res.json(status);
+  } catch (err) {
+    console.error("Loan status reading failed:", err);
+    res.status(502).json({ error: "Reading the screenshot failed part-way through. Worth trying again." });
   }
 });
 

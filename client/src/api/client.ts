@@ -182,6 +182,33 @@ export interface LoanTerms {
   readFrom: "text" | "scan";
 }
 
+/**
+ * Where a loan stands, read off a screenshot of the lender's own page.
+ *
+ * `balanceIncludesInterest` is the field to respect. A lender's "remaining
+ * balance" is often the rest of the instalments rather than the outstanding
+ * principal, and storing one as the other while also recording the rate
+ * charges the interest twice. See server/src/services/loanStatus.ts.
+ */
+export interface LoanStatus {
+  reference: string | null;
+  lender: string | null;
+  currency: string | null;
+  remainingBalance: ExtractedField<number> | null;
+  amountPaid: ExtractedField<number> | null;
+  loanAmount: ExtractedField<number> | null;
+  totalToRepay: ExtractedField<number> | null;
+  monthlyPayment: ExtractedField<number> | null;
+  interestRate: ExtractedField<number> | null;
+  termMonths: ExtractedField<number> | null;
+  startDate: ExtractedField<string> | null;
+  endDate: ExtractedField<string> | null;
+  nextPaymentAmount: ExtractedField<number> | null;
+  nextPaymentDate: ExtractedField<string> | null;
+  balanceIncludesInterest: boolean;
+  readFrom: "image";
+}
+
 export interface Account {
   id: string;
   name: string;
@@ -646,6 +673,16 @@ export const api = {
   /** Reads a loan agreement. Writes nothing — the terms come back for review. */
   previewLoanContract: (id: string, contentBase64: string) =>
     request<LoanTerms>(`/accounts/${id}/loan-contract/preview`, {
+      method: "POST",
+      body: JSON.stringify({ content_base64: contentBase64 }),
+    }),
+
+  /**
+   * Reads a screenshot of a lender's loan page. Writes nothing — where the
+   * loan stands comes back for review.
+   */
+  previewLoanStatus: (id: string, contentBase64: string) =>
+    request<LoanStatus>(`/accounts/${id}/loan-status/preview`, {
       method: "POST",
       body: JSON.stringify({ content_base64: contentBase64 }),
     }),
