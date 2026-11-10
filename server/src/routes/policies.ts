@@ -3,7 +3,8 @@ import { Router } from "express";
 import { db, withTransaction } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { extractPdfText, looksLikePdf } from "../services/pdfStatement.js";
-import { extractPolicyFacts, extractPolicyFactsFromScan } from "../services/policyDocument.js";
+import { extractPolicyFacts, extractPolicyFactsFromImages, extractPolicyFactsFromScan } from "../services/policyDocument.js";
+import { readImages, sniffImageType } from "../services/imageBytes.js";
 
 /**
  * Life insurance policies.
@@ -89,6 +90,42 @@ policiesRouter.post("/preview", async (req, res) => {
   // Set when the file is a PDF, so a document with no extractable text can be
   // read from its pages instead of being refused — see below.
   let pdfBase64: string | null = null;
+
+  /**
+   * A photograph or screenshot, which is how most people have a schedule to
+   * hand. Checked before anything else because the old order decoded a PNG as
+   * text, got noise, and reported that there was nothing readable in it.
+   *
+   * Several are read as one document: pages photographed separately still
+   * belong together, and a schedule that names a benefit on one page and
+   * prices it on the next is the ordinary case.
+   */
+  const images = Array.isArray(content_base64)
+    ? readImages(content_base64)
+    : typeof content_base64 === "string" && sniffImageType(new Uint8Array(Buffer.from(content_base64, "base64")))
+      ? readImages(content_base64)
+      : null;
+
+  if (images) {
+    if ("error" in images) {
+      res.status(422).json({ error: images.error });
+      return;
+    }
+    try {
+      const facts = await extractPolicyFactsFromImages(images.images);
+      if (!facts) {
+        res.status(503).json({
+          error: "Reading policy documents is unavailable — the AI key is not configured. You can still enter the figures by hand.",
+        });
+        return;
+      }
+      res.json(facts);
+    } catch (err) {
+      console.error("Policy reading failed:", err);
+      res.status(502).json({ error: "Reading those pictures failed part-way through. Worth trying again." });
+    }
+    return;
+  }
 
   if (typeof content_base64 === "string") {
     const buffer = Buffer.from(content_base64, "base64");

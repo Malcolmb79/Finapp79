@@ -5,7 +5,8 @@ import { requireAuth } from "../middleware/requireAuth.js";
 import { matchBankFromWeb, matchBankToAccount } from "../services/bankMatch.js";
 import { fetchLogoDataUri } from "../services/webLogo.js";
 import { extractLoanTerms, extractLoanTermsFromScan } from "../services/loanContract.js";
-import { extractLoanStatus, sniffImageType } from "../services/loanStatus.js";
+import { extractLoanStatus } from "../services/loanStatus.js";
+import { readImages } from "../services/imageBytes.js";
 import { extractPdfText, looksLikePdf } from "../services/pdfStatement.js";
 
 export const accountsRouter = Router();
@@ -374,23 +375,17 @@ accountsRouter.post("/:id/loan-status/preview", async (req, res) => {
     return;
   }
 
-  const { content_base64 } = req.body as { content_base64?: unknown };
-  if (typeof content_base64 !== "string") {
-    res.status(400).json({ error: "no image content" });
-    return;
-  }
-
   // The file's own first bytes, not the extension or whatever the upload
   // claimed: a mislabelled file would otherwise reach the API as a media type
   // it isn't and come back as an opaque 400.
-  const mediaType = sniffImageType(new Uint8Array(Buffer.from(content_base64, "base64")));
-  if (!mediaType) {
-    res.status(422).json({ error: "That doesn't look like an image. A PNG, JPEG, GIF or WebP screenshot works." });
+  const read = readImages((req.body as { content_base64?: unknown }).content_base64);
+  if ("error" in read) {
+    res.status(read.error === "no image content" ? 400 : 422).json({ error: read.error });
     return;
   }
 
   try {
-    const status = await extractLoanStatus(content_base64, mediaType);
+    const status = await extractLoanStatus(read.images[0].data, read.images[0].mediaType);
     if (!status) {
       res.status(503).json({
         error: "Reading screenshots is unavailable — the AI key is not configured. You can still type the figures in by hand.",

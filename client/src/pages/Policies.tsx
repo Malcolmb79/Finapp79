@@ -43,11 +43,12 @@ function PolicyCard({ policy, onChanged }: { policy: Policy; onChanged: () => vo
   const included = policy.net_worth_source !== "none";
   const contribution = policyContribution(policy);
 
-  async function readStatement(file: File) {
+  async function readStatement(files: File[]) {
     setReading(true);
     setNotice(null);
     try {
-      const read = await api.previewPolicyDocument(await fileToBase64(file));
+      const pages = await Promise.all(files.map(fileToBase64));
+      const read = await api.previewPolicyDocument(pages.length === 1 ? pages[0] : pages);
       if (read.length === 0) setNotice("Nothing in that document looked like a policy.");
       else setFacts(read);
     } catch (err) {
@@ -231,12 +232,13 @@ function PolicyCard({ policy, onChanged }: { policy: Policy; onChanged: () => vo
         <input
           ref={fileRef}
           type="file"
-          accept=".pdf,.txt,application/pdf,text/plain"
+          accept=".pdf,.txt,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,image/*"
+          multiple
           style={{ display: "none" }}
           onChange={(e) => {
-            const file = e.target.files?.[0];
+            const picked = Array.from(e.target.files ?? []);
             e.target.value = "";
-            if (file) readStatement(file);
+            if (picked.length) readStatement(picked);
           }}
         />
         <button type="button" onClick={() => fileRef.current?.click()} disabled={reading}>
@@ -311,11 +313,12 @@ export default function Policies() {
     signalWritten();
   }, [load, signalWritten]);
 
-  async function readStatement(file: File) {
+  async function readStatement(files: File[]) {
     setReading(true);
     setNotice(null);
     try {
-      const read = await api.previewPolicyDocument(await fileToBase64(file));
+      const pages = await Promise.all(files.map(fileToBase64));
+      const read = await api.previewPolicyDocument(pages.length === 1 ? pages[0] : pages);
       if (read.length === 0) setNotice("Nothing in that document looked like a policy.");
       else setFacts(read);
     } catch (err) {
@@ -343,12 +346,13 @@ export default function Policies() {
           <input
             ref={fileRef}
             type="file"
-            accept=".pdf,.txt,application/pdf,text/plain"
+            accept=".pdf,.txt,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,image/*"
+          multiple
             style={{ display: "none" }}
             onChange={(e) => {
-              const file = e.target.files?.[0];
+              const picked = Array.from(e.target.files ?? []);
               e.target.value = "";
-              if (file) readStatement(file);
+              if (picked.length) readStatement(picked);
             }}
           />
           <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
@@ -387,8 +391,10 @@ export default function Policies() {
             </p>
           )}
           <p style={{ fontSize: "0.73rem", color: "var(--text-muted)", marginTop: "0.6rem" }}>
-            A scan works too — a posted letter with no text in it is read from its pages instead, and says so
-            when you confirm the figures.
+            A photo works too — a schedule snapped on your phone, or a screenshot of your insurer&apos;s app. Pick
+            several at once and they are read as pages of one statement, so a benefit named on one page and priced
+            on the next still comes out as one policy. A scan is read the same way, and says so when you confirm the
+            figures.
           </p>
         </div>
       ),

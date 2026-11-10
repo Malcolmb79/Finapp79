@@ -786,7 +786,12 @@ export const api = {
   listPolicies: () => request<Policy[]>("/policies"),
 
   /** Reads a policy document. Writes nothing — the details come back for review. */
-  previewPolicyDocument: (contentBase64: string) =>
+  /**
+   * Reads a policy document. Writes nothing - the policies come back for
+   * review. Takes several pictures at once, because a statement photographed
+   * on a phone is a page per picture and the pages are one document.
+   */
+  previewPolicyDocument: (contentBase64: string | string[]) =>
     request<PolicyFacts[]>("/policies/preview", { method: "POST", body: JSON.stringify({ content_base64: contentBase64 }) }),
 
   household: () => request<HouseholdState>("/household"),
