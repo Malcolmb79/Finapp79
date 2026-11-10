@@ -7,6 +7,7 @@ import { SqliteSessionStore } from "./auth/sessionStore.js";
 import { initDb } from "./db/client.js";
 import { accountsRouter } from "./routes/accounts.js";
 import { accountScope } from "./middleware/accountScope.js";
+import { householdScope } from "./middleware/householdScope.js";
 import { budgetAdvisorRouter } from "./routes/budgetAdvisor.js";
 import { debtAdvisorRouter } from "./routes/debtAdvisor.js";
 import { planRouter } from "./routes/plan.js";
@@ -19,6 +20,7 @@ import { fxRouter } from "./routes/fx.js";
 import { importStatementRouter } from "./routes/importStatement.js";
 import { passkeysRouter } from "./routes/passkeys.js";
 import { holdingsRouter } from "./routes/holdings.js";
+import { householdRouter } from "./routes/household.js";
 import { policiesRouter } from "./routes/policies.js";
 import { rulesRouter } from "./routes/rules.js";
 import { cronRouter } from "./routes/cron.js";
@@ -92,6 +94,12 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
+// Ahead of every route, and ahead of accountScope: this decides WHOSE data
+// the request is for, once, so no route has to carry a second "and whose?"
+// parameter that one of them would eventually forget. See
+// middleware/householdScope.ts.
+app.use(householdScope);
+
 // Ahead of every route, so the account filter on screen reaches the queries
 // that answer it and no route can be added later that forgets to read it.
 app.use(accountScope);
@@ -115,6 +123,7 @@ app.use("/api/debts", debtsRouter);
 app.use("/api/savings", savingsRouter);
 app.use("/api/policies", policiesRouter);
 app.use("/api/holdings", holdingsRouter);
+app.use("/api/household", householdRouter);
 app.use("/api/import/statement", importStatementRouter);
 app.use("/api/fx", fxRouter);
 app.use("/api/bank-link", bankLinkRouter);

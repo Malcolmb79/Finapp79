@@ -1,6 +1,6 @@
-import { Bell, CalendarRange, Menu, User, Wallet, X } from "lucide-react";
+import { Bell, CalendarRange, Eye, Menu, User, Wallet, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api, type Account, type Category, type PendingTransaction } from "../../api/client.js";
 import { useAccountScope, useDateRange } from "../../contexts/ViewFilterContext.js";
 import { DATE_RANGES } from "../../utils/dateRange.js";
@@ -129,6 +129,31 @@ export default function TopHeader({ onOpenNav }: { onOpenNav: () => void }) {
           </button>
         )}
       </div>
+      {/* Impossible to miss on purpose. Every figure on screen belongs to
+          somebody else while this is showing, and a partner's balance read as
+          your own is the whole risk of sharing. */}
+      {user?.viewingAs && (
+        <Link
+          to="/household"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.35rem",
+            fontSize: "0.78rem",
+            padding: "0.2rem 0.6rem",
+            borderRadius: 999,
+            background: "color-mix(in srgb, var(--accent) 18%, transparent)",
+            color: "var(--accent)",
+            textDecoration: "none",
+            whiteSpace: "nowrap",
+          }}
+          title="Go to Household to switch back to your own"
+        >
+          <Eye size={13} />
+          {user.viewingAs.ownerName}’s finances
+          {user.viewingAs.role === "viewer" && " · read only"}
+        </Link>
+      )}
       <div className="top-header__actions">
         {/* Beside the account filter because they are the same kind of thing:
             what is on screen, and over what period. Both live here so there is

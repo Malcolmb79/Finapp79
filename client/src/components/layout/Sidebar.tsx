@@ -1,5 +1,6 @@
 import {
   TrendingUp,
+  Users,
   BarChart3,
   Landmark,
   LayoutDashboard,
@@ -32,6 +33,7 @@ const NAV_ITEMS = [
   { to: "/debt-planner", label: "Debt Planner", icon: PiggyBank },
   { to: "/savings", label: "Savings", icon: PiggyBank },
   { to: "/investments", label: "Investments", icon: TrendingUp },
+  { to: "/household", label: "Household", icon: Users },
   { to: "/policies", label: "Policies", icon: Umbrella },
 ];
 

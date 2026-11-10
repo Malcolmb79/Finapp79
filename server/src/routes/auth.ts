@@ -120,7 +120,15 @@ authRouter.get("/me", (req, res) => {
     res.status(401).json({ error: "not authenticated" });
     return;
   }
-  res.json(req.user);
+  // `req.user` here is whoever's finances are being looked at, which is what
+  // every other route wants. This one is the exception: the shell has to be
+  // able to say *whose* figures are on screen, and who is actually signed in,
+  // or someone reads a partner's balance as their own.
+  res.json({
+    ...req.user,
+    ...(req.household ? { viewingAs: req.household } : {}),
+    ...(req.authenticatedUser ? { signedInAs: { id: req.authenticatedUser.id, name: req.authenticatedUser.name } } : {}),
+  });
 });
 
 authRouter.patch("/me", requireAuth, async (req, res) => {

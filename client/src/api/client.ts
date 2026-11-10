@@ -438,6 +438,22 @@ export interface Holding {
   prices: HoldingPrice[];
 }
 
+export interface HouseholdShare {
+  id: string;
+  invited_email: string;
+  role: "viewer" | "editor";
+  status: string;
+}
+
+export interface HouseholdState {
+  /** People you have shared your finances with. */
+  shared: HouseholdShare[];
+  /** People whose finances you can look at. */
+  access: { owner_user_id: string; owner_name: string; role: "viewer" | "editor" }[];
+  /** Whose finances you are currently looking at, if not your own. */
+  viewing: string | null;
+}
+
 export interface PolicyDraft {
   name: string;
   insurer?: string | null;
@@ -497,6 +513,16 @@ export interface AppUser {
   name: string | null;
   avatar_url: string | null;
   email_verified_at: string | null;
+  /**
+   * Set only while looking at somebody else's finances.
+   *
+   * Every figure on screen is then theirs, not yours, and the shell has to
+   * say so — a partner's balance read as your own is the whole risk of
+   * sharing.
+   */
+  viewingAs?: { ownerName: string; role: string };
+  /** Who is actually signed in, when that differs from whose data this is. */
+  signedInAs?: { id: string; name: string | null };
 }
 
 export interface AuthProviders {
@@ -704,6 +730,16 @@ export const api = {
   /** Reads a policy document. Writes nothing — the details come back for review. */
   previewPolicyDocument: (contentBase64: string) =>
     request<PolicyFacts>("/policies/preview", { method: "POST", body: JSON.stringify({ content_base64: contentBase64 }) }),
+
+  household: () => request<HouseholdState>("/household"),
+  inviteToHousehold: (email: string, role: "viewer" | "editor") =>
+    request<{ ok: true }>("/household/invite", { method: "POST", body: JSON.stringify({ email, role }) }),
+  acceptHouseholdInvite: (token: string) =>
+    request<{ ok: true }>("/household/accept", { method: "POST", body: JSON.stringify({ token }) }),
+  endHouseholdShare: (id: string) => request<void>(`/household/${id}`, { method: "DELETE" }),
+  /** Passing null returns you to your own figures. */
+  viewHousehold: (userId: string | null) =>
+    request<{ viewing: string | null }>("/household/view", { method: "POST", body: JSON.stringify({ userId }) }),
 
   listHoldings: () => request<Holding[]>("/holdings"),
   createHolding: (draft: {

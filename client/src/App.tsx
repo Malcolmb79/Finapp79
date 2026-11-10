@@ -14,6 +14,7 @@ import ForgotPassword from "./pages/ForgotPassword.js";
 import Login from "./pages/Login.js";
 import Policies from "./pages/Policies.js";
 import ResetPassword from "./pages/ResetPassword.js";
+import Household from "./pages/Household.js";
 import Investments from "./pages/Investments.js";
 import Savings from "./pages/Savings.js";
 import Settings from "./pages/Settings.js";
@@ -97,6 +98,9 @@ export default function App() {
         <Route path="/debt-planner" element={<DebtPlanner />} />
         <Route path="/savings" element={<Savings />} />
         <Route path="/investments" element={<Investments />} />
+        <Route path="/household" element={<Household />} />
+        {/* Where an invite email lands. Same page; the token is read off the query. */}
+        <Route path="/household/accept" element={<Household />} />
         <Route path="/policies" element={<Policies />} />
         <Route path="/settings" element={<Settings />} />
       </Route>

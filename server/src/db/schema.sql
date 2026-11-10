@@ -491,3 +491,36 @@ CREATE TABLE IF NOT EXISTS holding_prices (
 );
 
 CREATE INDEX IF NOT EXISTS idx_holding_prices_holding ON holding_prices (holding_id, priced_at);
+
+-- One person letting another see their finances.
+--
+-- A household shares a picture, so a share is all-or-nothing rather than
+-- per-account: "what can my partner see" answered account by account is a
+-- permissions system, and a permissions system in a two-person app is a
+-- maintenance burden nobody asked for.
+--
+-- `role` is the one distinction worth keeping. A viewer can read everything
+-- and change nothing, which is the right answer for an accountant, a parent
+-- helping out, or anyone you want to show rather than hand over.
+--
+-- Invites are by email and carry only the SHA-256 hash of their token, the
+-- same reasoning as password resets in tokens.ts: a database leak must not
+-- become a working invite into somebody's bank data.
+CREATE TABLE IF NOT EXISTS household_shares (
+  id TEXT PRIMARY KEY,               -- generated uuid
+  -- Whose data is being shared. Not named user_id on purpose: every other
+  -- table in this schema uses that for "whose row is this", and conflating
+  -- the two here is exactly the mistake that leaks data.
+  owner_user_id TEXT NOT NULL REFERENCES users(id),
+  -- Who it is shared with. Null until the invite is accepted.
+  member_user_id TEXT REFERENCES users(id),
+  invited_email TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'viewer',   -- viewer | editor
+  status TEXT NOT NULL DEFAULT 'pending', -- pending | accepted | revoked
+  token_hash TEXT,                   -- SHA-256 of the invite token; cleared on accept
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text,
+  accepted_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_household_shares_owner ON household_shares (owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_household_shares_member ON household_shares (member_user_id);

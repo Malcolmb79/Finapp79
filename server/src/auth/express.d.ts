@@ -20,5 +20,16 @@ declare module "express-session" {
      * account the options were issued to — not one named by the request body.
      */
     passkeyChallenge?: { challenge: string; userId?: string };
+
+    /**
+     * Whose finances are being looked at, when that is not your own.
+     *
+     * In the session rather than a per-request parameter so it survives a
+     * page load and cannot be set by a link somebody is sent. It grants
+     * nothing on its own: `resolveScope` re-checks the share against the
+     * database on every single request, so a stale or forged value simply
+     * falls back to your own data.
+     */
+    viewingUserId?: string;
   }
 }
