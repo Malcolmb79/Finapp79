@@ -27,6 +27,24 @@ export function signedAmount(tx: RemoteTransaction): number {
  */
 const OVERLAP_DAYS = 7;
 
+/**
+ * Where to start, given the newest transaction already held.
+ *
+ * The clamp is on the *basis*, before the overlap is subtracted, and that
+ * ordering is the whole point. A booking date can be in the future — a
+ * scheduled direct debit or standing order is reported before it is paid — so
+ * "newest held minus a week" can itself be a future date, which Enable Banking
+ * rejects outright with `DATE_FROM_IN_FUTURE`. Taking today as the basis
+ * instead still asks for the last week, which is what the overlap was for.
+ * Clamping the answer rather than the basis would have asked for today only,
+ * silently dropping the overlap exactly when late postings are most likely.
+ */
+export function overlapStart(newestHeld: string, now = new Date()): string {
+  const today = now.toISOString().slice(0, 10);
+  const basis = newestHeld > today ? today : newestHeld;
+  return new Date(Date.parse(`${basis}T00:00:00Z`) - OVERLAP_DAYS * 86_400_000).toISOString().slice(0, 10);
+}
+
 export interface SyncResult {
   synced: number;
   totalFetched: number;
@@ -87,9 +105,7 @@ export async function syncAccount(
         .prepare("SELECT MAX(booking_date) AS latest FROM transactions WHERE account_id = ? AND user_id = ?")
         .get(accountId, userId)) as unknown as { latest: string | null } | undefined);
 
-  const from = newest?.latest
-    ? new Date(Date.parse(`${newest.latest}T00:00:00Z`) - OVERLAP_DAYS * 86_400_000).toISOString().slice(0, 10)
-    : undefined;
+  const from = newest?.latest ? overlapStart(newest.latest) : undefined;
 
   const page = await enableBanking.listAccountTransactions(accountId, { from });
   const transactions = page.transactions as unknown as RemoteTransaction[];

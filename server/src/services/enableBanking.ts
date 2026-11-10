@@ -228,8 +228,22 @@ export async function listAccountTransactions(accountUid: string, options: { fro
   const floor = new Date();
   floor.setDate(floor.getDate() - MAX_HISTORY_DAYS);
   const floorStr = floor.toISOString().slice(0, 10);
-  // Never further back than the bank will answer for, whatever is asked.
-  let start = options.from && options.from > floorStr ? options.from : floorStr;
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  /**
+   * A start date the bank will actually accept, whatever it was derived from.
+   *
+   * The floor is the ninety days a bank will answer for. The ceiling is today,
+   * and it is here because a booking date can be in the *future*: a scheduled
+   * direct debit or standing order is reported before it is paid. Any date
+   * derived from "the newest transaction we have" therefore inherits that
+   * future date, and Enable Banking rejects the whole request with
+   * `DATE_FROM_IN_FUTURE` — which is a sync that fails completely because of a
+   * transaction that is perfectly valid.
+   */
+  const windowed = (date: string) => (date < floorStr ? floorStr : date > todayStr ? todayStr : date);
+
+  let start = windowed(options.from ?? floorStr);
 
   const all: RemoteTransaction[] = [];
   let lastError: string | undefined;
@@ -257,7 +271,10 @@ export async function listAccountTransactions(accountUid: string, options: { fro
       (latest, tx) => (tx.booking_date && (!latest || tx.booking_date > latest) ? tx.booking_date : latest),
       null
     );
-    const next = newest ? new Date(Date.parse(`${newest}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10) : null;
+    // Clamped like the first start, and for the same reason: a future-dated
+    // transaction in the page just fetched would otherwise push the restart
+    // past today and turn a recoverable walk into a 422.
+    const next = newest ? windowed(new Date(Date.parse(`${newest}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)) : null;
     if (!next || next <= start) break;
     start = next;
   }
