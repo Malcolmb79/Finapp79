@@ -40,8 +40,10 @@ describe("upcomingBills", () => {
   it("lists what is due, soonest first", () => {
     const bills = upcomingBills([...rent, ...gym], { from: "2026-11-16", until: "2026-12-31" });
     expect(bills.map((b) => [b.label, b.dueDate])).toEqual([
-      ["RENT", "2026-12-03"],
-      ["GYM", "2026-12-15"],
+      // Title-cased by cleanDescription, which is what a bank's shouting
+      // becomes on screen — see utils/cleanDescription.ts.
+      ["Rent", "2026-12-03"],
+      ["Gym", "2026-12-15"],
     ]);
   });
 

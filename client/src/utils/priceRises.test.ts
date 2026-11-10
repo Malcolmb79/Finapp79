@@ -83,6 +83,6 @@ describe("detectPriceRises", () => {
       ...["2026-08-03", "2026-09-03", "2026-10-03"].map((d) => charge(d, 60, "BIG CO")),
       charge("2026-11-03", 80, "BIG CO"),
     ]);
-    expect(rises.map((r) => r.label)).toEqual(["BIG CO", "SMALL CO"]);
+    expect(rises.map((r) => r.label)).toEqual(["Big Co", "Small Co"]);
   });
 });

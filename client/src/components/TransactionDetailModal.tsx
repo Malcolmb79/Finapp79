@@ -87,6 +87,20 @@ export default function TransactionDetailModal({
               style={{ width: "100%", padding: "0.3rem 0.5rem", fontSize: "0.92rem" }}
               placeholder="Add a description"
             />
+            {/* What the bank actually sent, whenever the tidied name differs.
+                The cleaning is aggressive — it drops card-scheme prefixes,
+                IBANs, mandate references and FX conversions — and that is only
+                safe while the original stays readable somewhere. It is also
+                the answer to "why is it called that?", which has no other
+                answer once the name on the row is not the bank's. */}
+            {transaction.description && transaction.description.trim() !== description.trim() && (
+              <div
+                style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.3rem", wordBreak: "break-word" }}
+                title="Exactly what the bank sent"
+              >
+                From the bank: {transaction.description}
+              </div>
+            )}
           </div>
         </div>
 

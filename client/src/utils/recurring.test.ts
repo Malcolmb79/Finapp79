@@ -112,7 +112,9 @@ describe("detectRecurring", () => {
 
   it("puts the most expensive commitment first", () => {
     const found = detectRecurring([...monthly("NETFLIX", 9.99, 4), ...monthly("RENT", 950, 4)]);
-    expect(found[0].label).toContain("RENT");
+    // "Rent", not "RENT": the label goes through cleanDescription, which
+    // sentence-cases a name the bank shouted.
+    expect(found[0].label).toContain("Rent");
   });
 
   it("survives same-day duplicates rather than dividing by a zero gap", () => {
