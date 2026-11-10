@@ -12,6 +12,8 @@ import { formatCurrency } from "../../utils/formatCurrency.js";
 import CategorySelect from "../CategorySelect.js";
 import { Check } from "lucide-react";
 import ThemeToggle from "../ThemeToggle.js";
+import { useRefresh } from "../../contexts/RefreshContext.js";
+import { useAlerts } from "../../utils/useAlerts.js";
 
 export default function TopHeader({ onOpenNav }: { onOpenNav: () => void }) {
   const { user } = useAuth();
@@ -26,6 +28,10 @@ export default function TopHeader({ onOpenNav }: { onOpenNav: () => void }) {
   const { scope, setScope } = useAccountScope();
   const { range, setRange } = useDateRange();
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const { version } = useRefresh();
+  // What wants attention, as opposed to what wants filing. Both live behind
+  // the one bell so there is a single place to look.
+  const alerts = useAlerts(version);
 
   useEffect(() => {
     api.listPendingTransactions().then(setPending);
@@ -153,12 +159,48 @@ export default function TopHeader({ onOpenNav }: { onOpenNav: () => void }) {
         <div style={{ position: "relative" }}>
           <button className="icon-button" aria-label="Notifications" onClick={toggle} aria-expanded={open}>
             <Bell size={17} />
-            {pending.length > 0 && <span className="notification-badge">{pending.length > 9 ? "9+" : pending.length}</span>}
+            {pending.length + alerts.length > 0 && (
+              <span className="notification-badge">{pending.length + alerts.length > 9 ? "9+" : pending.length + alerts.length}</span>
+            )}
           </button>
           {open && (
             <>
               <div style={{ position: "fixed", inset: 0, zIndex: 39 }} onClick={() => setOpen(false)} />
               <div className="add-widget-menu" style={{ width: 340 }}>
+                {alerts.length > 0 && (
+                  <>
+                    <div style={{ fontWeight: 600, fontSize: "0.85rem", padding: "0.3rem 0.5rem 0.5rem" }}>Worth knowing</div>
+                    {alerts.map((alert) => (
+                      <button
+                        key={alert.id}
+                        onClick={() => {
+                          setOpen(false);
+                          navigate(alert.href);
+                        }}
+                        style={{
+                          display: "block",
+                          width: "100%",
+                          textAlign: "left",
+                          background: "transparent",
+                          border: "none",
+                          borderBottom: "1px solid var(--gridline)",
+                          padding: "0.4rem 0.5rem",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: "0.83rem",
+                            color: alert.severity === "critical" ? "var(--critical)" : "var(--text)",
+                          }}
+                        >
+                          {alert.title}
+                        </div>
+                        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{alert.detail}</div>
+                      </button>
+                    ))}
+                  </>
+                )}
                 <div style={{ fontWeight: 600, fontSize: "0.85rem", padding: "0.3rem 0.5rem 0.5rem" }}>New transactions</div>
                 {pending.length === 0 ? (
                   <p className="empty-state" style={{ padding: "0 0.5rem 0.4rem" }}>
