@@ -1,5 +1,6 @@
 import { AlertCircle, Landmark, Loader2 } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { api, type Aspsp } from "../api/client.js";
 
 // api/client.ts throws `${status}: ${body}`, where body is usually this
@@ -149,7 +150,28 @@ export default function BankLink() {
                 <Loader2 size={14} className="spin" /> Loading banks…
               </p>
             ) : institutions && institutions.length === 0 ? (
-              <p className="empty-state">No banks available for {country.name} yet.</p>
+              /* An empty list is almost never a temporary gap, so "yet" was
+                 the wrong word: open banking is a regional regime, and a
+                 country is either covered by this app's registration or it is
+                 not. The United Kingdom is the one that catches people here —
+                 it sits outside PSD2 and needs its own access enabled, so it
+                 comes back empty while Ireland and the EU do not. Saying so,
+                 and pointing at the route that does work, beats leaving
+                 someone to wonder whether to try again tomorrow. */
+              <div className="empty-state" style={{ textAlign: "left" }}>
+                <p style={{ margin: "0 0 0.5rem" }}>
+                  No banks in {country.name} are available to this app’s open banking registration.
+                </p>
+                <p style={{ margin: "0 0 0.5rem" }}>
+                  {country.code === "GB"
+                    ? "The UK sits outside the EU regime and needs its own access enabled with Enable Banking before any UK bank appears here."
+                    : "Coverage is granted per country, so this one would need adding with Enable Banking before its banks appear here."}
+                </p>
+                <p style={{ margin: 0 }}>
+                  Until then, an account here can still be kept up to date by{" "}
+                  <Link to="/accounts">importing its statements</Link> — PDF or CSV, including scans.
+                </p>
+              </div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: "0.7rem" }}>
                 {institutions?.map((inst) => {
