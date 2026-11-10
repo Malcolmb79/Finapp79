@@ -229,8 +229,47 @@ export async function listAccountTransactions(accountUid: string, options: { fro
   floor.setDate(floor.getDate() - MAX_HISTORY_DAYS);
   const floorStr = floor.toISOString().slice(0, 10);
   // Never further back than the bank will answer for, whatever is asked.
-  const dateFromStr = options.from && options.from > floorStr ? options.from : floorStr;
+  let start = options.from && options.from > floorStr ? options.from : floorStr;
 
+  const all: RemoteTransaction[] = [];
+  let lastError: string | undefined;
+
+  /**
+   * Start again after whatever the failed walk did manage to fetch.
+   *
+   * This is the move that actually gets a stuck account unstuck. A page that
+   * fails cannot be stepped over from inside the walk — its continuation key
+   * is in the response that failed — but a *fresh* walk beginning after the
+   * last transaction successfully read is a different pagination, and one
+   * that need never reach the bad page at all.
+   *
+   * Bounded, and each restart must strictly advance the date. A walk whose
+   * very first page fails has fetched nothing, so there is no later date to
+   * move to and nothing to be gained by asking again.
+   */
+  for (let walk = 0; walk < MAX_WALK_RESTARTS; walk++) {
+    const page = await walkFrom(accountUid, start);
+    all.push(...page.transactions);
+    if (!page.incomplete) return { transactions: all };
+
+    lastError = page.incomplete;
+    const newest = page.transactions.reduce<string | null>(
+      (latest, tx) => (tx.booking_date && (!latest || tx.booking_date > latest) ? tx.booking_date : latest),
+      null
+    );
+    const next = newest ? new Date(Date.parse(`${newest}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10) : null;
+    if (!next || next <= start) break;
+    start = next;
+  }
+
+  return { transactions: all, incomplete: lastError };
+}
+
+/** How many times to begin again past a bad page before giving up. */
+const MAX_WALK_RESTARTS = 6;
+
+/** One pagination, from one date, stopping at the first page it can't get. */
+async function walkFrom(accountUid: string, dateFromStr: string): Promise<TransactionPage> {
   const transactions: RemoteTransaction[] = [];
   let continuationKey: string | undefined;
 
