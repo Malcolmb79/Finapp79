@@ -9,6 +9,7 @@ import LoanTermsEditor from "../components/LoanTermsEditor.js";
 import LoanStatusModal from "../components/LoanStatusModal.js";
 import { fileToBase64 } from "../utils/fileBytes.js";
 import { accountTypeLabel, amountDrawn, facilityLabel, isBorrowing, accountTxSums, visibleAccounts, visibleTransactions } from "../utils/accountBalance.js";
+import { accountRef } from "../utils/accountRef.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { sumInBase, useFxRates } from "../utils/fx.js";
 import { useAccountScope } from "../contexts/ViewFilterContext.js";
@@ -65,6 +66,9 @@ function AccountDebtRow({
 
   const detail = [
     accountTypeLabel(account),
+    // Two loans from the same lender look identical on a list otherwise, and
+    // the one thing this page invites you to do is update the right one.
+    accountRef(account),
     account.loan_rate != null ? `${account.loan_rate.toFixed(2)}% a year` : null,
     payment > 0 ? `${formatCurrency(payment, account.currency)}/mo` : null,
     // The contract's own end date beats the computed one — it accounts for

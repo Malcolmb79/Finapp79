@@ -180,11 +180,11 @@ const BAND_MIN_SHARE = 0.15;
  * unrelated prose down the right: terms, cashback, how interest works. Group
  * such a page into rows by vertical position alone and every transaction is
  * welded to whatever sentence happens to sit at the same height beside it, so
- * "Tesco Stores PLC, Dublin ... £24.07" arrives carrying "Your previous
- * Cashback balance £1.16" in the same row. Downstream that reads as a table
- * whose description column is prose, which is exactly what it looked like:
- * ten transactions found, two hundred rows discarded, and the descriptions
- * that survived were sentence fragments.
+ * a row carrying a shop and its amount also carries half a sentence about
+ * cashback. Downstream that reads as a table whose description column is
+ * prose, which is exactly what it looked like: a handful of transactions
+ * found, hundreds of rows discarded, and the descriptions that survived were
+ * sentence fragments.
  *
  * So the page is cut at its widest empty vertical strip first, and rows are
  * built inside each piece. Returns the whole page as one band when there is no
