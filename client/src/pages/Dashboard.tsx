@@ -2,6 +2,9 @@ import { ArrowDownRight, ArrowUpRight, Plus, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import CashFlowCard, { type MonthFlow } from "../components/dashboard/CashFlowCard.js";
+import CashFlowForecast from "../components/dashboard/CashFlowForecast.js";
+import UpcomingBills from "../components/dashboard/UpcomingBills.js";
+import { addDaysIso, forecastBalance, today, upcomingBills } from "../utils/forecast.js";
 import MagnitudeBarList from "../components/dashboard/MagnitudeBarList.js";
 import NetWorthCard, { type TrendPoint } from "../components/dashboard/NetWorthCard.js";
 import PendingReviewWidget from "../components/dashboard/PendingReviewWidget.js";
@@ -34,7 +37,7 @@ import { computeCanvasHeight, type CanvasRect } from "../utils/useCanvasItem.js"
 import { useMeasuredWidth } from "../utils/useMeasuredWidth.js";
 import AccountAvatar from "../components/AccountAvatar.js";
 import TransactionDetailModal from "../components/TransactionDetailModal.js";
-import { accountBalance, amountDrawn, isBorrowing, accountTxSums, repaymentMirrors, spendingTransactions, visibleAccounts, visibleTransactions } from "../utils/accountBalance.js";
+import { accountBalance, amountDrawn, isBorrowing, accountTxSums, isLiability, repaymentMirrors, spendingTransactions, visibleAccounts, visibleTransactions } from "../utils/accountBalance.js";
 import { budgetStatus } from "../utils/budgetStatus.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { monthsToPayoff } from "../utils/payoff.js";
@@ -162,6 +165,13 @@ function loadConfig(): DashboardConfig {
   return defaultConfig();
 }
 
+/**
+ * Two months out. Long enough to cross the next payday and show the month
+ * that follows it, short enough that the projection is still made of
+ * commitments rather than guesses.
+ */
+const FORECAST_DAYS = 60;
+
 export default function Dashboard() {
   const [allTransactions, setTransactions] = useState<Transaction[]>([]);
   const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([]);
@@ -274,6 +284,7 @@ export default function Dashboard() {
   const { converted: accountsNetWorth, unconvertible: accountsUnconvertible } = sumInBase(balances, rates);
   const { converted: policyTotal, unconvertible: policyUnconvertible } = sumInBase(policyContributions(policies), rates);
   const netWorth = accountsNetWorth + policyTotal;
+
   const unconvertible = [...new Set([...accountsUnconvertible, ...policyUnconvertible])];
   // Named so the reason net worth exceeds the accounts stays visible. A cover
   // amount pays out on death rather than being held now; counting it is the
@@ -299,6 +310,25 @@ export default function Dashboard() {
    */
   const worthTx = [...convertedTx, ...repaymentMirrors(convertedTx)];
   const spendTx = spendingTransactions(convertedTx);
+
+  /**
+   * Where the balance goes next, from what repeats.
+   *
+   * Anchored on spendable accounts rather than net worth, which is the whole
+   * difference between this and every other figure on the page. A €1,152 loan
+   * balance is real debt and belongs in net worth, but it is not money leaving
+   * the current account before payday — starting the line €1,152 lower would
+   * answer a question nobody asked. What is due on that loan arrives here the
+   * same way every other commitment does: as a repayment that has charged
+   * before.
+   */
+  const spendable = accounts
+    .filter((a) => !isLiability(a))
+    .map((a) => ({ amount: accountBalance(a, byAccount.get(a.id) ?? 0), currency: a.currency }));
+  const { converted: spendableTotal } = sumInBase(spendable, rates);
+  const forecastFrom = today();
+  const forecast = forecastBalance(convertedTx, spendableTotal, { from: forecastFrom, days: FORECAST_DAYS });
+  const bills = upcomingBills(convertedTx, { from: forecastFrom, until: addDaysIso(forecastFrom, FORECAST_DAYS) });
 
   const monthDelta = worthTx
     .filter((tx) => tx.booking_date.startsWith(thisMonthKey))
@@ -552,6 +582,12 @@ export default function Dashboard() {
     },
     cashflow: {
       body: <CashFlowCard income={income} expenses={expenses} months={monthFlows} currency={rates?.base ?? null} mode={config.modes.cashflow} />,
+    },
+    forecast: {
+      body: <CashFlowForecast forecast={forecast} currency={rates?.base ?? null} horizonDays={FORECAST_DAYS} />,
+    },
+    upcomingBills: {
+      body: <UpcomingBills bills={bills} currency={rates?.base ?? null} from={forecastFrom} horizonDays={FORECAST_DAYS} />,
     },
     pendingReview: {
       body: (

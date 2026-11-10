@@ -83,12 +83,18 @@ function daysBetween(from: string, to: string): number {
   return (Date.parse(to) - Date.parse(from)) / 86_400_000;
 }
 
-export function detectRecurring(transactions: Chargeable[]): RecurringPayment[] {
+export function detectRecurring(
+  transactions: Chargeable[],
+  // Outgoings by default, which is what a subscriptions view wants: a salary
+  // is regular too, but it isn't a subscription and listing it among the
+  // outgoings would misread the total. The forecast asks for the other
+  // direction, because a projection that measures the spending and invents
+  // the income is wrong in only one direction.
+  { direction = "out" }: { direction?: "out" | "in" } = {}
+): RecurringPayment[] {
   const groups = new Map<string, Chargeable[]>();
   for (const tx of transactions) {
-    // Money out only: a salary is regular too, but it isn't a subscription
-    // and listing it among outgoings would misread the total.
-    if (tx.amount >= 0) continue;
+    if (direction === "out" ? tx.amount >= 0 : tx.amount <= 0) continue;
     const key = merchantKey(tx);
     if (key.length < 3) continue;
     const list = groups.get(key) ?? [];

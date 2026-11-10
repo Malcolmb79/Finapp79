@@ -1,4 +1,18 @@
-import { ArrowLeftRight, CreditCard, Inbox, Landmark, PieChart, PiggyBank, Receipt, Target, TrendingUp, Wallet, type LucideIcon } from "lucide-react";
+import {
+  ArrowLeftRight,
+  CalendarClock,
+  CreditCard,
+  Inbox,
+  Landmark,
+  LineChart,
+  PieChart,
+  PiggyBank,
+  Receipt,
+  Target,
+  TrendingUp,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
 import type { WidgetMode } from "./components/dashboard/CanvasCard.js";
 
 export const WIDGET_IDS = [
@@ -6,6 +20,8 @@ export const WIDGET_IDS = [
   "accounts",
   "balances",
   "cashflow",
+  "forecast",
+  "upcomingBills",
   "pendingReview",
   "transactions",
   "category",
@@ -53,6 +69,10 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
   accounts: { title: "Accounts", module: "Accounts", icon: Landmark, defaultEnabled: true, defaultWidth: NARROW_WIDTH, defaultHeight: 264 },
   balances: { title: "Account balances", module: "Accounts", icon: Wallet, defaultEnabled: true, defaultWidth: NARROW_WIDTH, defaultHeight: 264 },
   cashflow: { title: "Monthly cash flow", module: "Dashboard", icon: ArrowLeftRight, defaultEnabled: true, defaultWidth: WIDE_WIDTH, defaultHeight: 280, defaultMode: "chart" },
+  // The forecast carries three stat tiles above its chart, like net worth —
+  // at 280 the chart has nowhere to go.
+  forecast: { title: "Balance ahead", module: "Dashboard", icon: LineChart, defaultEnabled: true, defaultWidth: WIDE_WIDTH, defaultHeight: 340 },
+  upcomingBills: { title: "Due soon", module: "Dashboard", icon: CalendarClock, defaultEnabled: true, defaultWidth: NARROW_WIDTH, defaultHeight: 300 },
   // The review queue is a scrolling list that can hold a whole sync's worth
   // of transactions, so it starts taller than a stat widget.
   pendingReview: { title: "New transactions", module: "Dashboard", icon: Inbox, defaultEnabled: true, defaultWidth: NARROW_WIDTH, defaultHeight: 360 },
