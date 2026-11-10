@@ -229,10 +229,14 @@ function PolicyCard({ policy, onChanged }: { policy: Policy; onChanged: () => vo
       {notice && <p style={{ fontSize: "0.78rem", color: "var(--critical)", margin: "0.4rem 0 0" }}>{notice}</p>}
 
       <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.6rem" }}>
+        {/* Media types only, never file extensions. A phone decides from this
+            list what to offer, and one carrying extensions it doesn't
+            understand falls back to Files alone — no camera and no photo
+            library, which is the whole point of the upload here. */}
         <input
           ref={fileRef}
           type="file"
-          accept=".pdf,.txt,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,image/*"
+          accept="image/*,application/pdf,text/plain"
           multiple
           style={{ display: "none" }}
           onChange={(e) => {
@@ -346,7 +350,7 @@ export default function Policies() {
           <input
             ref={fileRef}
             type="file"
-            accept=".pdf,.txt,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,image/*"
+            accept="image/*,application/pdf,text/plain"
           multiple
             style={{ display: "none" }}
             onChange={(e) => {
