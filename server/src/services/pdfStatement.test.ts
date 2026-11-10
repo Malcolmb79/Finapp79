@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { looksLikePdf, looksTabular, textToRows } from "./pdfStatement.js";
+import { looksLikePdf, looksTabular, splitIntoBands, textToRows } from "./pdfStatement.js";
 import { applyMapping, inferMapping, splitPreamble } from "./statementParser.js";
 
 describe("looksLikePdf", () => {
@@ -192,5 +192,70 @@ describe("column detection", () => {
 
   it("rejects a table too short to tell anything from", () => {
     expect(looksTabular([["01/01/2026", "TESCO", "12.00"]])).toBe(false);
+  });
+});
+
+/**
+ * A page typeset in two columns.
+ *
+ * A card statement prints its transactions down the left and unrelated prose
+ * down the right — terms, cashback, how interest works. Grouping such a page
+ * into rows by vertical position alone welds each transaction to whatever
+ * sentence sits beside it, which is how a real import came out with ten
+ * transactions found, two hundred rows discarded, and descriptions that were
+ * fragments of sentences.
+ */
+describe("splitIntoBands", () => {
+  /** Twelve lines of a left column and twelve of a right, at matching heights. */
+  function twoColumnPage() {
+    const items = [];
+    for (let i = 0; i < 12; i++) {
+      const y = 700 - i * 20;
+      items.push({ str: `txn ${i}`, x: 40, y, width: 90 });
+      items.push({ str: `GBP${i}.00`, x: 180, y, width: 40 });
+      // A typeset column has structure of its own: text on one edge and its
+      // own figures on another. That is what distinguishes it from the single
+      // right-aligned amount column of an ordinary table.
+      items.push({ str: `prose about interest ${i}`, x: 330, y, width: 140 });
+      items.push({ str: `GBP${i}.16`, x: 500, y, width: 40 });
+    }
+    return items;
+  }
+
+  it("cuts a two-column page at its gutter", () => {
+    const bands = splitIntoBands(twoColumnPage());
+    expect(bands).toHaveLength(2);
+    expect(bands[0].every((i) => i.x < 330)).toBe(true);
+    expect(bands[1].every((i) => i.x >= 330)).toBe(true);
+  });
+
+  // The common case, and the one that must not change: a statement that
+  // already imports correctly is a single run of full-width rows.
+  it("leaves an ordinary table as one band", () => {
+    const items = [];
+    for (let i = 0; i < 12; i++) {
+      const y = 700 - i * 20;
+      items.push({ str: `01 Jan`, x: 40, y, width: 35 });
+      items.push({ str: `Merchant ${i}`, x: 85, y, width: 120 });
+      items.push({ str: `GBP${i}.00`, x: 215, y, width: 40 });
+    }
+    expect(splitIntoBands(items)).toHaveLength(1);
+  });
+
+  // A wide left margin or a right-aligned amount column leaves a broad empty
+  // strip near an edge. Splitting there would cut real rows in half.
+  it("does not mistake a margin for a gutter", () => {
+    const items = [];
+    for (let i = 0; i < 12; i++) {
+      const y = 700 - i * 20;
+      items.push({ str: `Merchant ${i}`, x: 40, y, width: 100 });
+      // Far to the right, with nothing between: a margin, not a column.
+      items.push({ str: `GBP${i}.00`, x: 520, y, width: 40 });
+    }
+    expect(splitIntoBands(items)).toHaveLength(1);
+  });
+
+  it("leaves a nearly empty page alone", () => {
+    expect(splitIntoBands([{ str: "x", x: 10, y: 10, width: 5 }])).toHaveLength(1);
   });
 });
