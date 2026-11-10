@@ -22,6 +22,10 @@ accountsRouter.get("/", async (req, res) => {
         `SELECT a.*,
                 COALESCE(a.institution_name, bc.institution_name) AS institution_name,
                 COALESCE(a.logo, bc.logo) AS logo,
+                -- The date the bank stops answering. Carried onto the
+                -- account because that is where somebody looks when it has
+                -- stopped updating, not at the connection behind it.
+                bc.valid_until AS access_valid_until,
                 -- When a statement was last imported here, and what it covered
                 -- up to. Both are worth showing: an import done yesterday
                 -- carrying nothing newer than March means the account has been

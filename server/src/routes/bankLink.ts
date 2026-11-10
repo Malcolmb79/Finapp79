@@ -27,17 +27,22 @@ bankLinkRouter.post("/authorize", async (req, res) => {
   }
 
   const state = randomUUID();
+  // Recorded at the moment it is asked for, rather than guessed at later:
+  // this is the date the bank stops answering, and the app has no other way
+  // to find it out.
+  const validUntil = enableBanking.authorisationExpiry();
   await db
     .prepare(
-      `INSERT INTO bank_connections (id, user_id, institution_id, institution_name, logo, country, status)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending')`
+      `INSERT INTO bank_connections (id, user_id, institution_id, institution_name, logo, country, status, valid_until)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`
     )
-    .run(state, req.user!.id, aspsp_name, aspsp_name, logo ?? null, country);
+    .run(state, req.user!.id, aspsp_name, aspsp_name, logo ?? null, country, validUntil);
 
   const authorization = await enableBanking.startAuthorization(
     { name: aspsp_name, country },
     state,
-    process.env.ENABLE_BANKING_REDIRECT_URL ?? ""
+    process.env.ENABLE_BANKING_REDIRECT_URL ?? "",
+    validUntil
   );
 
   res.json({ state, authorizationUrl: authorization.url });
@@ -150,7 +155,10 @@ bankLinkRouter.post("/accounts/:accountId/sync", async (req, res) => {
   // why this is shared rather than duplicated.
   try {
     const result = await syncAccount(accountId, req.user!.id, { transactionId, cleanRemittanceInfo });
-    await recordSyncAttempt(accountId, null);
+    // A partial pull is a success with a caveat, not a failure: what arrived
+    // is saved, and the caveat is recorded so the account can say why it is
+    // not fully caught up.
+    await recordSyncAttempt(accountId, result.incomplete ?? null);
     res.json(result);
   } catch (err) {
     // Recorded even here, so a failure the owner saw by pressing the button

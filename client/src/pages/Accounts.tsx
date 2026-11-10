@@ -16,6 +16,7 @@ import {
   isLiability,
   staleness,
 } from "../utils/accountBalance.js";
+import { bankAccess } from "../utils/bankAccess.js";
 import { fileToBase64 } from "../utils/fileBytes.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 
@@ -565,6 +566,34 @@ export default function Accounts() {
                         lapses after about 90 days, and without this the
                         account just stops updating — which looks exactly like
                         an account with nothing happening on it. */}
+                    {/* The failure that was invisible until now: a consent
+                        lapses ninety days after linking and the account just
+                        stops updating. Said a fortnight early, while
+                        reconnecting is a small job. */}
+                    {(() => {
+                      const access = bankAccess(a.access_valid_until);
+                      if (!access) return null;
+                      return (
+                        <div
+                          className="account-row__meta"
+                          style={{
+                            fontSize: "0.72rem",
+                            color: access.state === "expired" ? "var(--critical)" : "var(--accent)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "0.3rem",
+                          }}
+                        >
+                          <AlertTriangle size={12} />
+                          {access.state === "expired"
+                            ? "Bank access expired — reconnect to resume syncing"
+                            : `Bank access expires in ${access.days} day${access.days === 1 ? "" : "s"}`}
+                          <Link to="/bank-link" style={{ color: "inherit" }}>
+                            Reconnect
+                          </Link>
+                        </div>
+                      );
+                    })()}
                     {a.last_sync_error && (
                       <div
                         className="account-row__meta"

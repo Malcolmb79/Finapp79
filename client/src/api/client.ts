@@ -209,6 +209,12 @@ export interface Account {
   hidden?: boolean;
   /** When a statement was last imported here. Null on accounts never imported to. */
   last_import_at?: string | null;
+  /**
+   * When the bank authorisation lapses. Ninety days from linking, which is
+   * the regulatory ceiling, so every linked account needs reconnecting about
+   * once a quarter.
+   */
+  access_valid_until?: string | null;
   /** When the nightly schedule last reached this account. */
   last_sync_at?: string | null;
   /** What went wrong the last time, if anything did. */

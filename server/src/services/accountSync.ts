@@ -21,9 +21,17 @@ export function signedAmount(tx: RemoteTransaction): number {
 }
 
 
+/**
+ * How far behind the newest stored transaction to start. A bank can post a
+ * transaction behind one already seen, and a week covers that comfortably.
+ */
+const OVERLAP_DAYS = 7;
+
 export interface SyncResult {
   synced: number;
   totalFetched: number;
+  /** Set when the bank failed partway and this is only some of it. */
+  incomplete?: string;
 }
 
 const BOOKED_BALANCE_TYPES = ["CLBD", "XPCD", "ITBD", "PRCD", "OTHR"];
@@ -46,7 +54,30 @@ export async function syncAccount(
     cleanRemittanceInfo: (info: RemoteTransaction["remittance_information"]) => string | null;
   }
 ): Promise<SyncResult> {
-  const transactions = (await enableBanking.listAccountTransactions(accountId)) as unknown as RemoteTransaction[];
+  /**
+   * Start just before the newest transaction already held, not ninety days
+   * back every time.
+   *
+   * A page that fails cannot be stepped over — its continuation key is inside
+   * the response that failed — so a walk that always restarts from the same
+   * date dies at the same page forever. Beginning from what is already stored
+   * starts the walk after the bad stretch, which is the difference between an
+   * account that recovers and one that stays frozen.
+   *
+   * The overlap is for late-posted transactions, which a bank can insert
+   * behind the newest one already seen. Re-fetching them costs nothing: the
+   * insert dedupes on id.
+   */
+  const newest = (await db
+    .prepare("SELECT MAX(booking_date) AS latest FROM transactions WHERE account_id = ? AND user_id = ?")
+    .get(accountId, userId)) as unknown as { latest: string | null } | undefined;
+
+  const from = newest?.latest
+    ? new Date(Date.parse(`${newest.latest}T00:00:00Z`) - OVERLAP_DAYS * 86_400_000).toISOString().slice(0, 10)
+    : undefined;
+
+  const page = await enableBanking.listAccountTransactions(accountId, { from });
+  const transactions = page.transactions as unknown as RemoteTransaction[];
 
   let synced = 0;
   await withTransaction(async (tx) => {
@@ -109,7 +140,7 @@ export async function syncAccount(
     console.error(`Failed to sync overdraft limit for account ${accountId}:`, err);
   }
 
-  return { synced, totalFetched: transactions.length };
+  return { synced, totalFetched: transactions.length, incomplete: page.incomplete };
 }
 
 /**

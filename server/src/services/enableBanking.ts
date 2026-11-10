@@ -98,18 +98,33 @@ export interface AuthorizationResponse {
   authorization_id: string;
 }
 
+/**
+ * How long a bank authorisation lasts.
+ *
+ * Ninety days is the regulatory ceiling, so this is as long as it can be
+ * rather than a number worth tuning. What matters is that it *ends*: the
+ * consent lapses on a date, the bank stops answering, and none of that is
+ * visible anywhere unless the app writes the date down. Returned to the
+ * caller for exactly that reason, rather than computed and forgotten in here.
+ */
+export const AUTH_VALID_DAYS = 90;
+
+export function authorisationExpiry(from = new Date()): string {
+  const validUntil = new Date(from);
+  validUntil.setDate(validUntil.getDate() + AUTH_VALID_DAYS);
+  return validUntil.toISOString();
+}
+
 export function startAuthorization(
   aspsp: { name: string; country: string },
   state: string,
-  redirectUrl: string
+  redirectUrl: string,
+  validUntilIso: string
 ): Promise<AuthorizationResponse> {
-  const validUntil = new Date();
-  validUntil.setDate(validUntil.getDate() + 90);
-
   return ebFetch<AuthorizationResponse>("/auth", {
     method: "POST",
     body: JSON.stringify({
-      access: { valid_until: validUntil.toISOString() },
+      access: { valid_until: validUntilIso },
       aspsp,
       state,
       redirect_url: redirectUrl,
@@ -176,24 +191,75 @@ export interface RemoteTransaction {
   debtor?: { name?: string };
 }
 
-export async function listAccountTransactions(accountUid: string): Promise<RemoteTransaction[]> {
-  const dateFrom = new Date();
-  dateFrom.setDate(dateFrom.getDate() - 90);
-  const dateFromStr = dateFrom.toISOString().slice(0, 10);
+/** The furthest back a bank will answer for, and the default window. */
+export const MAX_HISTORY_DAYS = 90;
+
+export interface TransactionPage {
+  transactions: RemoteTransaction[];
+  /** Set when a page failed and the walk stopped early. */
+  incomplete?: string;
+}
+
+/**
+ * A bank's transactions, walked page by page.
+ *
+ * Two things here are the scars of one failure, and both matter.
+ *
+ * **A failed page no longer throws the successful ones away.** This used to
+ * `await` each page straight into an array and let any rejection escape, so a
+ * single bad page discarded every page already fetched and wrote nothing at
+ * all. AIB returned `ASPSP_ERROR / "Unknown error"` on one page partway
+ * through, and because the walk restarted from the same date every run it hit
+ * the same page every time: the account stopped updating completely, for a
+ * week, with no record of why. What is fetched is now kept and the reason is
+ * handed back.
+ *
+ * **The caller chooses where to start.** A page that fails cannot be stepped
+ * over — its continuation key is inside the response that failed — so a walk
+ * that always begins ninety days back will keep dying at the same page
+ * forever, however gracefully. Starting from what is already stored begins
+ * the walk after the bad stretch, which is what actually gets a stuck account
+ * moving again.
+ *
+ * One retry per page, because `ASPSP_ERROR` with no detail is the shape of an
+ * upstream hiccup rather than a permanent condition.
+ */
+export async function listAccountTransactions(accountUid: string, options: { from?: string } = {}): Promise<TransactionPage> {
+  const floor = new Date();
+  floor.setDate(floor.getDate() - MAX_HISTORY_DAYS);
+  const floorStr = floor.toISOString().slice(0, 10);
+  // Never further back than the bank will answer for, whatever is asked.
+  const dateFromStr = options.from && options.from > floorStr ? options.from : floorStr;
 
   const transactions: RemoteTransaction[] = [];
   let continuationKey: string | undefined;
 
-  do {
+  for (;;) {
     const query = new URLSearchParams({ date_from: dateFromStr });
     if (continuationKey) query.set("continuation_key", continuationKey);
+    const path = `/accounts/${accountUid}/transactions?${query.toString()}`;
 
-    const page = await ebFetch<{ transactions: RemoteTransaction[]; continuation_key?: string }>(
-      `/accounts/${accountUid}/transactions?${query.toString()}`
-    );
+    let page: { transactions: RemoteTransaction[]; continuation_key?: string };
+    try {
+      page = await ebFetch<typeof page>(path);
+    } catch {
+      // One retry, because ASPSP_ERROR with no detail is the shape of an
+      // upstream hiccup rather than a permanent condition. The first error is
+      // dropped on purpose: if the retry also fails, its reason is the
+      // current one and the more useful of the two.
+      try {
+        page = await ebFetch<typeof page>(path);
+      } catch (retryErr) {
+        const reason = retryErr instanceof Error ? retryErr.message : "the bank stopped responding";
+        // Everything fetched so far is real and worth keeping — the insert
+        // dedupes, so a partial pull costs nothing and the next run carries
+        // on from a later date.
+        return { transactions, incomplete: reason };
+      }
+    }
+
     transactions.push(...page.transactions);
     continuationKey = page.continuation_key;
-  } while (continuationKey);
-
-  return transactions;
+    if (!continuationKey) return { transactions };
+  }
 }

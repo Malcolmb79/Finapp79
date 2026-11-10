@@ -1,4 +1,5 @@
 import type { Account, Budget } from "../api/client.js";
+import { bankAccess } from "./bankAccess.js";
 import type { Forecast, UpcomingBill } from "./forecast.js";
 
 /**
@@ -120,6 +121,26 @@ export function deriveAlerts(
       title: `${bill.label} due ${dayPhrase(days)}`,
       detail: money(bill.amount),
       href: "/",
+    });
+  }
+
+  // The consent behind a linked account lapses after ninety days, and this
+  // is the one alert that can arrive before the damage rather than after it:
+  // reconnecting on the warning costs a minute, reconnecting after the fact
+  // costs however long nobody noticed.
+  for (const account of accounts) {
+    const access = bankAccess(account.access_valid_until);
+    if (!access) continue;
+    alerts.push({
+      id: `access:${account.id}`,
+      kind: "sync",
+      severity: access.state === "expired" ? "critical" : "warning",
+      title: access.state === "expired" ? `${account.name} needs reconnecting` : `${account.name} access expires soon`,
+      detail:
+        access.state === "expired"
+          ? "The bank’s permission has lapsed, so nothing new is arriving"
+          : `In ${access.days} day${access.days === 1 ? "" : "s"} — reconnecting now avoids a gap`,
+      href: "/bank-link",
     });
   }
 

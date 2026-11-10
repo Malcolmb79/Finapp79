@@ -437,3 +437,13 @@ CREATE TABLE IF NOT EXISTS transaction_splits (
 
 CREATE INDEX IF NOT EXISTS idx_transaction_splits_tx ON transaction_splits (transaction_id);
 CREATE INDEX IF NOT EXISTS idx_transaction_splits_user ON transaction_splits (user_id);
+
+-- When the bank's authorisation lapses.
+--
+-- Ninety days is the regulatory ceiling and the app asks for all of it, so
+-- every linked bank stops answering roughly a quarter after it was linked.
+-- Until this column existed nothing recorded that date and nothing noticed it
+-- passing: the account simply stopped updating, which is indistinguishable
+-- from an account with nothing happening on it. One did exactly that for a
+-- week before anybody asked why.
+ALTER TABLE bank_connections ADD COLUMN IF NOT EXISTS valid_until TEXT;
