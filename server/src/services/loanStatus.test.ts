@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { assemble, impliedPrincipal, reconciles, sniffImageType } from "./loanStatus.js";
+import { assemble, impliedPrincipal, reconciles } from "./loanStatus.js";
+import { sniffImageType } from "./imageBytes.js";
 
 /**
  * The lender, the reference and the amounts here are invented; the *shape* is

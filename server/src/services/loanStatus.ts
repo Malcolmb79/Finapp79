@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { rawField, verifyDate, verifyNumber, type ExtractedField, type RawPass } from "./loanContract.js";
+import type { ImageType } from "./imageBytes.js";
 
 /**
  * Where a loan stands today, read off a screenshot of the lender's own page.
@@ -63,23 +64,6 @@ export interface LoanStatus {
 
   /** Always "image" here, and said out loud because quotes are transcribed. */
   readFrom: "image";
-}
-
-/** What the API will accept as an image, and what a phone actually produces. */
-export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
-export type ImageType = (typeof IMAGE_TYPES)[number];
-
-/** The file's own first bytes, rather than whatever the upload claimed. */
-export function sniffImageType(bytes: Uint8Array): ImageType | null {
-  const starts = (...sig: number[]) => sig.every((byte, i) => bytes[i] === byte);
-  if (starts(0x89, 0x50, 0x4e, 0x47)) return "image/png";
-  if (starts(0xff, 0xd8, 0xff)) return "image/jpeg";
-  if (starts(0x47, 0x49, 0x46, 0x38)) return "image/gif";
-  // "RIFF" .... "WEBP"
-  if (starts(0x52, 0x49, 0x46, 0x46) && [0x57, 0x45, 0x42, 0x50].every((b, i) => bytes[8 + i] === b)) {
-    return "image/webp";
-  }
-  return null;
 }
 
 const MODEL = "claude-opus-5";

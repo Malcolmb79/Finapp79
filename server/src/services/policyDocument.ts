@@ -10,6 +10,7 @@ import {
   type KeyTerm,
   type RawPass,
 } from "./loanContract.js";
+import type { UploadedImage } from "./imageBytes.js";
 
 /**
  * Reads a life insurance policy statement or schedule.
@@ -145,6 +146,11 @@ const POLICY_ITEM = {
   type: "object",
   properties: {
     policy_number: { type: ["string", "null"], description: "The policy or benefit number, exactly as printed" },
+    insurer: {
+      type: ["string", "null"],
+      description:
+        "The company this particular policy is with, when the document covers more than one insurer. Null where every policy in it is with the same company.",
+    },
     benefit_name: {
       type: ["string", "null"],
       description:
@@ -174,6 +180,7 @@ const POLICY_ITEM = {
   },
   required: [
     "policy_number",
+    "insurer",
     "benefit_name",
     "cover_amount",
     "surrender_value",
@@ -264,6 +271,7 @@ const DISTINCTION = [
   "A term or pure risk policy has a cover amount and no surrender value. Where the document states no cash, fund or surrender value, report surrender_value as null — never repeat the cover amount there.",
   "One document often describes more than one policy or benefit: a schedule may list a death benefit for each life assured. Report one entry in policies for each, even where they share a policy number, and name each in benefit_name. Never merge two benefits into one entry, and never put one benefit's cover beside another's premium.",
   "Where a premium is stated only as a combined or total figure across benefits, report it as total_premium and leave each policy's own premium null. Do not divide a total between benefits.",
+  "A broker's statement can list policies from several different companies. Give each policy its own insurer where they differ, and never report a single insurer made by joining two companies' names together.",
 ];
 
 const SYSTEM_PROMPT = [
@@ -355,6 +363,50 @@ export async function extractPolicyFactsFromScan(pdfBase64: string): Promise<Pol
     [
       { type: "document", source: { type: "base64", media_type: "application/pdf", data: pdfBase64 } },
       { type: "text", text: buildPrompt("", 0, 1) },
+    ],
+    SCAN_SYSTEM_PROMPT
+  );
+  return assemble(parsed ? [parsed] : [], null, 1);
+}
+
+/**
+ * Reads a statement photographed or screenshotted rather than filed.
+ *
+ * The way most people have a policy schedule to hand is a picture of it on a
+ * phone, and the reader refused exactly that: a PNG is not a PDF, so it fell
+ * through to being decoded as text, came out as noise, and was reported as
+ * having nothing readable in it — for a picture a person could read perfectly
+ * well.
+ *
+ * Every picture goes into one request rather than one each. Pages
+ * photographed separately still belong to one document, and read apart they
+ * would produce a policy per page, each missing whatever sat on the others —
+ * a schedule that names the benefit on one page and prices it on the next is
+ * the normal case, not an awkward one.
+ */
+export async function extractPolicyFactsFromImages(images: UploadedImage[]): Promise<PolicyFacts[] | null> {
+  if (!process.env.ANTHROPIC_API_KEY) return null;
+  if (images.length === 0) return null;
+
+  const client = new Anthropic();
+  const parsed = await readPass(
+    client,
+    [
+      ...images.map((image) => ({
+        type: "image" as const,
+        source: { type: "base64" as const, media_type: image.mediaType, data: image.data },
+      })),
+      {
+        type: "text" as const,
+        text: [
+          images.length > 1
+            ? `These ${images.length} pictures are pages of one statement, in order. Read them together: a benefit named on one page may be priced on another.`
+            : "",
+          buildPrompt("", 0, 1),
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      },
     ],
     SCAN_SYSTEM_PROMPT
   );
@@ -467,7 +519,11 @@ export function assemble(results: RawPass[], text: string | null, passes: number
     const surrenderValue = pick((e) => readNumber(e.surrender_value, LIMITS.surrender));
 
     const facts: PolicyFacts = {
-      insurer,
+      // The policy's own insurer wins over the document's. A statement from
+      // a broker covers several companies, and taking one name for all of
+      // them puts the wrong insurer on the card - worse than none, because it
+      // reads as a fact rather than a gap.
+      insurer: pick((e) => (typeof e.insurer === "string" && e.insurer ? e.insurer : null)) ?? insurer,
       policyNumber: pick((e) => (typeof e.policy_number === "string" && e.policy_number ? e.policy_number : null)),
       benefitName: pick((e) => (typeof e.benefit_name === "string" && e.benefit_name ? e.benefit_name : null)),
       currency,

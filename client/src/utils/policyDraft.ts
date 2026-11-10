@@ -134,6 +134,13 @@ export function benefitLabel(facts: PolicyFacts, index: number): string {
   const insurer = facts.insurer ?? "Life policy";
   if (facts.siblings <= 1) return insurer;
 
+  // The policy number first, because it is the thing the insurer, the broker
+  // and the statement all use to mean this one policy — it is what you quote
+  // on the phone, so it is what the card should say.
+  if (facts.policyNumber) return `${insurer} · ${facts.policyNumber}`;
+
+  // Failing a number, the document's own benefit number. Two benefits can
+  // share one policy number, and then this is all there is.
   const numbered = facts.benefitName?.match(/benefit\s*(?:number\s*)?(\d+)/i);
   return numbered ? `${insurer} — benefit ${numbered[1]}` : `${insurer} — ${index + 1}`;
 }

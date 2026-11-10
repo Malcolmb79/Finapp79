@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { Policy } from "../api/client.js";
+import type { Policy, PolicyFacts } from "../api/client.js";
 import {
+  benefitLabel,
   draftFromPolicy,
   draftProblem,
   emptyDraft,
@@ -250,5 +251,53 @@ describe("draftFromPolicy", () => {
     expect(draft.premium).toBe("");
     expect(draft.premiumFrequency).toBe("");
     expect(draft.startDate).toBe("");
+  });
+});
+
+/**
+ * A document often yields several policies, and they land as several cards.
+ * Naming them all after the insurer would leave the owner guessing which is
+ * which — the number is what the insurer, the broker and the statement all use
+ * to mean one policy, so it is what the card says.
+ */
+describe("benefitLabel", () => {
+  const facts = (over: Partial<PolicyFacts>): PolicyFacts => ({
+    insurer: "Example Mutual",
+    policyNumber: null,
+    benefitName: null,
+    currency: "ZAR",
+    coverAmount: null,
+    surrenderValue: null,
+    premium: null,
+    premiumFrequency: null,
+    totalPremium: null,
+    totalPremiumFrequency: null,
+    siblings: 1,
+    startDate: null,
+    maturityDate: null,
+    valuedAt: null,
+    keyTerms: [],
+    passes: 1,
+    readFrom: "text",
+    ...over,
+  });
+
+  it("uses the insurer alone when the document held one policy", () => {
+    expect(benefitLabel(facts({ policyNumber: "0000001" }), 0)).toBe("Example Mutual");
+  });
+
+  it("names each by its policy number when there are several", () => {
+    expect(benefitLabel(facts({ siblings: 3, policyNumber: "0000001/004" }), 1)).toBe("Example Mutual · 0000001/004");
+  });
+
+  // Two benefits can share one policy number, and then the number separates
+  // nothing — the document's own benefit number is all there is.
+  it("falls back to the benefit number when the policy number is shared", () => {
+    const shared = facts({ siblings: 2, benefitName: "Death Benefit - Product/Benefit number 4" });
+    expect(benefitLabel(shared, 1)).toBe("Example Mutual — benefit 4");
+  });
+
+  it("falls back to position when the document named nothing", () => {
+    expect(benefitLabel(facts({ siblings: 2 }), 1)).toBe("Example Mutual — 2");
   });
 });
