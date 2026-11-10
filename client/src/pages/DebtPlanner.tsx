@@ -137,7 +137,7 @@ function AccountDebtRow({
         <input
           ref={shotRef}
           type="file"
-          accept="image/png,image/jpeg,image/webp,image/gif"
+          accept="image/*"
           style={{ display: "none" }}
           onChange={(e) => {
             const file = e.target.files?.[0];
