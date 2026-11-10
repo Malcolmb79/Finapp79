@@ -1,5 +1,6 @@
 import { ArrowLeftRight, BarChart3, Calculator, CreditCard, PieChart, PiggyBank, Receipt, Repeat, Store, Table, TrendingUp } from "lucide-react";
 import DonutChart from "../components/dashboard/DonutChart.js";
+import PriceRises from "../components/dashboard/PriceRises.js";
 import Subscriptions from "../components/dashboard/Subscriptions.js";
 import TrendLine from "../components/dashboard/TrendLine.js";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
@@ -14,6 +15,7 @@ import { dateRangeLabel, rangeMonthCount, withinRange } from "../utils/dateRange
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { inBase, useFxRates } from "../utils/fx.js";
 import { cleanDescription } from "../utils/cleanDescription.js";
+import { detectPriceRises } from "../utils/priceRises.js";
 import { detectRecurring } from "../utils/recurring.js";
 
 const TREND_MONTHS = 12;
@@ -149,6 +151,10 @@ export default function Analytics() {
   // Recurrence needs the full history to find a rhythm — three charges
   // inside one month is not a monthly subscription.
   const recurring = detectRecurring(convertedTx);
+  // Deliberately from the full history rather than the chosen range: a price
+  // rise is established by what came before it, and a three-month window can
+  // easily hold the new price and none of the old.
+  const priceRises = detectPriceRises(convertedTx);
   const recurringAnnual = recurring.reduce((sum, r) => sum + r.annualised, 0);
 
   // The individual charges worth a second look. A category total hides a
@@ -257,6 +263,15 @@ export default function Analytics() {
       defaultWidth: 672,
       defaultHeight: 460,
       render: () => <Subscriptions payments={recurring} currency={rates?.base ?? "EUR"} />,
+    },
+    {
+      id: "priceRises",
+      title: "Price rises",
+      icon: TrendingUp,
+      accentVar: "--critical",
+      defaultWidth: 328,
+      defaultHeight: 320,
+      render: () => <PriceRises rises={priceRises} currency={rates?.base ?? "EUR"} />,
     },
     {
       id: "recurring",
