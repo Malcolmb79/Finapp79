@@ -1,7 +1,6 @@
 import { Link } from "react-router-dom";
 import { formatCurrency } from "../../utils/formatCurrency.js";
 import { useMeasuredSize } from "../../utils/useMeasuredSize.js";
-import StatTile from "./StatTile.js";
 
 /**
  * The transaction list, windowed to one calendar month.
@@ -43,6 +42,18 @@ const MIN_CHART_HEIGHT = 60;
  * identity, so a saturated accent (income) against a de-emphasized neutral
  * (expenses) reads clearer than two same-family hues here.
  */
+/**
+ * The two fills, named once.
+ *
+ * The swatch in the key and the bar it describes have to be the same
+ * colour, and the way that stops being true is someone changing one of
+ * them. Naming them here makes the key wrong only if the chart is wrong
+ * too, which is the kind of wrong somebody notices.
+ */
+const INCOME_FILL = "var(--seq-450)";
+const EXPENSE_FILL = "var(--text-muted)";
+const EXPENSE_OPACITY = 0.55;
+
 export default function CashFlowCard({
   income,
   expenses,
@@ -76,9 +87,31 @@ export default function CashFlowCard({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+      {/* The totals double as the chart's key.
+          Two series drawn in two colours and nothing anywhere saying which is
+          which: the only way to tell was to reason from the heights, and when
+          income and expenses are close — which is the interesting case — even
+          that doesn't work. A swatch beside each total costs no space and
+          puts the answer where the eye already is, rather than in a legend
+          off to one side. */}
       <div className="stat-row" style={{ marginBottom: "1rem" }}>
-        <StatTile label="Income" value={money(income)} />
-        <StatTile label="Expenses" value={money(expenses)} />
+        <div>
+          <p className="stat-tile__label" style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+            <span style={{ width: 9, height: 9, borderRadius: 2, background: INCOME_FILL, flexShrink: 0 }} aria-hidden />
+            Income
+          </p>
+          <p className="stat-tile__value">{money(income)}</p>
+        </div>
+        <div>
+          <p className="stat-tile__label" style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+            <span
+              style={{ width: 9, height: 9, borderRadius: 2, background: EXPENSE_FILL, opacity: EXPENSE_OPACITY, flexShrink: 0 }}
+              aria-hidden
+            />
+            Expenses
+          </p>
+          <p className="stat-tile__value">{money(expenses)}</p>
+        </div>
         <div>
           <p className="stat-tile__label">Saved</p>
           <p className={`stat-tile__value${saved >= 0 ? " stat-tile__value--good" : ""}`}>{money(saved)}</p>
@@ -105,8 +138,8 @@ export default function CashFlowCard({
               const x2 = slotX + slot / 2 + 2;
               const bars = (
                 <>
-                  <rect x={x1} y={baseline - incomeH} width={barWidth} height={incomeH} rx="4" fill="var(--seq-450)" />
-                  <rect x={x2} y={baseline - expenseH} width={barWidth} height={expenseH} rx="4" fill="var(--text-muted)" opacity="0.55" />
+                  <rect x={x1} y={baseline - incomeH} width={barWidth} height={incomeH} rx="4" fill={INCOME_FILL} />
+                  <rect x={x2} y={baseline - expenseH} width={barWidth} height={expenseH} rx="4" fill={EXPENSE_FILL} opacity={EXPENSE_OPACITY} />
                   {/* A transparent rect over the whole slot, so the month can
                       be hit anywhere above its label rather than only on two
                       thin bars — a month that barely spent anything has almost
