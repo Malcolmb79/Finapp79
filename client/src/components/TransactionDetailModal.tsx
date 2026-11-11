@@ -1,4 +1,4 @@
-import { Calendar, Landmark, Layers, Tag, Trash2, User, X } from "lucide-react";
+import { Calendar, Landmark, Layers, Sparkles, Tag, Trash2, User, X } from "lucide-react";
 import { useState } from "react";
 import { api, type Account, type Category, type Transaction } from "../api/client.js";
 import CategorySelect from "./CategorySelect.js";
@@ -56,6 +56,33 @@ export default function TransactionDetailModal({
     const rows = similarTransactions(siblings, transaction, key, change);
     setApplied(null);
     setOffer(rows.length > 0 ? { patch, rows } : null);
+  }
+
+  const [suggesting, setSuggesting] = useState(false);
+  /** "none" once a suggestion has been asked for and nothing came back. */
+  const [suggestion, setSuggestion] = useState<"none" | null>(null);
+
+  /**
+   * Files it where the suggestion says, rather than only naming the category.
+   *
+   * Showing "we think Groceries" and leaving the picker untouched would make
+   * agreeing with it the same number of clicks as not asking at all. The
+   * change is applied, and the usual offer to apply it to the rest of the
+   * merchant follows — so one click can file every transaction from it.
+   */
+  async function suggest() {
+    setSuggesting(true);
+    setSuggestion(null);
+    try {
+      const { category_id } = await api.suggestCategoryFor(transaction.id);
+      if (category_id == null) {
+        setSuggestion("none");
+        return;
+      }
+      await handleCategoryChange(String(category_id));
+    } finally {
+      setSuggesting(false);
+    }
   }
 
   async function applyToRest() {
@@ -157,12 +184,32 @@ export default function TransactionDetailModal({
           </span>
           <div className="modal__field-body">
             <div className="modal__field-label">Category</div>
-            <CategorySelect
-              categories={categories}
-              value={categoryId === "" ? null : Number(categoryId)}
-              onChange={(id) => handleCategoryChange(id == null ? "" : String(id))}
-              width={220}
-            />
+            <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
+              <CategorySelect
+                categories={categories}
+                value={categoryId === "" ? null : Number(categoryId)}
+                onChange={(id) => handleCategoryChange(id == null ? "" : String(id))}
+                width={220}
+              />
+              {/* Only while it is unfiled, and only on a click. The review
+                  queue has suggested a category for a long time; a
+                  transaction opened on its own got nothing, so the one place
+                  somebody goes *because* they want to file something was the
+                  one place that wouldn't help. A click rather than a fetch on
+                  open, so looking at a transaction never quietly costs a
+                  model call. */}
+              {categoryId === "" && (
+                <button type="button" onClick={suggest} disabled={suggesting} style={{ fontSize: "0.78rem", padding: "0.3rem 0.5rem" }}>
+                  <Sparkles size={13} style={{ marginRight: "0.25rem", verticalAlign: "-2px" }} />
+                  {suggesting ? "Thinking…" : "Suggest"}
+                </button>
+              )}
+            </div>
+            {suggestion === "none" && (
+              <p style={{ margin: "0.35rem 0 0", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                Nothing to go on yet — file a few of these by hand and it will learn where they belong.
+              </p>
+            )}
           </div>
         </div>
 

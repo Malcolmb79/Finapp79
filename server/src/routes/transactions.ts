@@ -211,6 +211,71 @@ transactionsRouter.post("/bulk-approve", async (req, res) => {
 });
 
 /**
+ * Where this transaction probably belongs.
+ *
+ * The review queue has suggested a category for a long time; a transaction
+ * opened on its own got nothing, so the one place somebody goes *because*
+ * they want to file something was the one place that wouldn't help. Anything
+ * already reviewed, anything imported before the queue existed, anything they
+ * came back to — all of it had to be filed from memory.
+ *
+ * Same order of authority the queue uses, and for the same reasons. A rule is
+ * an instruction and outranks everything. The owner's own history comes next:
+ * where they have filed this merchant before beats any model's opinion about
+ * where it belongs. The model is asked last, and only about merchants neither
+ * of those can place.
+ *
+ * Driven by a click rather than fetched whenever a card opens, so opening a
+ * transaction to look at it never quietly costs a model call.
+ */
+transactionsRouter.get("/:id/suggestion", async (req, res) => {
+  const tx = await db
+    .prepare("SELECT * FROM transactions WHERE id = ? AND user_id = ?")
+    .get<Transaction>(req.params.id, req.user!.id);
+  if (!tx) {
+    res.status(404).json({ error: "transaction not found" });
+    return;
+  }
+
+  const fromRule = matchedCategoryId(tx, await listRules(req.user!.id));
+  if (fromRule != null) {
+    res.json({ category_id: fromRule, source: "rule" });
+    return;
+  }
+
+  const label = tx.counterparty ?? tx.description;
+  const fromHistory = await suggestCategoryId(req.user!.id, label);
+  if (fromHistory != null) {
+    res.json({ category_id: fromHistory, source: "history" });
+    return;
+  }
+
+  const categories = (await db
+    .prepare("SELECT id, name FROM categories WHERE user_id = ?")
+    .all(req.user!.id)) as unknown as { id: number; name: string }[];
+
+  if (!label || categories.length === 0) {
+    res.json({ category_id: null, source: null });
+    return;
+  }
+
+  try {
+    const guessed = await suggestCategoriesWithAi(
+      req.user!.id,
+      [{ matchKey: label.toLowerCase(), label, sampleAmount: tx.amount }],
+      categories
+    );
+    const categoryId = guessed.get(label.toLowerCase()) ?? null;
+    res.json({ category_id: categoryId, source: categoryId == null ? null : "ai" });
+  } catch (err) {
+    // A suggestion is a convenience. Failing to produce one must not turn
+    // opening a transaction into an error.
+    console.error("Category suggestion failed:", err);
+    res.json({ category_id: null, source: null });
+  }
+});
+
+/**
  * The same change, applied to a list of transactions at once.
  *
  * Exists because one correction is almost never about one row. Renaming a
