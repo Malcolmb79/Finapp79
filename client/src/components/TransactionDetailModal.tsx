@@ -59,8 +59,10 @@ export default function TransactionDetailModal({
   }
 
   const [suggesting, setSuggesting] = useState(false);
-  /** "none" once a suggestion has been asked for and nothing came back. */
-  const [suggestion, setSuggestion] = useState<"none" | null>(null);
+  /** What came back: nothing to go on, or the category it is already in. */
+  const [suggestion, setSuggestion] = useState<"none" | "same" | null>(null);
+  /** A different category it suggests, waiting to be accepted or declined. */
+  const [proposed, setProposed] = useState<number | null>(null);
 
   /**
    * Files it where the suggestion says, rather than only naming the category.
@@ -73,13 +75,28 @@ export default function TransactionDetailModal({
   async function suggest() {
     setSuggesting(true);
     setSuggestion(null);
+    setProposed(null);
     try {
       const { category_id } = await api.suggestCategoryFor(transaction.id);
       if (category_id == null) {
         setSuggestion("none");
         return;
       }
-      await handleCategoryChange(String(category_id));
+      if (String(category_id) === categoryId) {
+        setSuggestion("same");
+        return;
+      }
+      // Nothing filed yet: nothing to lose by applying it, and agreeing with
+      // a suggestion should not cost a second click.
+      if (categoryId === "") {
+        await handleCategoryChange(String(category_id));
+        return;
+      }
+      // Already filed, and somewhere else. That was very likely a decision,
+      // so it is proposed rather than overwritten — a suggestion that
+      // silently replaced a deliberate choice would make the button
+      // dangerous to press.
+      setProposed(category_id);
     } finally {
       setSuggesting(false);
     }
@@ -198,17 +215,48 @@ export default function TransactionDetailModal({
                   one place that wouldn't help. A click rather than a fetch on
                   open, so looking at a transaction never quietly costs a
                   model call. */}
-              {categoryId === "" && (
-                <button type="button" onClick={suggest} disabled={suggesting} style={{ fontSize: "0.78rem", padding: "0.3rem 0.5rem" }}>
-                  <Sparkles size={13} style={{ marginRight: "0.25rem", verticalAlign: "-2px" }} />
-                  {suggesting ? "Thinking…" : "Suggest"}
-                </button>
-              )}
+              <button type="button" onClick={suggest} disabled={suggesting} style={{ fontSize: "0.78rem", padding: "0.3rem 0.5rem" }}>
+                <Sparkles size={13} style={{ marginRight: "0.25rem", verticalAlign: "-2px" }} />
+                {suggesting ? "Thinking…" : categoryId === "" ? "Suggest" : "Check"}
+              </button>
             </div>
+
             {suggestion === "none" && (
               <p style={{ margin: "0.35rem 0 0", fontSize: "0.75rem", color: "var(--text-muted)" }}>
                 Nothing to go on yet — file a few of these by hand and it will learn where they belong.
               </p>
+            )}
+
+            {suggestion === "same" && (
+              <p style={{ margin: "0.35rem 0 0", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                Already where it would have put it.
+              </p>
+            )}
+
+            {/* A different category, proposed rather than applied. The one it
+                is in was very likely a decision, and a button that silently
+                replaced a deliberate choice would be dangerous to press. */}
+            {proposed != null && (
+              <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap", margin: "0.4rem 0 0" }}>
+                <span style={{ fontSize: "0.78rem" }}>
+                  Looks more like <strong>{categories.find((c) => c.id === proposed)?.name ?? "something else"}</strong>.
+                </span>
+                <button
+                  type="button"
+                  className="btn-accent"
+                  style={{ fontSize: "0.76rem", padding: "0.25rem 0.5rem" }}
+                  onClick={async () => {
+                    const id = proposed;
+                    setProposed(null);
+                    await handleCategoryChange(String(id));
+                  }}
+                >
+                  Move it
+                </button>
+                <button type="button" style={{ fontSize: "0.76rem", padding: "0.25rem 0.5rem" }} onClick={() => setProposed(null)}>
+                  Leave it
+                </button>
+              </div>
             )}
           </div>
         </div>
