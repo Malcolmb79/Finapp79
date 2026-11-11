@@ -34,6 +34,10 @@ describe("cleanDescription", () => {
     // A name said twice with a reference between it, which the stripping
     // itself pushes together.
     ["EXAMPLE CO IE00000000000000 EXAMPLE CO Funds transfer", "Example Co"],
+    // A date stamped into the middle of the name, with no separators for a
+    // numeric pattern to catch - and which, sitting between two copies of
+    // the payee, also stopped the repeat being collapsed.
+    ["*EXAMPLE CO IE00000000000000 TxnDate: 03Sep2026 *EXAMPLE CO Funds transfer", "Example Co"],
     // The metadata blob some banks append after the payee.
     ["EXAMPLE CO { TransactionSubType : Purchase }", "Example Co"],
   ];

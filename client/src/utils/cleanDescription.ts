@@ -38,8 +38,17 @@ const IBAN = /\b[A-Z]{2}\d{2}[A-Z0-9]{8,26}\b/g;
 /** Mandate and scheme references: long digit runs, or dash-joined numbers. */
 const REFERENCE = /\b\d[\d-]{7,}\b/g;
 
-/** A date the bank stamped into the text. */
-const DATE = /\b\d{4}-\d{2}-\d{2}\b|\b\d{2}[/.]\d{2}[/.]\d{2,4}\b/g;
+/**
+ * A date the bank stamped into the text.
+ *
+ * The third form is the one that hides: "TxnDate: 03Sep2026" has no
+ * separators for a numeric pattern to catch, so it survived every other rule
+ * and sat in the middle of the name — which also stopped the repeated-phrase
+ * rule below collapsing "MOBI MVCHAG05 ... MOBI MVCHAG05", because the halves
+ * were no longer equal with a date wedged between them.
+ */
+const DATE =
+  /\b\d{4}-\d{2}-\d{2}\b|\b\d{2}[/.]\d{2}[/.]\d{2,4}\b|\b(?:txn\s*date|date)\s*:?\s*\d{1,2}[a-z]{3}\d{2,4}\b|\b\d{1,2}[a-z]{3}\d{4}\b/gi;
 
 /** A masked card or account tail, e.g. "Revolut**9855*". */
 const MASKED_TAIL = /\*+\d+\**/g;
@@ -99,6 +108,11 @@ export function cleanDescription(raw: string | null | undefined): string {
     // A URL the bank tacked on after the name.
     .replace(/\b(?:https?:\/\/|www\.)\S+/gi, " ")
     .replace(/\s{2,}/g, " ")
+    // An asterisk stuck to the front of a word. Banks use it to mark the
+    // payee within a longer descriptor, and it is not part of the name — it
+    // also defeats both repeat rules below, because "EXAMPLE CO" and
+    // "*EXAMPLE CO" are not equal however obviously they are the same thing.
+    .replace(/(^|\s)\*+(?=\S)/g, "$1")
     // A word repeated back to back, which stripping a reference from between
     // two copies of a name produces.
     .replace(/\b(\S+)(\s+\1\b)+/gi, "$1")

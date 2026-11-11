@@ -1,10 +1,11 @@
-import { Calendar, Landmark, Layers, Sparkles, Tag, Trash2, User, X } from "lucide-react";
+import { Calendar, Landmark, Layers, Search, Sparkles, Tag, Trash2, User, X } from "lucide-react";
 import { useState } from "react";
 import { api, type Account, type Category, type Transaction } from "../api/client.js";
 import CategorySelect from "./CategorySelect.js";
 import SplitEditor from "./SplitEditor.js";
 import { cleanDescription } from "../utils/cleanDescription.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
+import { merchantSearchQuery, merchantSearchUrl } from "../utils/merchantSearch.js";
 import { matchKey, merchantLabel, similarTransactions } from "../utils/similarTransactions.js";
 
 const SOURCE_LABEL: Record<Transaction["source"], string> = {
@@ -46,6 +47,7 @@ export default function TransactionDetailModal({
    * old one, which are precisely the rows being offered.
    */
   const [key] = useState(() => matchKey(transaction));
+  const searchQuery = merchantSearchQuery(transaction.description, transaction.counterparty);
 
   /** The change just made, and the rows it could still be applied to. */
   const [offer, setOffer] = useState<{ patch: { category_id?: number | null; description?: string }; rows: Transaction[] } | null>(null);
@@ -224,6 +226,33 @@ export default function TransactionDetailModal({
             {suggestion === "none" && (
               <p style={{ margin: "0.35rem 0 0", fontSize: "0.75rem", color: "var(--text-muted)" }}>
                 Nothing to go on yet — file a few of these by hand and it will learn where they belong.
+              </p>
+            )}
+
+            {/* For the descriptors nothing can place: "MOBI MVCHAG05" names
+                no merchant anybody recognises, and the way people work one
+                out is to search it and find somebody else who asked the same
+                question. There is no database of how others filed it.
+
+                A link rather than a fetch, and only ever opened by a click:
+                the merchant name goes to a third party, so that has to be the
+                owner's decision and is said plainly. `merchantSearchQuery`
+                refuses outright when all that is left is an account number —
+                handing out an identifier to learn the name of a shop is the
+                one outcome worth preventing. */}
+            {searchQuery && (
+              <p style={{ margin: "0.35rem 0 0", fontSize: "0.75rem" }}>
+                <a
+                  href={merchantSearchUrl(searchQuery)}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  style={{ color: "var(--accent)", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}
+                  title={`Searches DuckDuckGo for "${searchQuery}" — nothing else about this transaction is sent`}
+                >
+                  <Search size={12} />
+                  Look up &ldquo;{searchQuery}&rdquo;
+                </a>
+                <span style={{ color: "var(--text-muted)" }}> — opens a search; only that name is sent.</span>
               </p>
             )}
 
