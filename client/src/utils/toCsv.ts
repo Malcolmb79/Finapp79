@@ -93,7 +93,7 @@ export function downloadCsv(filename: string, csv: string): void {
   // The BOM is what makes Excel read it as UTF-8. Without it a payee with an
   // accent or a euro sign arrives mangled, which looks like the export being
   // broken rather than the spreadsheet guessing.
-  const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8" });
+  const blob = new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
