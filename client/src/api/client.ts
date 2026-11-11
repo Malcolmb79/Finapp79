@@ -660,6 +660,10 @@ export const api = {
       body: JSON.stringify({ ids, ...patch }),
     }),
 
+  /** Where this transaction probably belongs: a rule, past filing, or the model. */
+  suggestCategoryFor: (id: string) =>
+    request<{ category_id: number | null; source: "rule" | "history" | "ai" | null }>(`/transactions/${id}/suggestion`),
+
   deleteTransaction: (id: string) => request<void>(`/transactions/${id}`, { method: "DELETE" }),
 
   listAccounts: () => request<Account[]>("/accounts"),
