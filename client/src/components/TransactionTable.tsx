@@ -277,6 +277,15 @@ export default function TransactionTable({
               </div>
               <div className="tx-row__info">
                 <div className="tx-row__name">{cleanDescription(tx.description) || accountsById.get(tx.account_id)?.name || "Transaction"}</div>
+                {/* The category, on the row rather than only inside the
+                    detail card. It is the thing most often being checked when
+                    somebody scans this list, and opening every row in turn to
+                    find the one that is filed wrong is how it stays wrong.
+                    Uncategorised says so rather than showing a blank, because
+                    a blank reads as a category whose name didn't load. */}
+                <div className="tx-row__meta">
+                  {tx.category_id != null ? categoryName.get(tx.category_id) ?? "Uncategorised" : "Uncategorised"}
+                </div>
               </div>
               <span className={`tx-row__amount${tx.amount >= 0 ? " tx-row__amount--positive" : ""}`}>
                 {tx.amount >= 0 ? "+" : ""}
@@ -287,12 +296,17 @@ export default function TransactionTable({
         </div>
       ))}
 
+      {/* `siblings` is the whole list, not just what the filters leave
+          visible: fixing a merchant means fixing it everywhere, and a count
+          that silently stopped at the current filter would understate what
+          the change is about to do. */}
       {selected && (
         <TransactionDetailModal
           key={selected.id}
           transaction={selected}
           account={accountsById.get(selected.account_id)}
           categories={categories}
+          siblings={transactions}
           onClose={() => setSelected(null)}
           onChange={() => {
             onChange();
