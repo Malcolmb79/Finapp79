@@ -37,6 +37,8 @@ interface Chargeable {
   booking_date: string;
   description: string | null;
   counterparty: string | null;
+  /** Optional: only the declared-income reader in forecast.ts looks at it. */
+  category_id?: number | null;
 }
 
 // Days between charges, and how far either side still counts. Monthly is
@@ -63,7 +65,7 @@ const AMOUNT_TOLERANCE = 0.2;
  * time — "TESCO STORES 3288" and "TESCO STORES 4471" are one merchant, and
  * treating them as two hides the pattern entirely.
  */
-export function merchantKey(tx: Chargeable): string {
+export function merchantKey(tx: Pick<Chargeable, "description" | "counterparty">): string {
   const raw = cleanDescription(tx.description) || tx.counterparty || "";
   return raw
     .toLowerCase()
