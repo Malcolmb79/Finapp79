@@ -1,4 +1,5 @@
 import {
+  Workflow,
   ArrowLeftRight,
   CalendarClock,
   CreditCard,
@@ -28,6 +29,11 @@ export const WIDGET_IDS = [
   "budgets",
   "debts",
   "savings",
+  // Appended rather than slotted in beside the other charts: this list is the
+  // fixed registry order that gives each widget its accent colour, so
+  // inserting one in the middle would silently recolour every widget after
+  // it on a dashboard somebody has already arranged.
+  "moneyFlow",
 ] as const;
 export type WidgetId = (typeof WIDGET_IDS)[number];
 
@@ -77,6 +83,12 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
   // of transactions, so it starts taller than a stat widget.
   pendingReview: { title: "New transactions", module: "Dashboard", icon: Inbox, defaultEnabled: true, defaultWidth: NARROW_WIDTH, defaultHeight: 360 },
   transactions: { title: "Recent transactions", module: "Transactions", icon: Receipt, defaultEnabled: true, defaultWidth: NARROW_WIDTH, defaultHeight: 300 },
+  // Taller and wider than the other charts: it carries two columns of
+  // labels and a band per category, and squeezed narrow the labels collide.
+  // Off by default - it is an addition to a dashboard people have already
+  // arranged, and turning something on in a layout somebody set up is not
+  // ours to do.
+  moneyFlow: { title: "Where the money went", module: "Analytics", icon: Workflow, defaultEnabled: false, defaultWidth: WIDE_WIDTH, defaultHeight: 420 },
   category: { title: "Spending by category", module: "Analytics", icon: PieChart, defaultEnabled: true, defaultWidth: NARROW_WIDTH, defaultHeight: 300, defaultMode: "chart" },
   budgets: { title: "Budgets", module: "Budgets", icon: Target, defaultEnabled: true, defaultWidth: NARROW_WIDTH, defaultHeight: 264 },
   debts: { title: "Debt overview", module: "Debt Planner", icon: CreditCard, defaultEnabled: false, defaultWidth: NARROW_WIDTH, defaultHeight: 264 },

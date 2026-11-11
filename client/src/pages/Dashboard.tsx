@@ -38,6 +38,7 @@ import { computeCanvasHeight, type CanvasRect } from "../utils/useCanvasItem.js"
 import { useMeasuredWidth } from "../utils/useMeasuredWidth.js";
 import AccountAvatar from "../components/AccountAvatar.js";
 import TransactionDetailModal from "../components/TransactionDetailModal.js";
+import CashFlowSankey from "../components/dashboard/CashFlowSankey.js";
 import { accountBalance, amountDrawn, isBorrowing, accountTxSums, isLiability, repaymentMirrors, spendingTransactions, visibleAccounts, visibleTransactions } from "../utils/accountBalance.js";
 import { budgetStatus } from "../utils/budgetStatus.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
@@ -595,6 +596,19 @@ export default function Dashboard() {
     },
     cashflow: {
       body: <CashFlowCard income={income} expenses={expenses} months={monthFlows} currency={rates?.base ?? null} mode={config.modes.cashflow} />,
+    },
+    moneyFlow: {
+      // The same transactions the cash-flow bars use, so the two agree: this
+      // one is the same month broken open rather than a different reading of
+      // it. `spendTx` is deliberately not used — it strips transfers and
+      // repayments, which belong in a picture of where the money went.
+      body: (
+        <CashFlowSankey
+          transactions={convertedTx}
+          categoryName={(id) => (id == null ? null : (categoryNames.get(id) ?? null))}
+          currency={rates?.base ?? null}
+        />
+      ),
     },
     forecast: {
       body: <CashFlowForecast forecast={forecast} currency={rates?.base ?? null} horizonDays={FORECAST_DAYS} />,
