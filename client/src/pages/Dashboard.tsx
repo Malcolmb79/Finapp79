@@ -897,6 +897,7 @@ export default function Dashboard() {
           transaction={openTransaction}
           account={accounts.find((a) => a.id === openTransaction.account_id)}
           categories={categories}
+          siblings={allTransactions}
           onClose={() => setOpenTransaction(null)}
           onChange={() => {
             setOpenTransaction(null);

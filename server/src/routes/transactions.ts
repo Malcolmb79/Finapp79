@@ -210,6 +210,75 @@ transactionsRouter.post("/bulk-approve", async (req, res) => {
   res.json({ approved });
 });
 
+/**
+ * The same change, applied to a list of transactions at once.
+ *
+ * Exists because one correction is almost never about one row. Renaming a
+ * merchant or filing it under the right category is a statement about every
+ * transaction from that merchant, and making the owner repeat it forty times
+ * is how a category stays wrong — the cost of fixing it exceeds the cost of
+ * living with it.
+ *
+ * Separate from `PATCH /:id` rather than folded into it as a "same merchant
+ * too" flag, because which rows count as the same merchant is a judgement the
+ * screen makes and shows before anything is written. The caller sends the
+ * exact ids it offered to change, so what was agreed to is what happens.
+ */
+transactionsRouter.post("/bulk-update", async (req, res) => {
+  const { ids } = req.body as { ids?: unknown };
+  if (!Array.isArray(ids) || ids.length === 0 || !ids.every((id) => typeof id === "string")) {
+    res.status(400).json({ error: "ids must be a non-empty array of transaction ids" });
+    return;
+  }
+  // A ceiling, so a runaway match can't rewrite a whole history in one call.
+  if (ids.length > 500) {
+    res.status(400).json({ error: "too many transactions in one change" });
+    return;
+  }
+
+  const hasCategory = "category_id" in req.body;
+  const hasDescription = "description" in req.body;
+  if (!hasCategory && !hasDescription) {
+    res.status(400).json({ error: "nothing to change" });
+    return;
+  }
+  if (hasDescription && typeof req.body.description !== "string") {
+    res.status(400).json({ error: "description must be text" });
+    return;
+  }
+  if (hasCategory && req.body.category_id !== null && typeof req.body.category_id !== "number") {
+    res.status(400).json({ error: "category_id must be a number or null" });
+    return;
+  }
+
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  if (hasCategory) {
+    sets.push("category_id = ?");
+    values.push(req.body.category_id);
+  }
+  if (hasDescription) {
+    sets.push("description = ?");
+    values.push(req.body.description);
+  }
+
+  // One transaction, so a half-applied rename can't leave a merchant with two
+  // names and no way to tell which rows were missed.
+  const updated = await withTransaction(async (tx) => {
+    const statement = tx.prepare(`UPDATE transactions SET ${sets.join(", ")} WHERE id = ? AND user_id = ?`);
+    let count = 0;
+    for (const id of ids as string[]) {
+      // Scoped by user_id on every row, not checked once up front: an id that
+      // belongs to somebody else simply matches nothing.
+      const result = await statement.run(...values, id, req.user!.id);
+      count += result.changes;
+    }
+    return count;
+  });
+
+  res.json({ updated });
+});
+
 transactionsRouter.patch("/:id", async (req, res) => {
   const existing = await db.prepare("SELECT * FROM transactions WHERE id = ? AND user_id = ?").get(req.params.id, req.user!.id);
 

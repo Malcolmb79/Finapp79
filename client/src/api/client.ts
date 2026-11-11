@@ -648,6 +648,18 @@ export const api = {
     request<Transaction>(`/transactions/${id}/approve`, { method: "POST", body: JSON.stringify({ category_id: categoryId }) }),
   bulkApproveTransactions: (items: { id: string; category_id: number | null }[]) =>
     request<{ approved: number }>("/transactions/bulk-approve", { method: "POST", body: JSON.stringify({ items }) }),
+  /**
+   * The same change applied to several transactions at once.
+   *
+   * The caller sends the exact ids it offered to change on screen, so what
+   * was agreed to is what happens - see utils/similarTransactions.ts.
+   */
+  bulkUpdateTransactions: (ids: string[], patch: { category_id?: number | null; description?: string }) =>
+    request<{ updated: number }>("/transactions/bulk-update", {
+      method: "POST",
+      body: JSON.stringify({ ids, ...patch }),
+    }),
+
   deleteTransaction: (id: string) => request<void>(`/transactions/${id}`, { method: "DELETE" }),
 
   listAccounts: () => request<Account[]>("/accounts"),

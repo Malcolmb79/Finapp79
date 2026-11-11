@@ -1,10 +1,11 @@
-import { Calendar, Landmark, Tag, Trash2, User, X } from "lucide-react";
+import { Calendar, Landmark, Layers, Tag, Trash2, User, X } from "lucide-react";
 import { useState } from "react";
 import { api, type Account, type Category, type Transaction } from "../api/client.js";
 import CategorySelect from "./CategorySelect.js";
 import SplitEditor from "./SplitEditor.js";
 import { cleanDescription } from "../utils/cleanDescription.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
+import { matchKey, merchantLabel, similarTransactions } from "../utils/similarTransactions.js";
 
 const SOURCE_LABEL: Record<Transaction["source"], string> = {
   enablebanking: "Synced from bank",
@@ -16,12 +17,19 @@ export default function TransactionDetailModal({
   transaction,
   account,
   categories,
+  siblings = [],
   onClose,
   onChange,
 }: {
   transaction: Transaction;
   account: Account | undefined;
   categories: Category[];
+  /**
+   * The other transactions on screen, so a change here can be offered for the
+   * rest of the merchant. Empty where the caller has no list to give, and the
+   * offer simply doesn't appear.
+   */
+  siblings?: Transaction[];
   onClose: () => void;
   onChange: () => void;
 }) {
@@ -30,15 +38,54 @@ export default function TransactionDetailModal({
   const [categoryId, setCategoryId] = useState(transaction.category_id != null ? String(transaction.category_id) : "");
   const [deleting, setDeleting] = useState(false);
 
+  /**
+   * The merchant as it was when this opened, captured once.
+   *
+   * It has to be the name *before* any edit: rename "VDP-MGP*Vinted" to
+   * "Vinted" and the new name no longer matches the rows still carrying the
+   * old one, which are precisely the rows being offered.
+   */
+  const [key] = useState(() => matchKey(transaction));
+
+  /** The change just made, and the rows it could still be applied to. */
+  const [offer, setOffer] = useState<{ patch: { category_id?: number | null; description?: string }; rows: Transaction[] } | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [applied, setApplied] = useState<number | null>(null);
+
+  function proposeFor(change: { categoryId?: number | null; description?: string }, patch: { category_id?: number | null; description?: string }) {
+    const rows = similarTransactions(siblings, transaction, key, change);
+    setApplied(null);
+    setOffer(rows.length > 0 ? { patch, rows } : null);
+  }
+
+  async function applyToRest() {
+    if (!offer) return;
+    setApplying(true);
+    try {
+      const { updated } = await api.bulkUpdateTransactions(
+        offer.rows.map((row) => row.id),
+        offer.patch
+      );
+      setApplied(updated);
+      setOffer(null);
+      onChange();
+    } finally {
+      setApplying(false);
+    }
+  }
+
   async function saveDescription() {
     if (description === initialDescription) return;
     await api.updateTransaction(transaction.id, { description });
+    proposeFor({ description }, { description });
     onChange();
   }
 
   async function handleCategoryChange(value: string) {
     setCategoryId(value);
-    await api.updateTransaction(transaction.id, { category_id: value ? Number(value) : null });
+    const category_id = value ? Number(value) : null;
+    await api.updateTransaction(transaction.id, { category_id });
+    proposeFor({ categoryId: category_id }, { category_id });
     onChange();
   }
 
@@ -118,6 +165,46 @@ export default function TransactionDetailModal({
             />
           </div>
         </div>
+
+        {/* Offered after the change, never before it. The one row the person
+            opened is already saved, so this asks about the rest rather than
+            standing between them and the edit they came to make. The count is
+            the number of rows that will really change — rows already holding
+            the new value are excluded, because "apply to 40" that quietly
+            changes three teaches people to distrust the number. */}
+        {offer && (
+          <div
+            style={{
+              margin: "0.6rem 0 0",
+              padding: "0.55rem 0.7rem",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              display: "flex",
+              alignItems: "center",
+              gap: "0.6rem",
+              flexWrap: "wrap",
+            }}
+          >
+            <Layers size={15} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+            <span style={{ fontSize: "0.8rem", flex: 1, minWidth: 180 }}>
+              {offer.rows.length} other {offer.rows.length === 1 ? "transaction" : "transactions"} from{" "}
+              <strong>{merchantLabel(transaction)}</strong>
+              {offer.patch.description !== undefined ? " can take this name too." : " can be filed here too."}
+            </span>
+            <button onClick={applyToRest} disabled={applying} className="btn-accent" style={{ fontSize: "0.78rem" }}>
+              {applying ? "Applying…" : `Apply to ${offer.rows.length}`}
+            </button>
+            <button onClick={() => setOffer(null)} disabled={applying} style={{ fontSize: "0.78rem" }}>
+              Just this one
+            </button>
+          </div>
+        )}
+
+        {applied != null && (
+          <p style={{ margin: "0.5rem 0 0", fontSize: "0.78rem", color: "var(--text-muted)" }}>
+            Updated {applied} other {applied === 1 ? "transaction" : "transactions"}.
+          </p>
+        )}
 
         <div className="modal__field">
           <span className="modal__field-icon">
