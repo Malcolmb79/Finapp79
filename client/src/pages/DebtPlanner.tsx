@@ -257,7 +257,7 @@ export default function DebtPlanner() {
       accentVar: "--accent",
       defaultWidth: 672,
       defaultHeight: 520,
-      render: () => (borrowing.length > 0 ? <DebtCharts accounts={borrowing} txSums={byAccount} /> : <p className="empty-state">Nothing borrowed.</p>),
+      render: () => (borrowing.length > 0 ? <DebtCharts accounts={borrowing} txSums={byAccount} rates={rates} /> : <p className="empty-state">Nothing borrowed.</p>),
     },
     {
       id: "advisor",

@@ -202,6 +202,20 @@ CREATE TABLE IF NOT EXISTS categories (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_user_name ON categories (user_id, name);
 
+-- Whether money filed here is regular income the forecast can count on.
+--
+-- Declared rather than inferred, and that is the point. Income was only ever
+-- found by pattern — three credits of a consistent amount at a consistent
+-- spacing — so a salary that has just started, changed, or comes from more
+-- than one place is invisible, and the balance projection shows a household
+-- whose money only ever goes down. Waiting three months to be believed is a
+-- poor answer when the owner knows on day one.
+--
+-- A flag on the category rather than a table of declared incomes: the owner
+-- is already filing the salary somewhere, so this asks nothing new of them,
+-- and it stays right when the employer, amount or pay date changes.
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS counts_as_income BOOLEAN NOT NULL DEFAULT FALSE;
+
 CREATE TABLE IF NOT EXISTS transactions (
   id TEXT PRIMARY KEY,              -- Enable Banking transaction_id/entry_reference, csv-import-derived hash, or generated uuid
   user_id TEXT REFERENCES users(id),

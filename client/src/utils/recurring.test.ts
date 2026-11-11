@@ -32,7 +32,7 @@ describe("merchantKey", () => {
   });
 
   it("falls back to the counterparty when there is no description", () => {
-    expect(merchantKey({ amount: -5, booking_date: "2026-01-01", description: null, counterparty: "Gym" })).toBe("gym");
+    expect(merchantKey({ description: null, counterparty: "Gym" })).toBe("gym");
   });
 });
 

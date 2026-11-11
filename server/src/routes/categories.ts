@@ -84,3 +84,33 @@ categoriesRouter.post("/", async (req, res) => {
     .get(req.user!.id, trimmed, parent_id ?? null);
   res.status(201).json(created);
 });
+
+/**
+ * Changes a category — today, only whether it counts as regular income.
+ *
+ * The forecast would otherwise wait to be convinced: income is found by
+ * pattern, needing three credits of a consistent amount before it believes in
+ * a salary. Someone who has just started a job, changed employer, or is paid
+ * from more than one place has a projection whose line only falls, and no way
+ * to tell it otherwise. This is the way to tell it.
+ */
+categoriesRouter.patch("/:id", async (req, res) => {
+  const existing = await db
+    .prepare("SELECT * FROM categories WHERE id = ? AND user_id = ?")
+    .get<{ id: number }>(req.params.id, req.user!.id);
+  if (!existing) {
+    res.status(404).json({ error: "category not found" });
+    return;
+  }
+
+  if (!("counts_as_income" in req.body) || typeof req.body.counts_as_income !== "boolean") {
+    res.status(400).json({ error: "counts_as_income must be true or false" });
+    return;
+  }
+
+  await db
+    .prepare("UPDATE categories SET counts_as_income = ? WHERE id = ? AND user_id = ?")
+    .run(req.body.counts_as_income, req.params.id, req.user!.id);
+
+  res.json(await db.prepare("SELECT * FROM categories WHERE id = ?").get(req.params.id));
+});

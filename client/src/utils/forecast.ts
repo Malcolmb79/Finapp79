@@ -1,4 +1,5 @@
-import { detectRecurring, type Cadence, type RecurringPayment } from "./recurring.js";
+import { cleanDescription } from "./cleanDescription.js";
+import { detectRecurring, merchantKey, type Cadence, type RecurringPayment } from "./recurring.js";
 
 /**
  * What is going to happen to the balance, from what keeps happening.
@@ -131,15 +132,121 @@ export interface Forecast {
  * rather than patched — a forecast quietly missing the salary would show a
  * household running out of money every month.
  */
+/**
+ * Regular income the owner has declared, rather than income inferred.
+ *
+ * Detection needs three credits of a consistent amount before it believes in
+ * a salary. Someone who has just started a job, changed employer, or is paid
+ * from more than one place therefore gets a projection whose line only ever
+ * falls — and waiting three months to be believed is a poor answer when they
+ * knew on day one. Filing the pay into a category marked as income says it
+ * outright, and this is what reads that.
+ *
+ * One entry per merchant, so two jobs stay two incomes rather than averaging
+ * into one that matches neither. The amount is the most recent payment, not
+ * the mean: a raise should show up next month, not be diluted by the year
+ * before it.
+ *
+ * The cadence comes from the spacing when there are two payments to measure,
+ * and is monthly otherwise. That default is a guess and the only one here —
+ * it is made because the alternative is projecting no income at all from a
+ * salary the owner has explicitly pointed at, which is worse.
+ */
+export function declaredIncome(
+  transactions: Parameters<typeof detectRecurring>[0],
+  isIncomeCategory: (categoryId: number | null | undefined) => boolean
+): RecurringPayment[] {
+  const byMerchant = new Map<string, { charges: { date: string; amount: number }[]; label: string }>();
+
+  for (const tx of transactions) {
+    if (tx.amount <= 0) continue;
+    if (!isIncomeCategory(tx.category_id)) continue;
+    const key = merchantKey(tx);
+    // The same guard detection uses: a merchant with no readable name would
+    // otherwise collect every other nameless credit into one income.
+    if (key.length < 3) continue;
+
+    const entry = byMerchant.get(key) ?? { charges: [], label: cleanDescription(tx.description) || key };
+    entry.charges.push({ date: tx.booking_date, amount: tx.amount });
+    byMerchant.set(key, entry);
+  }
+
+  const incomes: RecurringPayment[] = [];
+  for (const [key, entry] of byMerchant) {
+    const charges = [...entry.charges].sort((a, b) => a.date.localeCompare(b.date));
+    const latest = charges[charges.length - 1];
+    if (!latest || latest.amount <= 0) continue;
+
+    const cadence = cadenceFromDates(charges.map((charge) => charge.date));
+    const annualised = latest.amount * PER_YEAR[cadence];
+
+    incomes.push({
+      key,
+      label: entry.label,
+      cadence,
+      // The most recent payment, not the mean: a raise should show next
+      // month rather than being diluted by the year before it.
+      amount: latest.amount,
+      occurrences: charges.length,
+      lastCharged: latest.date,
+      annualised,
+      monthly: annualised / 12,
+      charges,
+    });
+  }
+
+  return incomes;
+}
+
+/** How often each cadence comes round, for annualising a declared income. */
+const PER_YEAR: Record<Cadence, number> = { weekly: 52, monthly: 12, quarterly: 4, yearly: 1 };
+
+/**
+ * Monthly unless the spacing says otherwise.
+ *
+ * The default is the only guess in here, and it is made deliberately: the
+ * alternative is projecting nothing at all from a salary the owner has
+ * explicitly pointed at, which is worse than assuming the commonest pay
+ * cycle. Two payments are enough to measure instead of assume.
+ */
+function cadenceFromDates(dates: string[]): Cadence {
+  if (dates.length < 2) return "monthly";
+  const gaps: number[] = [];
+  for (let i = 1; i < dates.length; i++) {
+    gaps.push((Date.parse(`${dates[i]}T00:00:00Z`) - Date.parse(`${dates[i - 1]}T00:00:00Z`)) / 86_400_000);
+  }
+  const typical = gaps.sort((a, b) => a - b)[Math.floor(gaps.length / 2)];
+  // Fortnightly pay has no cadence of its own here, and rounds to weekly
+  // rather than monthly — a fortnightly salary projected monthly would show
+  // half the income actually arriving.
+  if (typical <= 18) return "weekly";
+  if (typical <= 45) return "monthly";
+  if (typical <= 150) return "quarterly";
+  return "yearly";
+}
+
 export function forecastBalance(
   transactions: Parameters<typeof detectRecurring>[0],
   openingBalance: number,
-  { from, days }: { from: string; days: number }
+  { from, days, isIncomeCategory }: { from: string; days: number; isIncomeCategory?: (id: number | null | undefined) => boolean }
 ): Forecast {
   const until = addDays(from, days);
 
   const outgoings = detectRecurring(transactions);
-  const income = detectRecurring(transactions, { direction: "in" });
+  const detected = detectRecurring(transactions, { direction: "in" });
+
+  /**
+   * Declared income wins over detected for the same merchant.
+   *
+   * Both describe the same payments, and the owner's own statement is the
+   * better authority — it carries the current amount rather than one averaged
+   * across a period that may include a raise. Merchants only detection found
+   * are kept: marking one category as income is not a claim that nothing else
+   * is.
+   */
+  const declared = isIncomeCategory ? declaredIncome(transactions, isIncomeCategory) : [];
+  const declaredKeys = new Set(declared.map((entry) => entry.key));
+  const income = [...declared, ...detected.filter((entry) => !declaredKeys.has(entry.key))];
 
   const movements = new Map<string, number>();
   const add = (date: string, amount: number) => movements.set(date, (movements.get(date) ?? 0) + amount);

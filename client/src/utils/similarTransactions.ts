@@ -24,12 +24,7 @@ import { merchantKey } from "./recurring.js";
 
 /** The key to match on, taken before any edit so a rename can still find its siblings. */
 export function matchKey(transaction: Pick<Transaction, "description" | "counterparty">): string {
-  return merchantKey({
-    amount: 0,
-    booking_date: "",
-    description: transaction.description,
-    counterparty: transaction.counterparty ?? null,
-  });
+  return merchantKey({ description: transaction.description, counterparty: transaction.counterparty ?? null });
 }
 
 /**

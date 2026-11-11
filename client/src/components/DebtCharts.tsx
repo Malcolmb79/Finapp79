@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { api, type Account, type DebtProjection } from "../api/client.js";
+import { api, type Account, type DebtProjection, type FxRates } from "../api/client.js";
+import DebtTimeline from "./DebtTimeline.js";
 import { accountAvailable, accountBalance, facilityLabel, isLiability } from "../utils/accountBalance.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 
@@ -280,7 +281,16 @@ function AccountChart({
   );
 }
 
-export default function DebtCharts({ accounts, txSums }: { accounts: Account[]; txSums: Map<string, number> }) {
+export default function DebtCharts({
+  accounts,
+  txSums,
+  rates,
+}: {
+  accounts: Account[];
+  txSums: Map<string, number>;
+  /** For the combined timeline, which has to add debts in different currencies. */
+  rates: FxRates | null;
+}) {
   const [projections, setProjections] = useState<DebtProjection[] | null>(null);
   // Held as typed rather than as numbers, so a half-entered "2" of "250"
   // isn't read as two hundred and fifty short of what's meant.
@@ -321,14 +331,21 @@ export default function DebtCharts({ accounts, txSums }: { accounts: Account[]; 
   return (
     <div className="card" style={{ marginBottom: "1.25rem" }}>
       <div className="card__header">
-        <h2 className="card__title">Each account, over time</h2>
+        <h2 className="card__title">Everything you owe, over time</h2>
         <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0.2rem 0 0" }}>
-          Every account on its own payments. Add an extra monthly amount to any of them to see what it buys.
+          All of it on one line, and the month it reaches zero. Switch accounts off to ask what-if, and set an extra
+          monthly amount on any account below to see what it buys.
         </p>
       </div>
 
       {projections === null && <p className="empty-state">Working it out…</p>}
       {projections?.length === 0 && <p className="empty-state">Nothing owed to chart.</p>}
+
+      {/* The combined view first. The per-account charts below answer "when
+          does this one clear"; nobody owes money one account at a time, and
+          the total's shape is not any single curve's — the accounts clear at
+          different times, so it cannot be added up by eye. */}
+      {projections && projections.length > 0 && <DebtTimeline projections={projections} rates={rates} />}
       {projections?.map((p) => (
         <AccountChart
           key={p.accountId}
