@@ -1,6 +1,6 @@
 import { Loader2, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api } from "../api/client.js";
+import { api, type Category } from "../api/client.js";
 import { errorMessage } from "../utils/errorMessage.js";
 
 /**
@@ -16,8 +16,9 @@ import { errorMessage } from "../utils/errorMessage.js";
  * other suggestion in this app. The list is offered with everything ticked,
  * because the common case is wanting most of it.
  */
-export default function CategoryManager({ onCreated }: { onCreated: () => void }) {
+export default function CategoryManager({ categories, onCreated }: { categories: Category[]; onCreated: () => void }) {
   const [name, setName] = useState("");
+  const [marking, setMarking] = useState<number | null>(null);
   const [starter, setStarter] = useState<string[]>([]);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [showStarter, setShowStarter] = useState(false);
@@ -67,6 +68,28 @@ export default function CategoryManager({ onCreated }: { onCreated: () => void }
       setStatus(errorMessage(err, "Couldn't add those categories."));
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * Marks a category as regular income.
+   *
+   * The balance projection otherwise waits to be convinced: it finds income
+   * by pattern, needing three credits of a consistent amount before it
+   * believes in a salary. Someone who has just started a job, changed
+   * employer, or is paid from more than one place gets a line that only ever
+   * falls, and no way to say otherwise. This is the way to say it.
+   */
+  async function toggleIncome(category: Category) {
+    setMarking(category.id);
+    setStatus(null);
+    try {
+      await api.updateCategory(category.id, { counts_as_income: !category.counts_as_income });
+      onCreated();
+    } catch (err) {
+      setStatus(errorMessage(err, "Couldn't change that category."));
+    } finally {
+      setMarking(null);
     }
   }
 
@@ -151,6 +174,49 @@ export default function CategoryManager({ onCreated }: { onCreated: () => void }
           </div>
 
           {status && <p style={{ fontSize: "0.8rem", color: "var(--critical)", margin: "0.5rem 0 0" }}>{status}</p>}
+        </div>
+      )}
+
+      {/* The categories themselves, with the one thing worth setting on them.
+          Listing them here also means the card finally shows what you have
+          rather than only offering to add more. */}
+      {categories.length > 0 && (
+        <div style={{ marginTop: "0.8rem" }}>
+          <p className="stat-tile__label" style={{ marginBottom: "0.3rem" }}>
+            Your categories
+          </p>
+          <div style={{ display: "grid", gap: "0.15rem" }}>
+            {categories.map((category) => (
+              <div
+                key={category.id}
+                style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.82rem", padding: "0.1rem 0" }}
+              >
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {category.name}
+                </span>
+                {category.counts_as_income && (
+                  <span style={{ fontSize: "0.68rem", color: "var(--good)", whiteSpace: "nowrap" }}>regular income</span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => toggleIncome(category)}
+                  disabled={marking === category.id}
+                  title={
+                    category.counts_as_income
+                      ? "Stop treating money filed here as regular income"
+                      : "Treat money filed here as regular income, so the balance projection counts on it"
+                  }
+                  style={{ fontSize: "0.7rem", padding: "0.15rem 0.4rem", background: "transparent", whiteSpace: "nowrap" }}
+                >
+                  {marking === category.id ? <Loader2 size={11} className="spin" /> : category.counts_as_income ? "Unset" : "Mark as income"}
+                </button>
+              </div>
+            ))}
+          </div>
+          <p style={{ fontSize: "0.7rem", color: "var(--text-muted)", margin: "0.4rem 0 0" }}>
+            Money filed under a category marked as income is counted on by the balance projection straight away, instead
+            of it waiting to spot three matching payments.
+          </p>
         </div>
       )}
     </div>

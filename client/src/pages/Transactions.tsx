@@ -69,7 +69,7 @@ export default function Transactions() {
       title: "Categories",
       icon: Tag,
       accentVar: "--accent-2",
-      body: <CategoryManager onCreated={refreshCategories} />,
+      body: <CategoryManager categories={categories} onCreated={refreshCategories} />,
     },
     rules: {
       title: "Filing rules",
