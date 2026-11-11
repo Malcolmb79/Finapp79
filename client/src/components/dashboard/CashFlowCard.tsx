@@ -50,7 +50,13 @@ const MIN_CHART_HEIGHT = 60;
  * them. Naming them here makes the key wrong only if the chart is wrong
  * too, which is the kind of wrong somebody notices.
  */
-const INCOME_FILL = "var(--seq-450)";
+// Green for money in, because that is what it means everywhere else here:
+// the transaction rows use --good for a credit and the accent red for
+// spending. Drawing income in the accent put this one chart in direct
+// disagreement with every other screen, and a legend only told you which bar
+// was which - it could not stop the colour saying the opposite. It also
+// matches the flow view, which already draws its income side in --good.
+const INCOME_FILL = "var(--good)";
 const EXPENSE_FILL = "var(--text-muted)";
 const EXPENSE_OPACITY = 0.55;
 
