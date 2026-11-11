@@ -336,7 +336,16 @@ export default function Dashboard() {
     .map((a) => ({ amount: accountBalance(a, byAccount.get(a.id) ?? 0), currency: a.currency }));
   const { converted: spendableTotal } = sumInBase(spendable, rates);
   const forecastFrom = today();
-  const forecast = forecastBalance(convertedTx, spendableTotal, { from: forecastFrom, days: FORECAST_DAYS });
+  // Categories the owner has marked as regular income. Declared beats
+  // detected: the projection otherwise needs three matching credits before it
+  // believes in a salary, so a new job, a changed employer or pay from more
+  // than one place leaves a line that only ever falls.
+  const incomeCategories = new Set(categories.filter((c) => c.counts_as_income).map((c) => c.id));
+  const forecast = forecastBalance(convertedTx, spendableTotal, {
+    from: forecastFrom,
+    days: FORECAST_DAYS,
+    isIncomeCategory: (id) => id != null && incomeCategories.has(id),
+  });
   const bills = upcomingBills(convertedTx, { from: forecastFrom, until: addDaysIso(forecastFrom, FORECAST_DAYS) });
 
   const monthDelta = worthTx

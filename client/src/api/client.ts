@@ -326,6 +326,8 @@ export interface Category {
   id: number;
   name: string;
   parent_id: number | null;
+  /** Money filed here is regular income the balance projection can count on. */
+  counts_as_income?: boolean;
 }
 
 export interface BudgetProposal {
@@ -768,6 +770,10 @@ export const api = {
   listCategories: () => request<Category[]>("/categories"),
   /** A starter set for an account with no categories. Writes nothing. */
   starterCategories: () => request<{ suggestions: string[]; hasAny: boolean }>("/categories/starter"),
+  /** Today only the income flag; see server/src/routes/categories.ts. */
+  updateCategory: (id: number, patch: { counts_as_income: boolean }) =>
+    request<Category>(`/categories/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+
   createCategory: (name: string, parentId?: number | null) =>
     request<Category>("/categories", { method: "POST", body: JSON.stringify({ name, parent_id: parentId ?? null }) }),
 
