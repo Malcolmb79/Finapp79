@@ -373,14 +373,61 @@ transactionsRouter.patch("/:id", async (req, res) => {
   res.json(await db.prepare("SELECT * FROM transactions WHERE id = ?").get(req.params.id));
 });
 
+/**
+ * Deletes a transaction.
+ *
+ * Only manual ones, as a rule: a synced or imported transaction is meant to
+ * stay in step with where it came from, and hand-deleting one leaves the app
+ * disagreeing with the bank with nothing to say why.
+ *
+ * The exception is a duplicate, which is the one case where that rule does
+ * harm. The same payment can be stored twice — the bank reporting it once as
+ * pending and again as booked issues two references and passes its own
+ * dedupe; arriving once by sync and once by import passes both, since neither
+ * check sees the other. Refusing to remove the copy would mean living with a
+ * salary counted twice.
+ *
+ * Narrow on purpose: the server finds the twin itself rather than believing
+ * the caller. Same account, same day, same amount to the penny, different
+ * id. A client that simply asked to delete a synced transaction would
+ * reopen the whole rule.
+ */
+export function mayDelete(source: Transaction["source"], hasTwin: boolean): boolean {
+  // Manual rows were always the owner's to remove. Everything else needs a
+  // twin, so the only non-manual transaction that can go is one the server
+  // has itself confirmed is a second copy of something still present.
+  return source === "manual" || hasTwin;
+}
+
 transactionsRouter.delete("/:id", async (req, res) => {
-  const result = await db
-    .prepare("DELETE FROM transactions WHERE id = ? AND user_id = ? AND source = 'manual'")
-    .run(req.params.id, req.user!.id);
-  if (result.changes === 0) {
-    res.status(404).json({ error: "manual transaction not found" });
+  const existing = await db
+    .prepare("SELECT * FROM transactions WHERE id = ? AND user_id = ?")
+    .get<Transaction>(req.params.id, req.user!.id);
+
+  if (!existing) {
+    res.status(404).json({ error: "transaction not found" });
     return;
   }
+
+  const twin =
+    existing.source === "manual"
+      ? null
+      : await db
+          .prepare(
+            `SELECT id FROM transactions
+              WHERE user_id = ? AND account_id = ? AND booking_date = ? AND amount = ? AND id <> ?
+              LIMIT 1`
+          )
+          .get<{ id: string }>(req.user!.id, existing.account_id, existing.booking_date, existing.amount, existing.id);
+
+  if (!mayDelete(existing.source, twin != null)) {
+    res.status(409).json({
+      error: "This came from your bank or a statement, so it can only be removed if it duplicates another transaction.",
+    });
+    return;
+  }
+
+  await db.prepare("DELETE FROM transactions WHERE id = ? AND user_id = ?").run(req.params.id, req.user!.id);
   res.status(204).send();
 });
 
