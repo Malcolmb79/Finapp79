@@ -81,3 +81,62 @@ budgetsRouter.delete("/:id", async (req, res) => {
   }
   res.status(204).send();
 });
+
+/**
+ * What has been put into each category, month by month.
+ *
+ * Returned for every month at once rather than the one being looked at: the
+ * balance carried into a month is the result of every month before it, so a
+ * screen showing November needs October and September too. The whole set is
+ * a few hundred rows for a few years of budgeting.
+ */
+budgetsRouter.get("/allocations", async (req, res) => {
+  res.json(
+    await db
+      .prepare("SELECT category_id, month, amount FROM budget_allocations WHERE user_id = ? ORDER BY month")
+      .all(req.user!.id)
+  );
+});
+
+const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/**
+ * Puts an amount into one category for one month.
+ *
+ * Upsert rather than insert: assigning twice is somebody changing their mind,
+ * not a second envelope. Zero is a real answer — "nothing for this, this
+ * month" — so it is stored rather than treated as a deletion.
+ */
+budgetsRouter.put("/allocations", async (req, res) => {
+  const { category_id, month, amount } = req.body as { category_id?: unknown; month?: unknown; amount?: unknown };
+
+  if (typeof category_id !== "number" || typeof month !== "string" || !MONTH.test(month)) {
+    res.status(400).json({ error: "category_id and a month of YYYY-MM are required" });
+    return;
+  }
+  // Negative would mean taking money out of an envelope and putting it
+  // nowhere, which is not a thing this can express.
+  if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0 || amount > 100_000_000) {
+    res.status(400).json({ error: "amount must be a number that isn't negative" });
+    return;
+  }
+
+  const owned = await db
+    .prepare("SELECT id FROM categories WHERE id = ? AND user_id = ?")
+    .get<{ id: number }>(category_id, req.user!.id);
+  if (!owned) {
+    res.status(404).json({ error: "category not found" });
+    return;
+  }
+
+  const saved = await db
+    .prepare(
+      `INSERT INTO budget_allocations (user_id, category_id, month, amount)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT (user_id, category_id, month) DO UPDATE SET amount = EXCLUDED.amount
+       RETURNING category_id, month, amount`
+    )
+    .get(req.user!.id, category_id, month, amount);
+
+  res.json(saved);
+});

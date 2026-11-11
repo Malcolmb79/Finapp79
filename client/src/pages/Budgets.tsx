@@ -1,9 +1,11 @@
-import { Pencil, Plus, Sparkles, Target } from "lucide-react";
+import { Pencil, Plus, Sparkles, Target, Wallet } from "lucide-react";
 import BudgetAdviser from "../components/BudgetAdviser.js";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useCallback, useEffect, useState } from "react";
+import EnvelopeBudget from "../components/EnvelopeBudget.js";
+import { useFxRates } from "../utils/fx.js";
 import { Link } from "react-router-dom";
-import { api, type Budget, type Category } from "../api/client.js";
+import { api, type Budget, type Category, type Transaction } from "../api/client.js";
 import { budgetStatus } from "../utils/budgetStatus.js";
 
 /**
@@ -18,6 +20,10 @@ function monthStart(): string {
 export default function Budgets() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  // The envelopes need the history, not just this month: a carried balance
+  // is the result of every month before the one on screen.
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const rates = useFxRates("EUR");
   const [categoryId, setCategoryId] = useState("");
   const [limit, setLimit] = useState("");
 
@@ -27,6 +33,7 @@ export default function Budgets() {
 
   useEffect(() => {
     api.listCategories().then(setCategories);
+    api.listTransactions().then(setTransactions);
     refresh();
   }, [refresh]);
 
@@ -65,6 +72,15 @@ export default function Budgets() {
   const availableCategories = categories.filter((c) => !budgetedCategoryIds.has(c.id));
 
   const widgets: WidgetSpec[] = [
+    {
+      id: "envelopes",
+      title: "Envelopes",
+      icon: Wallet,
+      accentVar: "--accent-2",
+      defaultWidth: 672,
+      defaultHeight: 480,
+      render: () => <EnvelopeBudget transactions={transactions} categories={categories} currency={rates?.base ?? null} />,
+    },
     {
       id: "adviser",
       title: "Budget adviser",
