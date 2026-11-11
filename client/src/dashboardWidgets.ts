@@ -1,4 +1,6 @@
 import {
+  CalendarDays,
+  Scale,
   Workflow,
   ArrowLeftRight,
   CalendarClock,
@@ -34,6 +36,8 @@ export const WIDGET_IDS = [
   // inserting one in the middle would silently recolour every widget after
   // it on a dashboard somebody has already arranged.
   "moneyFlow",
+  "spendingCalendar",
+  "monthCompare",
 ] as const;
 export type WidgetId = (typeof WIDGET_IDS)[number];
 
@@ -88,6 +92,10 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
   // Off by default - it is an addition to a dashboard people have already
   // arranged, and turning something on in a layout somebody set up is not
   // ours to do.
+  spendingCalendar: { title: "Spending by day", module: "Analytics", icon: CalendarDays, defaultEnabled: false, defaultWidth: NARROW_WIDTH, defaultHeight: 340 },
+  // Two bars and a figure per category, and the list scrolls - tall enough
+  // that the first few rows are visible without it.
+  monthCompare: { title: "This month vs last", module: "Analytics", icon: Scale, defaultEnabled: false, defaultWidth: NARROW_WIDTH, defaultHeight: 380 },
   moneyFlow: { title: "Where the money went", module: "Analytics", icon: Workflow, defaultEnabled: false, defaultWidth: WIDE_WIDTH, defaultHeight: 420 },
   category: { title: "Spending by category", module: "Analytics", icon: PieChart, defaultEnabled: true, defaultWidth: NARROW_WIDTH, defaultHeight: 300, defaultMode: "chart" },
   budgets: { title: "Budgets", module: "Budgets", icon: Target, defaultEnabled: true, defaultWidth: NARROW_WIDTH, defaultHeight: 264 },
