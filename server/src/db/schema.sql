@@ -286,6 +286,37 @@ CREATE TABLE IF NOT EXISTS budgets (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_budgets_user_category ON budgets (user_id, category_id);
 
+-- What was put into a category for one particular month.
+--
+-- `budgets.monthly_limit` above is a standing cap: the same number every
+-- month, answering "have I gone over". That suits a bill and suits nothing
+-- else. The categories people struggle with are the lumpy ones -- car
+-- repairs, clothes, presents -- where the question is not "did I overspend in
+-- March" but "how much is there for this, now, given the last few months".
+--
+-- Answering that needs a figure per month rather than one per category, and
+-- a balance that carries: what is left stays in the envelope, and an
+-- overspend carries as a debt against the next month. See
+-- client/src/utils/envelope.ts for the arithmetic.
+--
+-- Kept beside `budgets` rather than replacing it. The standing cap still
+-- drives the existing budget widgets, and a row here is an override for one
+-- month -- so an account that has never touched this is unaffected, and
+-- nothing has to be migrated.
+CREATE TABLE IF NOT EXISTS budget_allocations (
+  id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id TEXT REFERENCES users(id),
+  category_id INTEGER NOT NULL REFERENCES categories(id),
+  month TEXT NOT NULL,              -- YYYY-MM
+  amount DOUBLE PRECISION NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
+);
+
+-- One figure per category per month: assigning again replaces, rather than
+-- adding a second row that would silently double the envelope.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_budget_allocations_unique
+  ON budget_allocations (user_id, category_id, month);
+
 -- A debt/loan balance being paid down. Payoff time is computed client-side
 -- from balance/apr/minimum_payment via standard amortization math — not
 -- stored, since it's a projection that changes as balance changes.

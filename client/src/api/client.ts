@@ -779,6 +779,15 @@ export const api = {
   createCategory: (name: string, parentId?: number | null) =>
     request<Category>("/categories", { method: "POST", body: JSON.stringify({ name, parent_id: parentId ?? null }) }),
 
+  /** What has been put into each category, every month at once - see utils/envelope.ts. */
+  listAllocations: () => request<{ category_id: number; month: string; amount: number }[]>("/budgets/allocations"),
+
+  setAllocation: (categoryId: number, month: string, amount: number) =>
+    request<{ category_id: number; month: string; amount: number }>("/budgets/allocations", {
+      method: "PUT",
+      body: JSON.stringify({ category_id: categoryId, month, amount }),
+    }),
+
   listBudgets: () => request<Budget[]>("/budgets"),
   /**
    * Recommended monthly limits from spending history. Reads only — nothing is
