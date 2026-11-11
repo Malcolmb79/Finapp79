@@ -1,7 +1,8 @@
-import { ArrowDownRight, ArrowUpRight, X } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Download, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { Account, Category, Transaction } from "../api/client.js";
+import { downloadCsv, transactionsToCsv } from "../utils/toCsv.js";
 import { cleanDescription } from "../utils/cleanDescription.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import TransactionDetailModal from "./TransactionDetailModal.js";
@@ -254,12 +255,38 @@ export default function TransactionTable({
       </div>
 
       {/* Says what's being looked at rather than leaving a short list to be
-          mistaken for the whole history. */}
-      {filtered && (
-        <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", margin: "0 0 0.5rem" }}>
-          {visible.length} of {transactions.length} shown
-        </p>
-      )}
+          mistaken for the whole history, and offers that same set as a file.
+          Exporting what is on screen rather than everything held: somebody
+          who has filtered to one account and one month and then asks for a
+          file means that month. The count beside the button is what makes
+          that unambiguous before it lands in a spreadsheet. */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", margin: "0 0 0.5rem" }}>
+        {filtered && (
+          <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", margin: 0 }}>
+            {visible.length} of {transactions.length} shown
+          </p>
+        )}
+        {visible.length > 0 && (
+          <button
+            type="button"
+            onClick={() =>
+              downloadCsv(
+                `transactions-${new Date().toISOString().slice(0, 10)}.csv`,
+                transactionsToCsv(
+                  visible,
+                  (id) => accountsById.get(id)?.name,
+                  (id) => (id == null ? null : (categoryName.get(id) ?? null))
+                )
+              )
+            }
+            style={{ fontSize: "0.73rem", padding: "0.2rem 0.45rem", marginLeft: "auto" }}
+            title={`Download these ${visible.length} transactions as a spreadsheet`}
+          >
+            <Download size={12} style={{ marginRight: "0.25rem", verticalAlign: "-2px" }} />
+            Export {visible.length}
+          </button>
+        )}
+      </div>
 
       {visible.length === 0 && <p className="empty-state">Nothing matches that.</p>}
 
