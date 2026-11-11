@@ -60,6 +60,8 @@ export interface Transaction {
   description: string | null;
   counterparty: string | null;
   source: "enablebanking" | "manual" | "csv";
+  /** When this row was stored, which is how the original of a duplicate pair is told from the copy. */
+  created_at?: string;
   reviewed_at: string | null;
   /**
    * This transaction read by category: its parts, when one payment covers

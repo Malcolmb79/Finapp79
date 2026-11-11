@@ -1,6 +1,7 @@
-import { Inbox, List, Plus, Tag, Wand2 } from "lucide-react";
+import { CopyCheck, Inbox, List, Plus, Tag, Wand2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import CategoryManager from "../components/CategoryManager.js";
+import DuplicateReview from "../components/DuplicateReview.js";
 import CategoryRules from "../components/CategoryRules.js";
 import CsvImport from "../components/CsvImport.js";
 import TransactionForm from "../components/TransactionForm.js";
@@ -20,6 +21,9 @@ const WIDGETS = [
   // with no categories — the one moment this card is at its largest.
   { id: "categories", defaultWidth: 328, defaultHeight: 330 },
   { id: "rules", defaultWidth: 328, defaultHeight: 300 },
+  // Usually empty, and short when it is - it grows only when there is
+  // something to answer for.
+  { id: "duplicates", defaultWidth: 328, defaultHeight: 260 },
   { id: "add", defaultWidth: 328, defaultHeight: 280 },
   { id: "all", defaultWidth: 672, defaultHeight: 520 },
 ];
@@ -76,6 +80,12 @@ export default function Transactions() {
       icon: Wand2,
       accentVar: "--accent-2",
       body: <CategoryRules categories={categories} accounts={accounts} onApplied={refresh} />,
+    },
+    duplicates: {
+      title: "Possible duplicates",
+      icon: CopyCheck,
+      accentVar: "--accent-2",
+      body: <DuplicateReview transactions={transactions} accounts={accounts} onChanged={refresh} />,
     },
     add: {
       title: "Add transactions",
