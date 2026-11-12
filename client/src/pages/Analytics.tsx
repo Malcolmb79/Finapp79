@@ -48,9 +48,10 @@ export default function Analytics() {
   const { items: convertedTx, dropped } = inBase(withinRange(visibleTransactions(allTransactions, accounts, scope), range), rates);
   const money = (value: number) => (rates ? formatCurrency(value, rates.base) : value.toFixed(2));
 
-  // The twelve-month series the trend charts are drawn from. Deliberately not
-  // cut to the range: a line or a bar chart over a single month is one point,
-  // and the two trend widgets would go blank on the default view.
+  // The months the bars are drawn from: the ones inside the chosen window,
+  // and at most twelve of them. Capped because a bar per month over a long
+  // history is unreadable, not because the window is twelve months - the
+  // header's range decides that, and the card now names it.
   const monthKeys = [...new Set(convertedTx.map((tx) => tx.booking_date.slice(0, 7)))].sort().slice(-TREND_MONTHS);
   const monthFlows: MonthFlow[] = monthKeys.map((key) => {
     const monthTx = convertedTx.filter((tx) => tx.booking_date.startsWith(key));
@@ -67,22 +68,28 @@ export default function Analytics() {
   // Driven by the header's period filter rather than a control of its own:
   // this page had its own, and two date pickers filtering one page is a way
   // to be confidently wrong about which one a chart obeyed.
-  const selectedMonths = rangeMonthCount(range);
-  // Everything that is a total — spend, share, largest, recurring — is cut to
-  // the chosen span. Trends keep their full series and say so.
-  const rangeMonths = selectedMonths == null ? monthKeys : monthKeys.slice(-selectedMonths);
-  const inRange = (date: string) => selectedMonths == null || rangeMonths.includes(date.slice(0, 7));
-  // Every total built from this one - spend, share, largest, recurring - is
-  // about spending, so loan repayments are out of all of them.
-  const rangedTx = spendingTransactions(convertedTx).filter((tx) => inRange(tx.booking_date));
-  // Matched on the month keys rather than the labels, which are now formatted
-  // for reading and no longer look like "2026-07".
-  const rangedFlows = monthFlows.filter((_, i) => selectedMonths == null || rangeMonths.includes(monthKeys[i]));
+  //
+  // `withinRange` above is the whole of that cut. Totals used to be narrowed
+  // a second time, to the last N *calendar months* of what it returned, which
+  // is a different window: on the 12th, "last 30 days" kept November and threw
+  // away the eighteen days of October the header had just promised. A salary
+  // paid on the 23rd vanished from income while sitting in the transaction
+  // list two screens away, and the savings rate was then worked out against
+  // the income that survived - so the page disagreed with itself rather than
+  // simply being short.
+  //
+  // Every total built from this is about spending, so loan repayments are out
+  // of all of them.
+  const rangedTx = spendingTransactions(convertedTx);
 
-  const totalIncome = rangedFlows.reduce((s, m) => s + m.income, 0);
-  const totalExpenses = rangedFlows.reduce((s, m) => s + m.expenses, 0);
-  const avgMonthlyIncome = rangedFlows.length > 0 ? totalIncome / rangedFlows.length : 0;
-  const avgMonthlyExpenses = rangedFlows.length > 0 ? totalExpenses / rangedFlows.length : 0;
+  const totalIncome = convertedTx.filter((tx) => tx.amount > 0).reduce((s, tx) => s + tx.amount, 0);
+  const totalExpenses = Math.abs(rangedTx.filter((tx) => tx.amount < 0).reduce((s, tx) => s + tx.amount, 0));
+  // Per month of window, not per month the data happens to touch: a 30-day
+  // span is one month even when it straddles two, and dividing by the two it
+  // touches would halve every average on the page.
+  const windowMonths = rangeMonthCount(range) ?? Math.max(1, monthKeys.length);
+  const avgMonthlyIncome = totalIncome / windowMonths;
+  const avgMonthlyExpenses = totalExpenses / windowMonths;
 
   const categoryNames = new Map(categories.map((c) => [c.id, c.name]));
   const totalSpend = rangedTx.filter((tx) => tx.amount < 0).reduce((s, tx) => s + Math.abs(tx.amount), 0);
@@ -170,7 +177,8 @@ export default function Analytics() {
   const widgets: WidgetSpec[] = [
     {
       id: "cashflow",
-      title: "Income vs. expenses — last 12 months",
+      title: "Income vs. expenses",
+      headerExtra: <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{dateRangeLabel(range).toLowerCase()}</span>,
       icon: ArrowLeftRight,
       accentVar: "--accent",
       defaultWidth: 672,
