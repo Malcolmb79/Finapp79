@@ -1,9 +1,66 @@
 import { PiggyBank, Plus } from "lucide-react";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useCallback, useEffect, useState } from "react";
-import { api, type SavingsGoal } from "../api/client.js";
+import { api, type GoalForecast, type SavingsGoal } from "../api/client.js";
+import { formatCurrency } from "../utils/formatCurrency.js";
 
-function GoalRow({ goal, onChanged }: { goal: SavingsGoal; onChanged: () => void }) {
+/**
+ * A target date is what somebody hoped for; the forecast is what the money
+ * says. Shown together rather than instead of each other - the gap between
+ * them is the useful part, and replacing the chosen date would hide whether
+ * the plan is on course or was always optimistic.
+ */
+function monthName(month: string): string {
+  const [year, m] = month.split("-");
+  return ["January","February","March","April","May","June","July","August","September","October","November","December"][+m - 1] + " " + year;
+}
+
+function ForecastLine({ forecast, currency }: { forecast: GoalForecast; currency: string }) {
+  if (forecast.months === null) {
+    return <span style={{ color: "var(--warning)" }}>{forecast.reason}</span>;
+  }
+  if (forecast.months === 0) return <span style={{ color: "var(--good)" }}>Already there.</span>;
+
+  const money = (v: number) => formatCurrency(v, currency);
+  const next = forecast.milestones[0];
+  return (
+    <>
+      <span>
+        On what you are putting aside now, <strong>{monthName(forecast.reachedIn!)}</strong>
+        {forecast.months === 1 ? " — next month" : ` — ${forecast.months} months`}.
+      </span>
+      {/* The single most useful thing the projection knows: the saving is not
+          flat, and the date depends on a debt finishing. */}
+      {next && (
+        <span style={{ color: "var(--text-muted)" }}>
+          {" "}
+          Clearing {next.name} takes it to {money(next.savingAfter)} a month.
+        </span>
+      )}
+      {/* Said plainly, because a date that depends on months where nothing
+          goes in is a different promise from one that does not. */}
+      {forecast.deficitMonths > 0 && (
+        <span style={{ color: "var(--warning)" }}>
+          {" "}
+          {forecast.deficitMonths === 1 ? "One month ahead spends" : `${forecast.deficitMonths} months ahead spend`} more
+          than they bring in, so nothing goes in then.
+        </span>
+      )}
+    </>
+  );
+}
+
+function GoalRow({
+  goal,
+  forecast,
+  currency,
+  onChanged,
+}: {
+  goal: SavingsGoal;
+  forecast?: GoalForecast;
+  currency: string;
+  onChanged: () => void;
+}) {
   const [amount, setAmount] = useState("");
   const pct = goal.target_amount > 0 ? Math.min(100, (goal.current_amount / goal.target_amount) * 100) : 0;
   const reached = goal.current_amount >= goal.target_amount;
@@ -36,6 +93,11 @@ function GoalRow({ goal, onChanged }: { goal: SavingsGoal; onChanged: () => void
       <div className="budget-row__track">
         <div className="budget-row__fill" data-status={reached ? "good" : "warning"} style={{ width: `${pct}%` }} />
       </div>
+      {forecast && (
+        <p style={{ fontSize: "0.76rem", margin: "0.4rem 0 0", lineHeight: 1.45 }}>
+          <ForecastLine forecast={forecast} currency={currency} />
+        </p>
+      )}
       <form onSubmit={handleContribute} style={{ display: "flex", gap: "0.4rem", marginTop: "0.5rem" }}>
         <input
           type="number"
@@ -56,12 +118,25 @@ function GoalRow({ goal, onChanged }: { goal: SavingsGoal; onChanged: () => void
 
 export default function Savings() {
   const [goals, setGoals] = useState<SavingsGoal[]>([]);
+  // The forecast comes from the plan, where the surplus and the debts already
+  // are, rather than being worked out a second time here and disagreeing.
+  const [forecasts, setForecasts] = useState<Map<number, GoalForecast>>(new Map());
+  const [currency, setCurrency] = useState("EUR");
   const [name, setName] = useState("");
   const [target, setTarget] = useState("");
   const [targetDate, setTargetDate] = useState("");
 
   const refresh = useCallback(() => {
     api.listSavingsGoals().then(setGoals);
+    api
+      .monthlyPlan()
+      .then((plan) => {
+        setCurrency(plan.currency);
+        setForecasts(new Map(plan.goals.map((g) => [g.id, g.forecast])));
+      })
+      // A goal still shows and still takes contributions without a projection
+      // beside it; only the line is missing.
+      .catch(() => setForecasts(new Map()));
   }, []);
 
   useEffect(refresh, [refresh]);
@@ -108,7 +183,7 @@ export default function Savings() {
         ) : (
           <>
             {goals.map((g) => (
-              <GoalRow key={g.id} goal={g} onChanged={refresh} />
+              <GoalRow key={g.id} goal={g} forecast={forecasts.get(g.id)} currency={currency} onChanged={refresh} />
             ))}
           </>
         ),

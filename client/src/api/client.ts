@@ -389,7 +389,16 @@ export interface MonthlyPlanData {
   };
   categories: { category: string; typical: number; volatility: number }[];
   debts: { id: string; name: string; currency: string; balance: number; rate: number; minimumPayment: number }[];
-  goals: { id: number; name: string; target: number; saved: number; targetDate: string | null; remaining: number }[];
+  goals: {
+    id: number;
+    name: string;
+    target: number;
+    saved: number;
+    targetDate: string | null;
+    remaining: number;
+    /** When it lands at the rate money is actually being set aside. */
+    forecast: GoalForecast;
+  }[];
   dropped: string[];
 }
 
@@ -550,6 +559,21 @@ export interface ImpliedRate {
   samples?: { date: string; interest: number; balance: number }[];
   confidence?: "high" | "low";
   currency?: string;
+}
+
+export interface GoalForecast {
+  /** Months from now, or null when it never gets there at this rate. */
+  months: number | null;
+  /** The month it lands, as YYYY-MM. */
+  reachedIn: string | null;
+  /** Target plus any buffer held back. */
+  effectiveTarget: number;
+  potByMonth: number[];
+  /** Months that spend more than they bring in, so nothing can be set aside. */
+  deficitMonths: number;
+  /** Each debt that frees money, and what goes in once it has. */
+  milestones: { month: number; name: string; savingAfter: number }[];
+  reason?: string;
 }
 
 export interface Budget {

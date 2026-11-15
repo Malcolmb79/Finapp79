@@ -3,7 +3,8 @@ import { db } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { analyseSpending } from "../services/budgetPlanner.js";
 import { loadDebts } from "../services/debtAccounts.js";
-import { simulate } from "../services/debtStrategy.js";
+import { assumedMinimum, simulate } from "../services/debtStrategy.js";
+import { forecastGoal } from "../services/goalForecast.js";
 import { loadRates } from "../services/exchangeRates.js";
 import { matchPremiums, type Chargeable, type PremiumPolicy } from "../services/policyPremiums.js";
 
@@ -138,6 +139,35 @@ planRouter.get("/", async (req, res) => {
       .prepare("SELECT id, name, target_amount, current_amount, target_date FROM savings_goals WHERE user_id = ? ORDER BY target_date NULLS LAST")
       .all(req.user!.id)) as unknown as SavingsGoalRow[];
 
+    const surplus = Math.round((analysis.typicalIncome - analysis.typicalSpend - premiumsToDeduct) * 100) / 100;
+
+    /**
+     * When each debt clears, and what stops going out when it does.
+     *
+     * The surplus is not a constant, and a goal projected at today's figure is
+     * projected at the lowest figure there will ever be: every debt that
+     * finishes hands its monthly payment back to the surplus, and on a
+     * household carrying several that can more than double what is saved.
+     *
+     * Simulated one currency at a time, for the same reason the split below
+     * is: a single payoff date across currencies is a fiction. The freed
+     * payments are then converted, because a goal is denominated in one
+     * currency and the debts paying into it need not be.
+     */
+    const freed = [...new Set(debts.map((d) => d.currency))].flatMap((currency) => {
+      const scoped = debts.filter((d) => d.currency === currency);
+      const payoff = simulate(scoped, 0, "avalanche");
+      return payoff.order.flatMap((cleared) => {
+        const debt = scoped.find((d) => d.name === cleared.name);
+        if (!debt) return [];
+        const payment = inBase(debt.minimumPayment > 0 ? debt.minimumPayment : assumedMinimum(debt), currency);
+        // A currency with no rate is already reported in `dropped`; counting
+        // its payment as though it were euros would be worse than leaving the
+        // projection a little pessimistic.
+        return payment === null ? [] : [{ name: debt.name, monthlyPayment: payment, monthCleared: cleared.monthCleared }];
+      });
+    });
+
     res.json({
       currency: BASE_CURRENCY,
       monthsCovered: analysis.monthsCovered,
@@ -153,7 +183,7 @@ planRouter.get("/", async (req, res) => {
       // this app cannot see, so unlike a debt minimum they are genuinely
       // missing from typicalSpend rather than hiding inside it. The ones that
       // did match are reported below and deliberately left alone.
-      surplus: Math.round((analysis.typicalIncome - analysis.typicalSpend - premiumsToDeduct) * 100) / 100,
+      surplus,
       committedDebt: Math.round(committedDebt * 100) / 100,
       premiums: {
         deducted: Math.round(premiumsToDeduct * 100) / 100,
@@ -174,6 +204,13 @@ planRouter.get("/", async (req, res) => {
         saved: g.current_amount,
         targetDate: g.target_date,
         remaining: Math.max(0, g.target_amount - g.current_amount),
+        /**
+         * When this lands at the rate money is actually being put aside,
+         * rather than at the date somebody hoped for when they set it. The
+         * two are reported side by side on purpose: a target date with
+         * nothing checking it against the money is a wish.
+         */
+        forecast: forecastGoal({ target: g.target_amount, current: g.current_amount, surplusNow: surplus, freed }),
       })),
       dropped,
     });
