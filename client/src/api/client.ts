@@ -833,6 +833,15 @@ export const api = {
    * place the real one shows up without being asked for.
    */
   /** Pairs already judged to be two payments rather than one stored twice. */
+  /**
+   * Change a goal's name, target or date.
+   *
+   * Not its current amount: that moves through contributing, so two devices
+   * adding at once cannot lose one of the contributions.
+   */
+  updateSavingsGoal: (id: number, patch: { name?: string; target_amount?: number; target_date?: string | null }) =>
+    request<SavingsGoal>(`/savings/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+
   listDuplicateDismissals: () => request<{ a_id: string; b_id: string }[]>("/transactions/duplicate-dismissals"),
 
   dismissDuplicate: (a: string, b: string) =>

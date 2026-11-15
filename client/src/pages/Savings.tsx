@@ -1,7 +1,8 @@
-import { PiggyBank, Plus } from "lucide-react";
+import { Pencil, PiggyBank, Plus } from "lucide-react";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useCallback, useEffect, useState } from "react";
 import { api, type GoalForecast, type SavingsGoal } from "../api/client.js";
+import { errorMessage } from "../utils/errorMessage.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 
 /**
@@ -82,8 +83,47 @@ function GoalRow({
   onChanged: () => void;
 }) {
   const [amount, setAmount] = useState("");
+  /**
+   * Editing the target in place rather than through a delete and a re-create.
+   *
+   * A target is a decision somebody revises - after a forecast disagrees with
+   * it, or because the deposit turned out to need a buffer on top - and
+   * revising it by deleting the goal would take the contributions with it.
+   */
+  const [editing, setEditing] = useState(false);
+  const [targetDraft, setTargetDraft] = useState("");
+  const [dateDraft, setDateDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const pct = goal.target_amount > 0 ? Math.min(100, (goal.current_amount / goal.target_amount) * 100) : 0;
   const reached = goal.current_amount >= goal.target_amount;
+
+  function startEditing() {
+    setTargetDraft(String(goal.target_amount));
+    setDateDraft(goal.target_date ?? "");
+    setError(null);
+    setEditing(true);
+  }
+
+  async function saveEdits() {
+    const target = Number(targetDraft.replace(/[,\s]/g, ""));
+    if (!Number.isFinite(target) || target <= 0) {
+      setError("A target has to be a positive amount.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await api.updateSavingsGoal(goal.id, { target_amount: target, target_date: dateDraft || null });
+      setEditing(false);
+      onChanged();
+    } catch (err) {
+      setError(errorMessage(err, "Couldn't save that."));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function handleContribute(e: React.FormEvent) {
     e.preventDefault();
@@ -106,13 +146,50 @@ function GoalRow({
           {goal.name}
           {goal.target_date ? ` · by ${goal.target_date}` : ""}
         </span>
-        <span className="budget-row__amounts">
-          {goal.current_amount.toFixed(2)} / {goal.target_amount.toFixed(2)}
-        </span>
+        {editing ? (
+          <span className="budget-row__amounts" style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexWrap: "wrap" }}>
+            <input
+              autoFocus
+              inputMode="decimal"
+              value={targetDraft}
+              onChange={(e) => setTargetDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveEdits();
+                if (e.key === "Escape") setEditing(false);
+              }}
+              aria-label={`Target for ${goal.name}`}
+              style={{ width: 100, fontSize: "0.8rem", padding: "0.1rem 0.35rem" }}
+            />
+            <input
+              type="date"
+              value={dateDraft}
+              onChange={(e) => setDateDraft(e.target.value)}
+              aria-label={`Target date for ${goal.name}`}
+              style={{ width: 140, fontSize: "0.8rem", padding: "0.1rem 0.35rem" }}
+            />
+            <button onClick={saveEdits} disabled={saving} style={{ fontSize: "0.75rem", padding: "0.1rem 0.5rem" }}>
+              {saving ? "Saving…" : "Save"}
+            </button>
+            <button onClick={() => setEditing(false)} disabled={saving} style={{ fontSize: "0.75rem", padding: "0.1rem 0.5rem" }}>
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button
+            className="budget-row__amounts"
+            onClick={startEditing}
+            title="Change the target or the date"
+            style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", font: "inherit" }}
+          >
+            {goal.current_amount.toFixed(2)} / {goal.target_amount.toFixed(2)}
+            <Pencil size={11} style={{ marginLeft: "0.3rem", verticalAlign: "-1px", color: "var(--text-muted)" }} />
+          </button>
+        )}
       </div>
       <div className="budget-row__track">
         <div className="budget-row__fill" data-status={reached ? "good" : "warning"} style={{ width: `${pct}%` }} />
       </div>
+      {error && <p style={{ fontSize: "0.76rem", color: "var(--critical)", margin: "0.3rem 0 0" }}>{error}</p>}
       {forecast && (
         <p style={{ fontSize: "0.76rem", margin: "0.4rem 0 0", lineHeight: 1.45 }}>
           <ForecastLine
