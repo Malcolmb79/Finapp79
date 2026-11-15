@@ -10,6 +10,23 @@ function monthStart(): string {
   return `${new Date().toISOString().slice(0, 7)}-01`;
 }
 
+/**
+ * The currency a budget is being set in, as a three-letter code.
+ *
+ * Absent means euro rather than an error: every budget set before this column
+ * existed was a euro one, and an older client that sends nothing still means
+ * that. Anything present but not a currency code is refused instead of being
+ * quietly coerced - a budget filed under a code nothing is denominated in
+ * would count no spending at all and sit on screen reading zero spent, which
+ * looks like underspending rather than like a mistake.
+ */
+export function budgetCurrency(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return "EUR";
+  if (typeof raw !== "string") return null;
+  const code = raw.trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(code) ? code : null;
+}
+
 budgetsRouter.get("/", async (req, res) => {
   const rows = await db
     .prepare(
@@ -18,6 +35,7 @@ budgetsRouter.get("/", async (req, res) => {
          b.category_id,
          c.name AS category_name,
          b.monthly_limit,
+         b.currency,
          -- Reads the splits where a transaction has them and the transaction
          -- itself where it does not, so a shop that was half groceries counts
          -- half against the groceries budget. Grouping on t.category_id alone
@@ -34,13 +52,21 @@ budgetsRouter.get("/", async (req, res) => {
        LEFT JOIN (
          SELECT t.user_id, t.booking_date, t.reviewed_at,
                 COALESCE(sp.category_id, t.category_id) AS category_id,
-                COALESCE(sp.amount, t.amount) AS amount
+                COALESCE(sp.amount, t.amount) AS amount,
+                -- A split inherits its transaction's currency: it is a slice of
+                -- the same payment, not a separate one.
+                t.currency
            FROM transactions t
            LEFT JOIN transaction_splits sp ON sp.transaction_id = t.id
+       -- Matched on currency as well as category. Without it a GBP card and a
+       -- EUR current account add together as bare numbers, so a budget reads
+       -- as overspent by the exchange rate alone - and silently, since
+       -- nothing on the row says two currencies went into it.
        ) s ON s.category_id = b.category_id AND s.user_id = b.user_id AND s.reviewed_at IS NOT NULL
+              AND s.currency = b.currency
        WHERE b.user_id = ?
-       GROUP BY b.id, c.name
-       ORDER BY c.name`
+       GROUP BY b.id, c.name, b.currency
+       ORDER BY b.currency, c.name`
     )
     .all(monthStart(), req.user!.id);
 
@@ -56,6 +82,12 @@ budgetsRouter.post("/", async (req, res) => {
     return;
   }
 
+  const currency = budgetCurrency(req.body.currency);
+  if (currency === null) {
+    res.status(400).json({ error: "currency must be a three-letter code" });
+    return;
+  }
+
   const category = await db.prepare("SELECT 1 FROM categories WHERE id = ? AND user_id = ?").get(category_id, req.user!.id);
   if (!category) {
     res.status(404).json({ error: "category not found" });
@@ -64,12 +96,14 @@ budgetsRouter.post("/", async (req, res) => {
 
   await db
     .prepare(
-      `INSERT INTO budgets (user_id, category_id, monthly_limit) VALUES (?, ?, ?)
-       ON CONFLICT (user_id, category_id) DO UPDATE SET monthly_limit = excluded.monthly_limit`
+      `INSERT INTO budgets (user_id, category_id, monthly_limit, currency) VALUES (?, ?, ?, ?)
+       ON CONFLICT (user_id, category_id, currency) DO UPDATE SET monthly_limit = excluded.monthly_limit`
     )
-    .run(req.user!.id, category_id, monthly_limit);
+    .run(req.user!.id, category_id, monthly_limit, currency);
 
-  const created = await db.prepare("SELECT * FROM budgets WHERE user_id = ? AND category_id = ?").get(req.user!.id, category_id);
+  const created = await db
+    .prepare("SELECT * FROM budgets WHERE user_id = ? AND category_id = ? AND currency = ?")
+    .get(req.user!.id, category_id, currency);
   res.status(201).json(created);
 });
 

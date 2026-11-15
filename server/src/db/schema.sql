@@ -284,7 +284,20 @@ CREATE TABLE IF NOT EXISTS budgets (
   created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_budgets_user_category ON budgets (user_id, category_id);
+-- A household can hold money in more than one currency, and a budget set in
+-- one says nothing about the other: GBP 150 of groceries and EUR 150 of
+-- groceries are two separate caps against two separate sets of transactions.
+-- Converting them into one would be worse than useless here, because the
+-- question "have I gone over" is asked of each account's own currency, in the
+-- country whose prices it pays.
+ALTER TABLE budgets ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'EUR';
+
+-- The old index allowed one budget per category, full stop. Dropping it is
+-- what lets the same category hold a cap in each currency; the replacement
+-- still stops two budgets for the same category in the SAME currency.
+DROP INDEX IF EXISTS idx_budgets_user_category;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_budgets_user_category_currency
+  ON budgets (user_id, category_id, currency);
 
 -- What was put into a category for one particular month.
 --

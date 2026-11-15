@@ -1,12 +1,12 @@
 import { Pencil, Plus, Sparkles, Target, Wallet } from "lucide-react";
 import BudgetAdviser from "../components/BudgetAdviser.js";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import EnvelopeBudget from "../components/EnvelopeBudget.js";
-import { useFxRates } from "../utils/fx.js";
 import { Link } from "react-router-dom";
-import { api, type Budget, type Category, type Transaction } from "../api/client.js";
+import { api, type Account, type Budget, type Category, type Transaction } from "../api/client.js";
 import { budgetStatus } from "../utils/budgetStatus.js";
+import { formatCurrency } from "../utils/formatCurrency.js";
 
 /**
  * The first of the current month, matching the window `GET /api/budgets`
@@ -23,9 +23,20 @@ export default function Budgets() {
   // The envelopes need the history, not just this month: a carried balance
   // is the result of every month before the one on screen.
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const rates = useFxRates("EUR");
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [categoryId, setCategoryId] = useState("");
   const [limit, setLimit] = useState("");
+  /**
+   * Which currency's budget is on screen.
+   *
+   * Everything else on this page converts to one base and shows a single
+   * total, which is right for net worth and wrong for a budget: after a move
+   * between countries the sterling accounts keep running alongside the euro
+   * ones, and a cap converted into the other currency moves with the exchange
+   * rate rather than with spending. So the page shows one currency at a time
+   * and never adds the two together.
+   */
+  const [currency, setCurrency] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     api.listBudgets().then(setBudgets);
@@ -34,13 +45,33 @@ export default function Budgets() {
   useEffect(() => {
     api.listCategories().then(setCategories);
     api.listTransactions().then(setTransactions);
+    api.listAccounts().then(setAccounts);
     refresh();
   }, [refresh]);
+
+  // The currencies offered are the ones money is actually held in, rather than
+  // a fixed list: an account closed is a tab that stops appearing.
+  const currencies = useMemo(() => {
+    const held = new Set<string>();
+    for (const a of accounts) if (a.currency) held.add(a.currency);
+    for (const b of budgets) if (b.currency) held.add(b.currency);
+    return [...held].sort();
+  }, [accounts, budgets]);
+
+  // Settle on one once the accounts are known, preferring the base currency
+  // the rest of the app reports in so the page opens where it did before.
+  const active = currency ?? (currencies.includes("EUR") ? "EUR" : currencies[0]) ?? "EUR";
+
+  const money = (value: number) => formatCurrency(value, active);
+  const inCurrency = useMemo(() => budgets.filter((b) => b.currency === active), [budgets, active]);
+  // The envelopes read the same slice: a sterling card's transactions have no
+  // business against a euro envelope.
+  const txInCurrency = useMemo(() => transactions.filter((t) => t.currency === active), [transactions, active]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!categoryId || !limit) return;
-    await api.setBudget(Number(categoryId), Number(limit));
+    await api.setBudget(Number(categoryId), Number(limit), active);
     setLimit("");
     refresh();
   }
@@ -62,13 +93,15 @@ export default function Budgets() {
       setEditingId(null);
       return;
     }
-    await api.setBudget(categoryId, parsed);
+    await api.setBudget(categoryId, parsed, active);
     setEditingId(null);
     refresh();
   }
 
-  const nearLimitCount = budgets.filter((b) => budgetStatus(b.spent, b.monthly_limit) !== "good").length;
-  const budgetedCategoryIds = new Set(budgets.map((b) => b.category_id));
+  const nearLimitCount = inCurrency.filter((b) => budgetStatus(b.spent, b.monthly_limit) !== "good").length;
+  // Per currency, so a category already budgeted in euros can still be given a
+  // separate sterling cap.
+  const budgetedCategoryIds = new Set(inCurrency.map((b) => b.category_id));
   const availableCategories = categories.filter((c) => !budgetedCategoryIds.has(c.id));
 
   const widgets: WidgetSpec[] = [
@@ -79,7 +112,7 @@ export default function Budgets() {
       accentVar: "--accent-2",
       defaultWidth: 672,
       defaultHeight: 480,
-      render: () => <EnvelopeBudget transactions={transactions} categories={categories} currency={rates?.base ?? null} />,
+      render: () => <EnvelopeBudget transactions={txInCurrency} categories={categories} currency={active} />,
     },
     {
       id: "adviser",
@@ -143,10 +176,10 @@ export default function Budgets() {
                 ⚠ {nearLimitCount} budget{nearLimitCount === 1 ? "" : "s"} near or over limit
               </div>
             )}
-            {budgets.length === 0 ? (
-              <p className="empty-state">No budgets set yet.</p>
+            {inCurrency.length === 0 ? (
+              <p className="empty-state">No {active} budgets set yet.</p>
             ) : (
-              budgets.map((b) => {
+              inCurrency.map((b) => {
                 const status = budgetStatus(b.spent, b.monthly_limit);
                 const pct = Math.min(100, (b.spent / b.monthly_limit) * 100);
                 return (
@@ -169,7 +202,7 @@ export default function Budgets() {
                           again from the form above. */}
                       {editingId === b.id ? (
                         <span className="budget-row__amounts" style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-                          {b.spent.toFixed(2)} /
+                          {money(b.spent)} /
                           <input
                             autoFocus
                             inputMode="decimal"
@@ -200,7 +233,7 @@ export default function Budgets() {
                             title="Change this limit"
                             style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", font: "inherit" }}
                           >
-                            {b.spent.toFixed(2)} / {b.monthly_limit.toFixed(2)}
+                            {money(b.spent)} / {money(b.monthly_limit)}
                             <Pencil size={11} style={{ marginLeft: "0.3rem", verticalAlign: "-1px", color: "var(--text-muted)" }} />
                           </button>
                           <button onClick={() => handleDelete(b.id)} style={{ padding: "0.1rem 0.5rem", fontSize: "0.75rem" }}>
@@ -226,8 +259,28 @@ export default function Budgets() {
       <div className="page-header">
         <div>
           <h1>Budgets</h1>
-          <p className="page-header__subtitle">Monthly spending limits per category · hold a card to move or resize it</p>
+          <p className="page-header__subtitle">
+            Monthly spending limits per category · hold a card to move or resize it
+          </p>
         </div>
+        {/* Shown only when there is a choice to make. One currency is the
+            ordinary case, and a lone tab that cannot be switched is furniture. */}
+        {currencies.length > 1 && (
+          <div role="group" aria-label="Budget currency" style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
+            {currencies.map((code) => (
+              <button
+                key={code}
+                type="button"
+                onClick={() => setCurrency(code)}
+                aria-pressed={code === active}
+                className={code === active ? "btn-accent" : undefined}
+                style={{ fontSize: "0.8rem", padding: "0.25rem 0.7rem" }}
+              >
+                {code}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <WidgetCanvas storageKey="budgets.layout.v1" widgets={widgets} />

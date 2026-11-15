@@ -541,6 +541,15 @@ export interface Budget {
   category_name: string;
   monthly_limit: number;
   spent: number;
+  /**
+   * The currency this cap is set in, and the only currency counted against it.
+   *
+   * A household that holds accounts in two currencies has two budgets for the
+   * same category, not one converted figure: the question a budget answers is
+   * "have I gone over", and that is asked of each account in the currency it
+   * actually pays in.
+   */
+  currency: string;
 }
 
 export interface Debt {
@@ -812,8 +821,11 @@ export const api = {
       body: JSON.stringify({ messages }),
     }),
 
-  setBudget: (categoryId: number, monthlyLimit: number) =>
-    request<Budget>("/budgets", { method: "POST", body: JSON.stringify({ category_id: categoryId, monthly_limit: monthlyLimit }) }),
+  setBudget: (categoryId: number, monthlyLimit: number, currency?: string) =>
+    request<Budget>("/budgets", {
+      method: "POST",
+      body: JSON.stringify({ category_id: categoryId, monthly_limit: monthlyLimit, ...(currency ? { currency } : {}) }),
+    }),
   deleteBudget: (id: number) => request<void>(`/budgets/${id}`, { method: "DELETE" }),
 
   listPolicies: () => request<Policy[]>("/policies"),
