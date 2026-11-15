@@ -176,6 +176,28 @@ describe("isTruncationOf", () => {
     expect(isTruncationOf(null, "anything")).toBe(false);
   });
 
+  /**
+   * The shape the bank actually produces, which whole-string matching misses.
+   * One copy carries the scheme prefix and the other does not, and the cut is
+   * inside the string rather than at the end, so neither is a prefix of the
+   * other however they are lined up.
+   */
+  it("sees a merchant cut short inside differently wrapped descriptions", () => {
+    expect(isTruncationOf("VDP-shop.example.co Purchase", "shop.example.com Purchase")).toBe(true);
+    expect(isTruncationOf("shop.example.com Purchase", "VDP-shop.example.co Purchase")).toBe(true);
+  });
+
+  // Same merchant, different wrapping, is two visits rather than one payment.
+  it("is false when the merchant matches exactly and only the wrapping differs", () => {
+    expect(isTruncationOf("VDP-shop.example.com Purchase", "shop.example.com Purchase")).toBe(false);
+  });
+
+  // The pair that would cost a real payment: same day, same amount, two
+  // different shops.
+  it("is false for two different merchants", () => {
+    expect(isTruncationOf("VDP-Examplebank**1234* Purchase", "VDP-Othershop Purchase")).toBe(false);
+  });
+
   it("is false when neither is a prefix of the other", () => {
     expect(isTruncationOf("Example Cafe", "Example Bakery")).toBe(false);
   });

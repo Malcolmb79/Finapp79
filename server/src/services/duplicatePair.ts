@@ -30,24 +30,58 @@ function normalise(text: string | null | undefined): string {
   return (text ?? "")
     .toLowerCase()
     .replace(/\s+/g, " ")
-    .replace(/[^a-z0-9 .]/g, "")
+    .replace(/[^a-z0-9 .-]/g, "")
     .trim();
 }
 
 /**
+ * The part of a description that names the merchant.
+ *
+ * Banks wrap the name in their own furniture: a scheme prefix like VDP- or
+ * VDA- on one copy and not the other, and a trailing word such as "purchase"
+ * on both. Comparing whole strings therefore fails on the pair this rule
+ * exists for - one copy carries the prefix, the other does not, and the
+ * truncation is in the middle rather than at the end, so neither string is a
+ * prefix of the other however they are lined up.
+ *
+ * The longest token is the merchant in practice: the scheme codes are short,
+ * the filler words are short, and what is left is the name or the domain.
+ */
+function merchantToken(text: string): string {
+  const stripped = text.replace(/^[a-z]{2,4}-/, "");
+  const tokens = stripped.split(" ").filter((t) => !FILLER.has(t));
+  return tokens.reduce((longest, token) => (token.length > longest.length ? token : longest), "");
+}
+
+/** Words that appear on half the ledger and name nothing. */
+const FILLER = new Set(["purchase", "payment", "pos", "card", "debit", "credit", "transaction", "ref", "to", "from"]);
+
+/**
  * Whether one description is the other cut short.
  *
- * False for two identical strings, and that is the point. Identical is what
- * two genuine repeat purchases look like — the same shop, the same price, two
- * days running. A string cut at two different lengths is one payment described
- * twice.
+ * Tried on the whole string first, then on the merchant alone, because the
+ * two copies of one payment are rarely wrapped identically. False for two
+ * identical descriptions either way: identical is what two genuine repeat
+ * purchases look like, and a string cut at two lengths is what one payment
+ * looks like when two pipelines describe it.
  */
 export function isTruncationOf(a: string | null | undefined, b: string | null | undefined): boolean {
   const x = normalise(a);
   const y = normalise(b);
   if (!x || !y || x === y) return false;
-  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
-  return short.length >= MIN_PREFIX && long.startsWith(short);
+
+  const prefixOf = (p: string, q: string) => {
+    const [short, long] = p.length <= q.length ? [p, q] : [q, p];
+    return short.length >= MIN_PREFIX && long.startsWith(short);
+  };
+
+  if (prefixOf(x, y)) return true;
+
+  const left = merchantToken(x);
+  const right = merchantToken(y);
+  // Equal merchants with different wrapping are not evidence of anything: the
+  // same shop twice in a week writes the same name twice.
+  return left !== right && prefixOf(left, right);
 }
 
 /** Whole days between two ISO dates, however they are ordered. */
