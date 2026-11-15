@@ -543,6 +543,15 @@ export interface PlanSimulation {
   savings: { perMonth: number; months: number; total: number };
 }
 
+export interface ImpliedRate {
+  /** Annual percentage, or null with a reason when it cannot be worked out. */
+  rate: number | null;
+  reason?: string;
+  samples?: { date: string; interest: number; balance: number }[];
+  confidence?: "high" | "low";
+  currency?: string;
+}
+
 export interface Budget {
   id: number;
   category_id: number;
@@ -790,6 +799,15 @@ export const api = {
   /** A starter set for an account with no categories. Writes nothing. */
   starterCategories: () => request<{ suggestions: string[]; hasAny: boolean }>("/categories/starter"),
   /** Today only the income flag; see server/src/routes/categories.ts. */
+  /**
+   * What an account's own interest charges say its rate is.
+   *
+   * A proposal, never a write: a lender's representative APR is not the rate a
+   * particular person was given, and the account's own statements are the only
+   * place the real one shows up without being asked for.
+   */
+  impliedRate: (accountId: string) => request<ImpliedRate>(`/accounts/${accountId}/implied-rate`),
+
   updateCategory: (id: number, patch: { counts_as_income?: boolean; income_is_occasional?: boolean }) =>
     request<Category>(`/categories/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
 

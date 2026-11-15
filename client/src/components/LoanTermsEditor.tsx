@@ -1,6 +1,7 @@
-import { Loader2 } from "lucide-react";
+import { Loader2, Sigma } from "lucide-react";
 import { useState } from "react";
-import { api, type Account } from "../api/client.js";
+import { api, type Account, type ImpliedRate } from "../api/client.js";
+import { errorMessage } from "../utils/errorMessage.js";
 import { isLiability } from "../utils/accountBalance.js";
 
 /**
@@ -52,6 +53,22 @@ export default function LoanTermsEditor({
   const [end, setEnd] = useState(account.loan_end_date ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The proposal from the account's own interest charges, held beside the
+  // field rather than written into it: the person decides whether it goes in.
+  const [implied, setImplied] = useState<ImpliedRate | null>(null);
+  const [working, setWorking] = useState(false);
+
+  async function workOutRate() {
+    setWorking(true);
+    setError(null);
+    try {
+      setImplied(await api.impliedRate(account.id));
+    } catch (err) {
+      setError(errorMessage(err, "Couldn't work the rate out."));
+    } finally {
+      setWorking(false);
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -118,6 +135,41 @@ export default function LoanTermsEditor({
           {field.hint && <span style={{ color: "var(--text-muted)", fontSize: "0.7rem" }}>· {field.hint}</span>}
         </label>
       ))}
+
+      {/* Offered where the rate is typed, because that is where somebody
+          discovers they do not know it. The figure lands in the field only
+          when it is accepted, so nothing is stored that was not looked at. */}
+      <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", flexWrap: "wrap" }}>
+        <button
+          type="button"
+          onClick={workOutRate}
+          disabled={working}
+          title="Work the rate out from the interest this account has actually charged"
+          style={{ fontSize: "0.72rem", padding: "0.15rem 0.5rem", background: "transparent", display: "flex", alignItems: "center", gap: "0.25rem" }}
+        >
+          {working ? <Loader2 size={11} className="spin" /> : <Sigma size={11} />}
+          Work it out from interest charged
+        </button>
+        {implied?.rate != null && (
+          <>
+            <span style={{ fontSize: "0.74rem" }}>
+              <strong>{implied.rate}%</strong> a year, from{" "}
+              {implied.samples?.length === 1 ? "one charge" : `${implied.samples?.length} charges`}
+              {implied.confidence === "low" && " — worth checking"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setRate(String(implied.rate))}
+              style={{ fontSize: "0.72rem", padding: "0.15rem 0.5rem" }}
+            >
+              Use it
+            </button>
+          </>
+        )}
+        {implied && implied.rate === null && (
+          <span style={{ fontSize: "0.73rem", color: "var(--text-muted)" }}>{implied.reason}</span>
+        )}
+      </div>
 
       <div style={{ display: "flex", gap: "0.3rem", alignItems: "center" }}>
         <button onClick={save} disabled={saving} className="btn-accent" style={{ fontSize: "0.76rem", padding: "0.2rem 0.6rem" }}>

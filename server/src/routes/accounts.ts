@@ -8,6 +8,7 @@ import { extractLoanTerms, extractLoanTermsFromScan } from "../services/loanCont
 import { extractLoanStatus } from "../services/loanStatus.js";
 import { readImages } from "../services/imageBytes.js";
 import { extractPdfText, looksLikePdf } from "../services/pdfStatement.js";
+import { impliedAnnualRate, isInterestCharge, type RateSample } from "../services/impliedRate.js";
 
 export const accountsRouter = Router();
 
@@ -549,4 +550,62 @@ accountsRouter.delete("/:id", async (req, res) => {
   });
 
   res.status(204).send();
+});
+
+/**
+ * What this account's own interest charges say its rate is.
+ *
+ * Read-only on purpose. It proposes a figure and hands back the charges it
+ * used; storing it is a separate, deliberate act by the person looking at the
+ * evidence, the same way a contract's terms are confirmed before they land.
+ *
+ * The balance each charge was levied on is walked back from today's figure:
+ * everything booked on or after the charge is undone, which removes the charge
+ * itself along with everything later, leaving what was owed when it was
+ * applied. An account with no balance recorded has no anchor to walk back
+ * from, and says so rather than guessing.
+ */
+accountsRouter.get("/:id/implied-rate", async (req, res) => {
+  const account = (await db
+    .prepare("SELECT id, balance, currency FROM accounts WHERE id = ? AND user_id = ?")
+    .get(req.params.id, req.user!.id)) as unknown as { id: string; balance: number | null; currency: string } | undefined;
+
+  if (!account) {
+    res.status(404).json({ error: "account not found" });
+    return;
+  }
+  if (account.balance === null) {
+    res.json({ rate: null, reason: "This account has no balance recorded, so there is nothing to measure the interest against." });
+    return;
+  }
+
+  const rows = (await db
+    .prepare(
+      `SELECT booking_date, amount, description
+         FROM transactions
+        WHERE account_id = ? AND user_id = ? AND reviewed_at IS NOT NULL
+        ORDER BY booking_date`
+    )
+    .all(req.params.id, req.user!.id)) as unknown as { booking_date: string; amount: number; description: string | null }[];
+
+  const charges = rows.filter((r) => isInterestCharge(r.description) && r.amount < 0);
+  if (charges.length === 0) {
+    res.json({ rate: null, reason: "No interest charges found on this account, so there is nothing to work the rate out from." });
+    return;
+  }
+
+  const samples: RateSample[] = charges.map((charge) => {
+    // Undo everything from the charge onwards. A debt balance is negative, so
+    // what was owed is the other side of it.
+    const after = rows.filter((r) => r.booking_date >= charge.booking_date).reduce((sum, r) => sum + r.amount, 0);
+    return { date: charge.booking_date, interest: Math.abs(charge.amount), balance: -(account.balance! - after) };
+  });
+
+  const implied = impliedAnnualRate(samples);
+  if (!implied) {
+    res.json({ rate: null, reason: "The interest charged does not work out to a rate this account could be on - the balances behind it look wrong." });
+    return;
+  }
+
+  res.json({ ...implied, currency: account.currency });
 });
