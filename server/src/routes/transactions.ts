@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { isDuplicatePair, NEAR_DAYS } from "../services/duplicatePair.js";
 import { randomUUID } from "node:crypto";
 import { db, withTransaction } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
@@ -388,10 +389,19 @@ transactionsRouter.patch("/:id", async (req, res) => {
  * salary counted twice.
  *
  * Narrow on purpose: the server finds the twin itself rather than believing
- * the caller. Same account, same day, same amount to the penny, different
- * id. A client that simply asked to delete a synced transaction would
+ * the caller. A client that simply asked to delete a synced transaction would
  * reopen the whole rule.
+ *
+ * What counts as a twin is services/duplicatePair.ts, which is the same rule
+ * the screen uses to offer the row in the first place. It has to be: a
+ * duplicate somebody is shown and a duplicate the server will remove must be
+ * the same set, or the button returns a refusal.
  */
+/** The same date shifted by whole days, as an ISO date. */
+function shiftDate(date: string, days: number): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+}
+
 export function mayDelete(source: Transaction["source"], hasTwin: boolean): boolean {
   // Manual rows were always the owner's to remove. Everything else needs a
   // twin, so the only non-manual transaction that can go is one the server
@@ -409,16 +419,28 @@ transactionsRouter.delete("/:id", async (req, res) => {
     return;
   }
 
-  const twin =
+  // Narrowed in SQL to the same account, the same amount and a window of
+  // days; the description rule is applied in code, where it is written once
+  // and tested.
+  const candidates =
     existing.source === "manual"
-      ? null
-      : await db
+      ? []
+      : ((await db
           .prepare(
-            `SELECT id FROM transactions
-              WHERE user_id = ? AND account_id = ? AND booking_date = ? AND amount = ? AND id <> ?
-              LIMIT 1`
+            `SELECT id, booking_date, description FROM transactions
+              WHERE user_id = ? AND account_id = ? AND amount = ? AND id <> ?
+                AND booking_date BETWEEN ? AND ?`
           )
-          .get<{ id: string }>(req.user!.id, existing.account_id, existing.booking_date, existing.amount, existing.id);
+          .all(
+            req.user!.id,
+            existing.account_id,
+            existing.amount,
+            existing.id,
+            shiftDate(existing.booking_date, -NEAR_DAYS),
+            shiftDate(existing.booking_date, NEAR_DAYS)
+          )) as unknown as { id: string; booking_date: string; description: string | null }[]);
+
+  const twin = candidates.find((candidate) => isDuplicatePair(existing, candidate)) ?? null;
 
   if (!mayDelete(existing.source, twin != null)) {
     res.status(409).json({
