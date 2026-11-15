@@ -18,6 +18,7 @@ import { api, type Account, type Holding, type Policy, type Transaction } from "
 import { useAuth } from "../../contexts/AuthContext.js";
 import { accountBalance, accountTxSums, visibleAccounts, visibleTransactions } from "../../utils/accountBalance.js";
 import { formatCurrency } from "../../utils/formatCurrency.js";
+import { netWorthNote } from "../../utils/netWorthNote.js";
 import { holdingContributions } from "../../utils/holdingValue.js";
 import { policyContributions } from "../../utils/policyValue.js";
 import { sumInBase, useFxRates } from "../../utils/fx.js";
@@ -82,16 +83,34 @@ export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onC
   // so they drop out entirely while one is set. Leaving them in would show a
   // single account's balance with a policy's value stacked on top, which is a
   // figure describing nothing.
+  // Kept apart from the account side so the figure can say what is in it.
+  // Hide every account but one and this read +8,814 beside an accounts page
+  // showing -2,975, because two rand policies were quietly inside it: both
+  // numbers right, and only one of them explaining itself.
+  const policyParts = scope ? [] : policyContributions(policies);
+  const holdingParts = scope ? [] : holdingContributions(holdings);
+  const { converted: policyTotal } = sumInBase(policyParts, rates);
+  const { converted: holdingTotal } = sumInBase(holdingParts, rates);
+
   const { converted: netWorth } = sumInBase(
     [
       ...accounts.map((a) => ({ amount: accountBalance(a, byAccount.get(a.id) ?? 0), currency: a.currency })),
-      ...(scope ? [] : policyContributions(policies)),
+      ...policyParts,
       // And investments, on exactly the same terms — a figure here that left
       // them out would disagree with the dashboard about the same number.
-      ...(scope ? [] : holdingContributions(holdings)),
+      ...holdingParts,
     ],
     rates
   );
+
+  const note = rates
+    ? netWorthNote({
+        policyTotal,
+        holdingTotal,
+        coverNames: scope ? [] : policies.filter((p) => p.net_worth_source === "cover").map((p) => p.name),
+        money: (value) => formatCurrency(value, rates.base),
+      })
+    : null;
   const thisMonth = new Date().toISOString().slice(0, 7);
   const monthDelta = transactions
     .filter((tx) => tx.booking_date.startsWith(thisMonth))
@@ -120,6 +139,21 @@ export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onC
           <p className="sidebar__net-worth-delta">
             {monthDelta >= 0 ? "↗" : "↘"} {monthDelta.toFixed(2)} this month
           </p>
+          {/* Only when there is something to disclose. A permanent line saying
+              the total is just the accounts is noise that teaches somebody not
+              to read the line at all. */}
+          {note && (
+            <p
+              style={{
+                fontSize: "0.68rem",
+                color: "var(--text-muted)",
+                margin: "0.25rem 0 0",
+                lineHeight: 1.35,
+              }}
+            >
+              {note}
+            </p>
+          )}
         </div>
 
         <nav className="sidebar__nav">
