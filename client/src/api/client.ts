@@ -830,6 +830,12 @@ export const api = {
    * particular person was given, and the account's own statements are the only
    * place the real one shows up without being asked for.
    */
+  /** Pairs already judged to be two payments rather than one stored twice. */
+  listDuplicateDismissals: () => request<{ a_id: string; b_id: string }[]>("/transactions/duplicate-dismissals"),
+
+  dismissDuplicate: (a: string, b: string) =>
+    request<void>("/transactions/duplicate-dismissals", { method: "POST", body: JSON.stringify({ a, b }) }),
+
   impliedRate: (accountId: string) => request<ImpliedRate>(`/accounts/${accountId}/implied-rate`),
 
   updateCategory: (id: number, patch: { counts_as_income?: boolean; income_is_occasional?: boolean }) =>

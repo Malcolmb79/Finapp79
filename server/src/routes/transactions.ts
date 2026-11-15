@@ -15,6 +15,54 @@ export const transactionsRouter = Router();
 
 transactionsRouter.use(requireAuth);
 
+/**
+ * The two ids in a fixed order, so one pair has one key.
+ *
+ * The screen may send them either way round depending on which row it decided
+ * to keep, and two rows of the same pair would then both be stored and
+ * neither would match on the way back.
+ */
+export function dismissalKey(a: string, b: string): [string, string] | null {
+  if (!a || !b || a === b) return null;
+  return a < b ? [a, b] : [b, a];
+}
+
+// Declared before any "/:id" route, or the path is read as a transaction id.
+transactionsRouter.get("/duplicate-dismissals", async (req, res) => {
+  res.json(
+    await db
+      .prepare("SELECT a_id, b_id FROM duplicate_dismissals WHERE user_id = ?")
+      .all(req.user!.id)
+  );
+});
+
+transactionsRouter.post("/duplicate-dismissals", async (req, res) => {
+  const key = dismissalKey(String(req.body?.a ?? ""), String(req.body?.b ?? ""));
+  if (!key) {
+    res.status(400).json({ error: "two different transaction ids are required" });
+    return;
+  }
+
+  // Both have to be the caller's own, or this becomes a way to find out
+  // whether an id exists on somebody else's ledger.
+  const owned = (await db
+    .prepare("SELECT COUNT(*) AS n FROM transactions WHERE user_id = ? AND id IN (?, ?)")
+    .get(req.user!.id, key[0], key[1])) as unknown as { n: number | string };
+  if (Number(owned?.n ?? 0) !== 2) {
+    res.status(404).json({ error: "transaction not found" });
+    return;
+  }
+
+  await db
+    .prepare(
+      `INSERT INTO duplicate_dismissals (user_id, a_id, b_id) VALUES (?, ?, ?)
+       ON CONFLICT (user_id, a_id, b_id) DO NOTHING`
+    )
+    .run(req.user!.id, key[0], key[1]);
+
+  res.status(204).send();
+});
+
 // Defaults to reviewed transactions only (reviewed_at IS NOT NULL) — every
 // aggregate in the app (Dashboard, Analytics, manual-account balances) reads
 // from this endpoint, so this is what keeps pending transactions out of
@@ -450,6 +498,12 @@ transactionsRouter.delete("/:id", async (req, res) => {
   }
 
   await db.prepare("DELETE FROM transactions WHERE id = ? AND user_id = ?").run(req.params.id, req.user!.id);
+  // A judgement about a row that no longer exists is dead weight, and the
+  // table would otherwise grow by one every time somebody cleared a duplicate
+  // they had first decided to keep.
+  await db
+    .prepare("DELETE FROM duplicate_dismissals WHERE user_id = ? AND (a_id = ? OR b_id = ?)")
+    .run(req.user!.id, req.params.id, req.params.id);
   res.status(204).send();
 });
 

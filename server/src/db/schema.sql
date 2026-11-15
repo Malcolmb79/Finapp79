@@ -422,6 +422,26 @@ CREATE INDEX IF NOT EXISTS idx_policy_valuations_policy ON policy_valuations (po
 -- A savings goal with manually-tracked progress (not linked to a specific
 -- account balance, since a goal like "vacation fund" is often notional
 -- rather than a literal separate account).
+-- A pair of transactions somebody has looked at and said are two payments,
+-- not one stored twice.
+--
+-- Without this the duplicate screen is a treadmill: the same pair is flagged,
+-- judged, and flagged again on the next visit, because the thing that makes
+-- them look alike - one account, one day, one amount - never changes. Two
+-- coffees at the same price stay two coffees forever.
+--
+-- Keyed on the pair rather than on either row, and ordered so that the same
+-- two ids always produce the same key whichever way round they arrive.
+CREATE TABLE IF NOT EXISTS duplicate_dismissals (
+  user_id TEXT REFERENCES users(id),
+  a_id TEXT NOT NULL,
+  b_id TEXT NOT NULL,
+  dismissed_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_duplicate_dismissals_pair
+  ON duplicate_dismissals (user_id, a_id, b_id);
+
 CREATE TABLE IF NOT EXISTS savings_goals (
   id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   user_id TEXT REFERENCES users(id),
