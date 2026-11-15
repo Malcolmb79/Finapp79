@@ -629,91 +629,104 @@ export default function Accounts() {
                       </div>
                     )}
                   </div>
-                  {/* Two uploads that read the same file completely
-                      differently, so they are labelled rather than left as
-                      neighbouring icons — picking the wrong one silently gives
-                      you the wrong reader. Both are offered on every account:
-                      a credit card has an agreement too, and an account whose
-                      type hasn't been set yet still has one. */}
-                  <button
-                    onClick={() => startUpload(a)}
-                    title="Import transactions from a statement"
-                    aria-label={`Upload a statement for ${a.name}`}
-                    style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.75rem", whiteSpace: "nowrap" }}
-                  >
-                    <Upload size={13} color="var(--text-muted)" />
-                    Statement
-                  </button>
-                  <button
-                    onClick={() => startContractUpload(a)}
-                    disabled={readingContract === a.id}
-                    title="Read the terms from a loan or credit agreement"
-                    aria-label={`Upload the agreement for ${a.name}`}
-                    style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.75rem", whiteSpace: "nowrap" }}
-                  >
-                    {readingContract === a.id ? (
-                      <Loader2 size={13} className="spin" />
-                    ) : (
-                      <FileText size={13} color="var(--text-muted)" />
-                    )}
-                    {readingContract === a.id ? "Reading…" : "Agreement"}
-                  </button>
-                  {clearingId === a.id ? (
-                    <div style={{ display: "flex", gap: "0.3rem", alignItems: "center", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: "0.78rem", color: "var(--critical)", whiteSpace: "nowrap" }}>Clear:</span>
-                      <button onClick={() => handleClear(a, "csv")} disabled={clearing} style={{ fontSize: "0.78rem" }}>
-                        Imported only
-                      </button>
-                      <button
-                        onClick={() => handleClear(a)}
-                        disabled={clearing}
-                        style={{ fontSize: "0.78rem", color: "var(--critical)" }}
-                      >
-                        Everything
-                      </button>
-                      <button onClick={() => setClearingId(null)} disabled={clearing} aria-label="Cancel clear" title="Cancel">
-                        <X size={14} />
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setClearingId(a.id)}
-                      title="Clear transactions (keeps the account)"
-                      aria-label={`Clear transactions for ${a.name}`}
-                    >
-                      <Eraser size={14} color="var(--text-muted)" />
-                    </button>
-                  )}
-                  {a.source === "enablebanking" && (
+                  {/* An account kept out of the totals keeps only the two
+                      controls that apply to it: put it back, or remove it.
+                      Everything else here - import a statement, read an
+                      agreement, sync, re-fetch, review imports - is for an
+                      account somebody is actually using, and leaving the full
+                      set on a row that has been switched off made hiding feel
+                      like it had not worked. The row itself stays, because a
+                      hidden account that disappeared could never be found
+                      again to unhide. */}
+                  {!a.hidden && (
                     <>
-                      <button onClick={() => handleSync(a.id)} disabled={syncingId === a.id} title="Sync transactions" aria-label="Sync">
-                        <RefreshCw size={14} className={syncingId === a.id ? "spin" : undefined} />
-                      </button>
-                      {/* The ordinary sync starts from the newest transaction
-                          held, which keeps it quick and is what gets a stuck
-                          account moving — but it never fills a gap behind
-                          that point, and a run of failed syncs leaves exactly
-                          such a gap. This re-asks for everything the bank
-                          still offers, which for most is about 90 days. */}
+                    {/* Two uploads that read the same file completely
+                        differently, so they are labelled rather than left as
+                        neighbouring icons — picking the wrong one silently gives
+                        you the wrong reader. Both are offered on every account:
+                        a credit card has an agreement too, and an account whose
+                        type hasn't been set yet still has one. */}
+                    <button
+                      onClick={() => startUpload(a)}
+                      title="Import transactions from a statement"
+                      aria-label={`Upload a statement for ${a.name}`}
+                      style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.75rem", whiteSpace: "nowrap" }}
+                    >
+                      <Upload size={13} color="var(--text-muted)" />
+                      Statement
+                    </button>
+                    <button
+                      onClick={() => startContractUpload(a)}
+                      disabled={readingContract === a.id}
+                      title="Read the terms from a loan or credit agreement"
+                      aria-label={`Upload the agreement for ${a.name}`}
+                      style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.75rem", whiteSpace: "nowrap" }}
+                    >
+                      {readingContract === a.id ? (
+                        <Loader2 size={13} className="spin" />
+                      ) : (
+                        <FileText size={13} color="var(--text-muted)" />
+                      )}
+                      {readingContract === a.id ? "Reading…" : "Agreement"}
+                    </button>
+                    {clearingId === a.id ? (
+                      <div style={{ display: "flex", gap: "0.3rem", alignItems: "center", flexWrap: "wrap" }}>
+                        <span style={{ fontSize: "0.78rem", color: "var(--critical)", whiteSpace: "nowrap" }}>Clear:</span>
+                        <button onClick={() => handleClear(a, "csv")} disabled={clearing} style={{ fontSize: "0.78rem" }}>
+                          Imported only
+                        </button>
+                        <button
+                          onClick={() => handleClear(a)}
+                          disabled={clearing}
+                          style={{ fontSize: "0.78rem", color: "var(--critical)" }}
+                        >
+                          Everything
+                        </button>
+                        <button onClick={() => setClearingId(null)} disabled={clearing} aria-label="Cancel clear" title="Cancel">
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
                       <button
-                        onClick={() => handleSync(a.id, true)}
-                        disabled={syncingId === a.id}
-                        title="Re-fetch everything the bank still has, to fill a gap"
-                        aria-label={`Fetch full history for ${a.name}`}
-                        style={{ fontSize: "0.75rem", whiteSpace: "nowrap" }}
+                        onClick={() => setClearingId(a.id)}
+                        title="Clear transactions (keeps the account)"
+                        aria-label={`Clear transactions for ${a.name}`}
                       >
-                        Full history
+                        <Eraser size={14} color="var(--text-muted)" />
                       </button>
+                    )}
+                    {a.source === "enablebanking" && (
+                      <>
+                        <button onClick={() => handleSync(a.id)} disabled={syncingId === a.id} title="Sync transactions" aria-label="Sync">
+                          <RefreshCw size={14} className={syncingId === a.id ? "spin" : undefined} />
+                        </button>
+                        {/* The ordinary sync starts from the newest transaction
+                            held, which keeps it quick and is what gets a stuck
+                            account moving — but it never fills a gap behind
+                            that point, and a run of failed syncs leaves exactly
+                            such a gap. This re-asks for everything the bank
+                            still offers, which for most is about 90 days. */}
+                        <button
+                          onClick={() => handleSync(a.id, true)}
+                          disabled={syncingId === a.id}
+                          title="Re-fetch everything the bank still has, to fill a gap"
+                          aria-label={`Fetch full history for ${a.name}`}
+                          style={{ fontSize: "0.75rem", whiteSpace: "nowrap" }}
+                        >
+                          Full history
+                        </button>
+                      </>
+                    )}
+                    <button
+                      onClick={() => showImports(a)}
+                      title="See and undo individual statement imports"
+                      aria-label={`Import history for ${a.name}`}
+                      aria-expanded={importsFor === a.id}
+                    >
+                      <History size={14} color="var(--text-muted)" />
+                    </button>
                     </>
                   )}
-                  <button
-                    onClick={() => showImports(a)}
-                    title="See and undo individual statement imports"
-                    aria-label={`Import history for ${a.name}`}
-                    aria-expanded={importsFor === a.id}
-                  >
-                    <History size={14} color="var(--text-muted)" />
-                  </button>
                   {/* Sits beside Remove because it is the gentler version of
                       it: an account you don't want in your totals stops
                       counting, keeps its history, and can come back. This page
