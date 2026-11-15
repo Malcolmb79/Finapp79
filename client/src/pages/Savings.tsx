@@ -15,7 +15,17 @@ function monthName(month: string): string {
   return ["January","February","March","April","May","June","July","August","September","October","November","December"][+m - 1] + " " + year;
 }
 
-function ForecastLine({ forecast, currency }: { forecast: GoalForecast; currency: string }) {
+function ForecastLine({
+  forecast,
+  currency,
+  requiredPerMonth,
+  targetDate,
+}: {
+  forecast: GoalForecast;
+  currency: string;
+  requiredPerMonth?: number | null;
+  targetDate?: string | null;
+}) {
   if (forecast.months === null) {
     return <span style={{ color: "var(--warning)" }}>{forecast.reason}</span>;
   }
@@ -37,6 +47,14 @@ function ForecastLine({ forecast, currency }: { forecast: GoalForecast; currency
           Clearing {next.name} takes it to {money(next.savingAfter)} a month.
         </span>
       )}
+      {/* The chosen date, costed. Two numbers that disagree are a decision
+          rather than a contradiction: move the date, or find the difference. */}
+      {requiredPerMonth != null && targetDate && (
+        <span>
+          {" "}
+          To hit {targetDate} instead you would need <strong>{money(requiredPerMonth)}</strong> a month.
+        </span>
+      )}
       {/* Said plainly, because a date that depends on months where nothing
           goes in is a different promise from one that does not. */}
       {forecast.deficitMonths > 0 && (
@@ -53,11 +71,13 @@ function ForecastLine({ forecast, currency }: { forecast: GoalForecast; currency
 function GoalRow({
   goal,
   forecast,
+  requiredPerMonth,
   currency,
   onChanged,
 }: {
   goal: SavingsGoal;
   forecast?: GoalForecast;
+  requiredPerMonth?: number | null;
   currency: string;
   onChanged: () => void;
 }) {
@@ -95,7 +115,12 @@ function GoalRow({
       </div>
       {forecast && (
         <p style={{ fontSize: "0.76rem", margin: "0.4rem 0 0", lineHeight: 1.45 }}>
-          <ForecastLine forecast={forecast} currency={currency} />
+          <ForecastLine
+            forecast={forecast}
+            currency={currency}
+            requiredPerMonth={requiredPerMonth}
+            targetDate={goal.target_date}
+          />
         </p>
       )}
       <form onSubmit={handleContribute} style={{ display: "flex", gap: "0.4rem", marginTop: "0.5rem" }}>
@@ -121,6 +146,7 @@ export default function Savings() {
   // The forecast comes from the plan, where the surplus and the debts already
   // are, rather than being worked out a second time here and disagreeing.
   const [forecasts, setForecasts] = useState<Map<number, GoalForecast>>(new Map());
+  const [required, setRequired] = useState<Map<number, number | null>>(new Map());
   const [currency, setCurrency] = useState("EUR");
   const [name, setName] = useState("");
   const [target, setTarget] = useState("");
@@ -133,6 +159,7 @@ export default function Savings() {
       .then((plan) => {
         setCurrency(plan.currency);
         setForecasts(new Map(plan.goals.map((g) => [g.id, g.forecast])));
+        setRequired(new Map(plan.goals.map((g) => [g.id, g.requiredPerMonth])));
       })
       // A goal still shows and still takes contributions without a projection
       // beside it; only the line is missing.
@@ -183,7 +210,7 @@ export default function Savings() {
         ) : (
           <>
             {goals.map((g) => (
-              <GoalRow key={g.id} goal={g} forecast={forecasts.get(g.id)} currency={currency} onChanged={refresh} />
+              <GoalRow key={g.id} goal={g} forecast={forecasts.get(g.id)} requiredPerMonth={required.get(g.id)} currency={currency} onChanged={refresh} />
             ))}
           </>
         ),

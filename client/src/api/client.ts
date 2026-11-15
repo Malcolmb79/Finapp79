@@ -398,6 +398,8 @@ export interface MonthlyPlanData {
     remaining: number;
     /** When it lands at the rate money is actually being set aside. */
     forecast: GoalForecast;
+    /** What the chosen date would need each month, or null without one. */
+    requiredPerMonth: number | null;
   }[];
   dropped: string[];
 }

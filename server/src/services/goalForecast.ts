@@ -143,3 +143,34 @@ export function forecastGoal(input: GoalForecastInput, now = new Date()): GoalFo
 
   return { months: null, reachedIn: null, effectiveTarget, potByMonth, deficitMonths, milestones, reason };
 }
+
+/**
+ * Whole months between now and a chosen date.
+ *
+ * Null once the date is this month or behind, because there is no runway left
+ * to spread anything across and dividing by what remains of it produces a
+ * figure nobody can act on.
+ */
+export function monthsUntil(targetDate: string, now = new Date()): number | null {
+  const target = new Date(`${targetDate.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(target.getTime())) return null;
+  const months =
+    (target.getUTCFullYear() - now.getUTCFullYear()) * 12 + (target.getUTCMonth() - now.getUTCMonth());
+  return months > 0 ? months : null;
+}
+
+/**
+ * What would have to go in each month to land on the date somebody chose.
+ *
+ * The forecast says when a goal arrives at the rate money is actually being
+ * set aside. This says what the chosen date would cost. Neither is useful
+ * alone: a date with nothing behind it is a wish, and a projection with no
+ * target to miss is just a number going up. Together they are a question with
+ * an answer - keep the date and find this much, or keep the saving and move
+ * the date.
+ */
+export function requiredMonthlySaving(remaining: number, targetDate: string, now = new Date()): number | null {
+  const months = monthsUntil(targetDate, now);
+  if (months === null || remaining <= 0) return null;
+  return Math.round((remaining / months) * 100) / 100;
+}

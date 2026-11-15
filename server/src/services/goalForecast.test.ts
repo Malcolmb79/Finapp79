@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { forecastGoal } from "./goalForecast.js";
+import { forecastGoal, monthsUntil, requiredMonthlySaving } from "./goalForecast.js";
 
 /**
  * This date is one somebody plans a move around. Wrong in the optimistic
@@ -155,5 +155,49 @@ describe("forecastGoal", () => {
     expect(f.potByMonth[0]).toBe(500);
     expect(f.potByMonth[1]).toBe(1500);
     expect(f.months).toBe(3);
+  });
+});
+
+/**
+ * The other half of the question. The forecast says when the money arrives at
+ * the current rate; this says what the chosen date would cost. Shown together
+ * they are a decision - move the date or find the difference - and apart they
+ * are a wish and a number going up.
+ */
+describe("requiredMonthlySaving", () => {
+  it("spreads what is left across the months remaining", () => {
+    expect(requiredMonthlySaving(12000, "2027-11-30", NOW)).toBe(1000);
+  });
+
+  it("rounds to the cent rather than to something tidy", () => {
+    expect(requiredMonthlySaving(10000, "2027-11-30", NOW)).toBe(833.33);
+  });
+
+  // A date this month or behind has no runway to spread anything across, and
+  // dividing by what is left of it gives a figure nobody can act on.
+  it("says nothing about a date that has arrived or passed", () => {
+    expect(requiredMonthlySaving(12000, "2026-11-30", NOW)).toBeNull();
+    expect(requiredMonthlySaving(12000, "2025-01-01", NOW)).toBeNull();
+  });
+
+  it("says nothing when there is nothing left to save", () => {
+    expect(requiredMonthlySaving(0, "2027-11-30", NOW)).toBeNull();
+    expect(requiredMonthlySaving(-500, "2027-11-30", NOW)).toBeNull();
+  });
+
+  it("says nothing about a date it cannot read", () => {
+    expect(requiredMonthlySaving(12000, "not a date", NOW)).toBeNull();
+  });
+});
+
+describe("monthsUntil", () => {
+  it("counts whole months to the target", () => {
+    expect(monthsUntil("2027-11-30", NOW)).toBe(12);
+    expect(monthsUntil("2026-12-01", NOW)).toBe(1);
+  });
+
+  it("is null for this month and anything before it", () => {
+    expect(monthsUntil("2026-11-30", NOW)).toBeNull();
+    expect(monthsUntil("2026-10-01", NOW)).toBeNull();
   });
 });

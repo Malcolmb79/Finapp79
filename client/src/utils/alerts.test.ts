@@ -47,8 +47,21 @@ describe("deriveAlerts", () => {
     expect(near[0].detail).toContain("€30.00 left");
   });
 
-  it("leaves a budget alone until it is nearly spent", () => {
-    expect(deriveAlerts({ ...base, budgets: [budget({ spent: 359 })] }, FROM)).toEqual([]);
+  /**
+   * The rule this replaced was "quiet until ninety per cent", which is
+   * accurate and too late: by then the month cannot be spent differently.
+   */
+  it("speaks before the limit is reached when the pace points well past it", () => {
+    const hot = deriveAlerts({ ...base, budgets: [budget({ spent: 359 })] }, FROM);
+    expect(hot[0].severity).toBe("warning");
+    expect(hot[0].title).toContain("running hot");
+    expect(hot[0].detail).toContain("by month end");
+  });
+
+  // A category tracking inside its limit is the ordinary state of a budget,
+  // and a warning for it would fire on most categories most months.
+  it("stays quiet when the pace lands inside the limit", () => {
+    expect(deriveAlerts({ ...base, budgets: [budget({ spent: 120 })] }, FROM)).toEqual([]);
   });
 
   // Division by a zero limit would otherwise produce Infinity and fire

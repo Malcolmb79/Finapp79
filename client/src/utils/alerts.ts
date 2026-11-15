@@ -1,4 +1,5 @@
 import type { Account, Budget } from "../api/client.js";
+import { budgetPace } from "./budgetPace.js";
 import { bankAccess } from "./bankAccess.js";
 import type { Forecast, UpcomingBill } from "./forecast.js";
 
@@ -82,13 +83,34 @@ export function deriveAlerts(
         detail: `${money(budget.spent)} of ${money(budget.monthly_limit)} this month`,
         href: `/transactions?category=${budget.category_id}&from=${from.slice(0, 7)}-01`,
       });
-    } else if (ratio >= BUDGET_WARN_AT) {
+      continue;
+    }
+
+    if (ratio >= BUDGET_WARN_AT) {
       alerts.push({
         id: `budget:${budget.id}`,
         kind: "budget",
         severity: "warning",
         title: `${budget.category_name} is nearly spent`,
         detail: `${money(budget.spent)} of ${money(budget.monthly_limit)} — ${money(budget.monthly_limit - budget.spent)} left`,
+        href: `/transactions?category=${budget.category_id}&from=${from.slice(0, 7)}-01`,
+      });
+      continue;
+    }
+
+    // Only once neither of those applies. A budget at ninety per cent is a
+    // fact and this is a projection, and replacing the first with the second
+    // would trade certainty for arithmetic. What this catches is the month
+    // that is going wrong early, while there is still time to spend
+    // differently - which is the whole of its value.
+    const pace = budgetPace(budget.spent, budget.monthly_limit, new Date(from));
+    if (pace?.worthSaying) {
+      alerts.push({
+        id: `budget-pace:${budget.id}`,
+        kind: "budget",
+        severity: "warning",
+        title: `${budget.category_name} is running hot`,
+        detail: `${money(budget.spent)} so far — about ${money(pace.projected)} by month end, against ${money(budget.monthly_limit)}`,
         href: `/transactions?category=${budget.category_id}&from=${from.slice(0, 7)}-01`,
       });
     }

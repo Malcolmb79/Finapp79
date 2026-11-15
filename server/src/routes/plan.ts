@@ -4,7 +4,7 @@ import { requireAuth } from "../middleware/requireAuth.js";
 import { analyseSpending } from "../services/budgetPlanner.js";
 import { loadDebts } from "../services/debtAccounts.js";
 import { assumedMinimum, simulate } from "../services/debtStrategy.js";
-import { forecastGoal } from "../services/goalForecast.js";
+import { forecastGoal, requiredMonthlySaving } from "../services/goalForecast.js";
 import { loadRates } from "../services/exchangeRates.js";
 import { matchPremiums, type Chargeable, type PremiumPolicy } from "../services/policyPremiums.js";
 
@@ -211,6 +211,16 @@ planRouter.get("/", async (req, res) => {
          * nothing checking it against the money is a wish.
          */
         forecast: forecastGoal({ target: g.target_amount, current: g.current_amount, surplusNow: surplus, freed }),
+        /**
+         * What the chosen date would cost each month, where one was chosen.
+         *
+         * Beside the forecast this turns two numbers that disagree into a
+         * decision: keep the date and find the difference, or keep the saving
+         * and move the date.
+         */
+        requiredPerMonth: g.target_date
+          ? requiredMonthlySaving(Math.max(0, g.target_amount - g.current_amount), g.target_date)
+          : null,
       })),
       dropped,
     });
