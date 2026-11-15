@@ -180,6 +180,17 @@ export function exchangeCode(code: string): Promise<SessionResponse> {
   });
 }
 
+/**
+ * ISO 20022 entry statuses, as Enable Banking's `status` field reports them.
+ *
+ * BOOK is money that has moved. PDNG is the bank's expectation of it: the same
+ * payment, announced early, and announced again as BOOK once it settles - with
+ * its own reference, its own booking date, and often a description truncated
+ * differently. CNCL and RJCT are payments that did not happen; SCHD has not
+ * happened yet; HOLD is a reservation against the balance, not an entry.
+ */
+export type TransactionStatus = "BOOK" | "CNCL" | "HOLD" | "OTHR" | "PDNG" | "RJCT" | "SCHD";
+
 export interface RemoteTransaction {
   transaction_id?: string;
   entry_reference?: string;
@@ -189,6 +200,26 @@ export interface RemoteTransaction {
   remittance_information?: string[];
   creditor?: { name?: string };
   debtor?: { name?: string };
+  status?: TransactionStatus | string;
+}
+
+/**
+ * Whether an entry is money that actually moved, and so belongs in the ledger.
+ *
+ * OTHR is kept, deliberately, though it means "status unknown". The two ways
+ * to be wrong here are not equal: keeping an entry that turns out to be
+ * pending shows a payment a day early and may need a duplicate cleared, while
+ * dropping one wrongly loses a real transaction silently, and a bank that
+ * labels everything OTHR would have its account quietly stop updating. So
+ * only the statuses that definitely are not settled money are dropped.
+ *
+ * A missing status is kept for the same reason: the field is required by the
+ * schema, but a bank that omits it should not lose its transactions over it.
+ */
+export function isSettled(status: string | null | undefined): boolean {
+  if (!status) return true;
+  const code = status.trim().toUpperCase();
+  return code !== "PDNG" && code !== "CNCL" && code !== "RJCT" && code !== "SCHD" && code !== "HOLD";
 }
 
 /** The furthest back a bank will answer for, and the default window. */

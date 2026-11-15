@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Transaction } from "../api/client.js";
-import { duplicateCount, findDuplicates } from "./findDuplicates.js";
+import { duplicateCount, findDuplicates, isTruncationOf } from "./findDuplicates.js";
 
 /**
  * This offers to delete somebody's transactions, so the failure that matters
@@ -98,5 +98,85 @@ describe("findDuplicates", () => {
   it("is stable when nothing records when a row arrived", () => {
     const groups = findDuplicates([tx({ id: "bbb", created_at: undefined }), tx({ id: "aaa", created_at: undefined })]);
     expect(groups[0].original.id).toBe("aaa");
+  });
+});
+
+/**
+ * The pending copy and the booked copy of one payment. The bank announces it,
+ * then records it: a day apart, and described by two pipelines that cut the
+ * string at different lengths. Every one of these slipped through while the
+ * rule asked for the same calendar day.
+ */
+describe("a payment booked twice, days apart", () => {
+  const pending = tx({ booking_date: "2026-11-11", description: "help.hbomax.com", amount: -15.99, created_at: "2026-11-11T02:00:00Z" });
+  const booked = tx({ booking_date: "2026-11-12", description: "help.hbomax.co", amount: -15.99, created_at: "2026-11-12T02:00:00Z" });
+
+  it("pairs them, and keeps the one that arrived first", () => {
+    const groups = findDuplicates([pending, booked]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].original.id).toBe(pending.id);
+    expect(groups[0].copies).toHaveLength(1);
+    expect(groups[0].kind).toBe("days-apart");
+  });
+
+  // The whole reason the rule can afford to look across days. Two identical
+  // descriptions are two purchases; a string cut at two lengths is one.
+  it("leaves two identical descriptions days apart alone", () => {
+    const groups = findDuplicates([
+      tx({ booking_date: "2026-11-11", description: "Example Cafe" }),
+      tx({ booking_date: "2026-11-12", description: "Example Cafe" }),
+    ]);
+    expect(groups).toHaveLength(0);
+  });
+
+  it("will not reach across a long gap", () => {
+    const groups = findDuplicates([
+      tx({ booking_date: "2026-11-01", description: "help.hbomax.com", amount: -15.99 }),
+      tx({ booking_date: "2026-11-20", description: "help.hbomax.co", amount: -15.99 }),
+    ]);
+    expect(groups).toHaveLength(0);
+  });
+
+  it("still separates different accounts and different amounts", () => {
+    expect(
+      findDuplicates([
+        tx({ booking_date: "2026-11-11", description: "help.hbomax.com", amount: -15.99 }),
+        tx({ booking_date: "2026-11-12", description: "help.hbomax.co", amount: -15.99, account_id: "a2" }),
+      ])
+    ).toHaveLength(0);
+    expect(
+      findDuplicates([
+        tx({ booking_date: "2026-11-11", description: "help.hbomax.com", amount: -15.99 }),
+        tx({ booking_date: "2026-11-12", description: "help.hbomax.co", amount: -16.99 }),
+      ])
+    ).toHaveLength(0);
+  });
+
+  it("counts the copies it would remove", () => {
+    expect(duplicateCount(findDuplicates([pending, booked]))).toBe(1);
+  });
+});
+
+describe("isTruncationOf", () => {
+  it("sees a string cut short", () => {
+    expect(isTruncationOf("help.hbomax.com", "help.hbomax.co")).toBe(true);
+    expect(isTruncationOf("help.hbomax.co", "help.hbomax.com")).toBe(true);
+  });
+
+  // Identical is two purchases, not one payment described twice.
+  it("is false for identical strings", () => {
+    expect(isTruncationOf("Example Cafe", "Example Cafe")).toBe(false);
+    expect(isTruncationOf("EXAMPLE CAFE", "example cafe")).toBe(false);
+  });
+
+  // A short prefix matches half the ledger.
+  it("refuses a prefix too short to identify anything", () => {
+    expect(isTruncationOf("Tes", "Tesco Stores Dublin")).toBe(false);
+    expect(isTruncationOf("", "anything")).toBe(false);
+    expect(isTruncationOf(null, "anything")).toBe(false);
+  });
+
+  it("is false when neither is a prefix of the other", () => {
+    expect(isTruncationOf("Example Cafe", "Example Bakery")).toBe(false);
   });
 });

@@ -50,6 +50,8 @@ export interface SyncResult {
   totalFetched: number;
   /** Set when the bank failed partway and this is only some of it. */
   incomplete?: string;
+  /** Entries the bank had not settled, skipped rather than stored. */
+  unsettled?: number;
 }
 
 const BOOKED_BALANCE_TYPES = ["CLBD", "XPCD", "ITBD", "PRCD", "OTHR"];
@@ -111,6 +113,7 @@ export async function syncAccount(
   const transactions = page.transactions as unknown as RemoteTransaction[];
 
   let synced = 0;
+  let unsettled = 0;
   await withTransaction(async (tx) => {
     const insert = tx.prepare(
       `INSERT INTO transactions (id, user_id, account_id, booking_date, amount, currency, description, counterparty, source)
@@ -118,6 +121,15 @@ export async function syncAccount(
        ON CONFLICT (id) DO NOTHING`
     );
     for (const t of transactions) {
+      // A pending entry is the same payment the bank will send again as
+      // booked, carrying a different reference and often a different date, so
+      // it passes the id-based dedupe and lands twice. Skipped here rather
+      // than cleaned up afterwards: the second copy is indistinguishable from
+      // a real repeat purchase once both are in the ledger.
+      if (!enableBanking.isSettled(t.status)) {
+        unsettled++;
+        continue;
+      }
       const result = await insert.run(
         helpers.transactionId(accountId, t),
         userId,
@@ -171,7 +183,7 @@ export async function syncAccount(
     console.error(`Failed to sync overdraft limit for account ${accountId}:`, err);
   }
 
-  return { synced, totalFetched: transactions.length, incomplete: page.incomplete };
+  return { synced, unsettled, totalFetched: transactions.length, incomplete: page.incomplete };
 }
 
 /**
