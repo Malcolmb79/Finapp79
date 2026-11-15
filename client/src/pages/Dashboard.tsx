@@ -342,7 +342,13 @@ export default function Dashboard() {
   // detected: the projection otherwise needs three matching credits before it
   // believes in a salary, so a new job, a changed employer or pay from more
   // than one place leaves a line that only ever falls.
-  const incomeCategories = new Set(categories.filter((c) => c.counts_as_income).map((c) => c.id));
+  //
+  // Occasional income is excluded here and nowhere else. A tax refund is
+  // income and every total says so, but a projection that repeats it monthly
+  // is drawing a line through money that is not coming.
+  const incomeCategories = new Set(
+    categories.filter((c) => c.counts_as_income && !c.income_is_occasional).map((c) => c.id)
+  );
   const forecast = forecastBalance(convertedTx, spendableTotal, {
     from: forecastFrom,
     days: FORECAST_DAYS,

@@ -80,11 +80,39 @@ export default function CategoryManager({ categories, onCreated }: { categories:
    * employer, or is paid from more than one place gets a line that only ever
    * falls, and no way to say otherwise. This is the way to say it.
    */
+  /**
+   * What a category is to the forecast, as one of three states.
+   *
+   * One control rather than two checkboxes, because the three states are a
+   * single question - what kind of money is this - and two tickboxes would
+   * also offer "occasional, but not income", which means nothing.
+   */
+  const incomeState = (c: Category): "none" | "regular" | "occasional" =>
+    !c.counts_as_income ? "none" : c.income_is_occasional ? "occasional" : "regular";
+
+  const NEXT = {
+    none: {
+      patch: { counts_as_income: true },
+      label: "Mark as income",
+      title: "Treat money filed here as regular income, so the balance projection counts on it",
+    },
+    regular: {
+      patch: { income_is_occasional: true },
+      label: "Make occasional",
+      title: "Income that turns up on no schedule, like a tax refund or a bonus. Counted in every total, and kept out of the balance projection so it is not drawn forward as a monthly payment",
+    },
+    occasional: {
+      patch: { counts_as_income: false },
+      label: "Unset",
+      title: "Stop treating money filed here as income",
+    },
+  } as const;
+
   async function toggleIncome(category: Category) {
     setMarking(category.id);
     setStatus(null);
     try {
-      await api.updateCategory(category.id, { counts_as_income: !category.counts_as_income });
+      await api.updateCategory(category.id, NEXT[incomeState(category)].patch);
       onCreated();
     } catch (err) {
       setStatus(errorMessage(err, "Couldn't change that category."));
@@ -194,21 +222,28 @@ export default function CategoryManager({ categories, onCreated }: { categories:
                 <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {category.name}
                 </span>
-                {category.counts_as_income && (
-                  <span style={{ fontSize: "0.68rem", color: "var(--good)", whiteSpace: "nowrap" }}>regular income</span>
+                {incomeState(category) !== "none" && (
+                  <span
+                    style={{
+                      fontSize: "0.68rem",
+                      whiteSpace: "nowrap",
+                      // Occasional income is real income, so it is not greyed
+                      // out - but it is not something to plan around either,
+                      // and the warmer colour says which of the two it is.
+                      color: incomeState(category) === "occasional" ? "var(--warning)" : "var(--good)",
+                    }}
+                  >
+                    {incomeState(category) === "occasional" ? "occasional income" : "regular income"}
+                  </span>
                 )}
                 <button
                   type="button"
                   onClick={() => toggleIncome(category)}
                   disabled={marking === category.id}
-                  title={
-                    category.counts_as_income
-                      ? "Stop treating money filed here as regular income"
-                      : "Treat money filed here as regular income, so the balance projection counts on it"
-                  }
+                  title={NEXT[incomeState(category)].title}
                   style={{ fontSize: "0.7rem", padding: "0.15rem 0.4rem", background: "transparent", whiteSpace: "nowrap" }}
                 >
-                  {marking === category.id ? <Loader2 size={11} className="spin" /> : category.counts_as_income ? "Unset" : "Mark as income"}
+                  {marking === category.id ? <Loader2 size={11} className="spin" /> : NEXT[incomeState(category)].label}
                 </button>
               </div>
             ))}

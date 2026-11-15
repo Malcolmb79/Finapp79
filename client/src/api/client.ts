@@ -330,6 +330,14 @@ export interface Category {
   parent_id: number | null;
   /** Money filed here is regular income the balance projection can count on. */
   counts_as_income?: boolean;
+  /**
+   * Income that arrives on no schedule - a refund, a bonus, something sold.
+   *
+   * Counted in every total like any other income, and deliberately left out of
+   * the balance projection: drawn forward it becomes a monthly payment the
+   * household never receives.
+   */
+  income_is_occasional?: boolean;
 }
 
 export interface BudgetProposal {
@@ -782,7 +790,7 @@ export const api = {
   /** A starter set for an account with no categories. Writes nothing. */
   starterCategories: () => request<{ suggestions: string[]; hasAny: boolean }>("/categories/starter"),
   /** Today only the income flag; see server/src/routes/categories.ts. */
-  updateCategory: (id: number, patch: { counts_as_income: boolean }) =>
+  updateCategory: (id: number, patch: { counts_as_income?: boolean; income_is_occasional?: boolean }) =>
     request<Category>(`/categories/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
 
   createCategory: (name: string, parentId?: number | null) =>

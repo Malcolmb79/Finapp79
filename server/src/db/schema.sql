@@ -216,6 +216,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_user_name ON categories (user_i
 -- and it stays right when the employer, amount or pay date changes.
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS counts_as_income BOOLEAN NOT NULL DEFAULT FALSE;
 
+-- Whether that income arrives on no schedule at all: a tax refund, a bonus,
+-- something sold.
+--
+-- It is income and every total should say so, but the forecast must not draw
+-- it forward. A refund marked as regular income is a line that climbs by the
+-- refund every month from now on, which is money the household does not have
+-- and would plan against. Dropping such a payment from income entirely has
+-- the opposite fault: the month it lands reads as a windfall nobody can
+-- explain, and the savings rate for the year is wrong.
+--
+-- So it is a second flag rather than a third value of the first: occasional
+-- income is still income, and only the projection treats it differently.
+-- Meaningful only where counts_as_income is set, and cleared with it.
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS income_is_occasional BOOLEAN NOT NULL DEFAULT FALSE;
+
 CREATE TABLE IF NOT EXISTS transactions (
   id TEXT PRIMARY KEY,              -- Enable Banking transaction_id/entry_reference, csv-import-derived hash, or generated uuid
   user_id TEXT REFERENCES users(id),
