@@ -1,5 +1,6 @@
-import { Pencil, Plus, Sparkles, Target, Wallet } from "lucide-react";
+import { Pencil, Plus, Scale, Sparkles, Target, Wallet } from "lucide-react";
 import BudgetAdviser from "../components/BudgetAdviser.js";
+import LimitReality from "../components/LimitReality.js";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import EnvelopeBudget from "../components/EnvelopeBudget.js";
@@ -122,6 +123,29 @@ export default function Budgets() {
       defaultWidth: 672,
       defaultHeight: 460,
       render: () => <BudgetAdviser onApplied={refresh} />,
+    },
+    {
+      /**
+       * Deliberately above "Set a budget" and below the envelopes: the
+       * question "is this cap still the right number" has to be asked before
+       * the answer to "how is this month going" means anything, and a limit
+       * nobody believes makes every figure built on it fiction too.
+       */
+      id: "limitReality",
+      title: "Limits vs reality",
+      icon: Scale,
+      accentVar: "--accent-4",
+      defaultWidth: 672,
+      defaultHeight: 520,
+      render: () => (
+        <LimitReality
+          budgets={budgets}
+          transactions={txInCurrency}
+          categories={categories}
+          currency={active}
+          onChanged={refresh}
+        />
+      ),
     },
     {
       id: "setBudget",
