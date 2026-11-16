@@ -483,6 +483,11 @@ function heuristicMapping(rows: string[][], preamble: string[][] = []): Statemen
     for (let i = 0; i < columnCount; i++) {
       if (i === dateColumn || numericColumns.includes(i)) continue;
       const cells = columnCells(i);
+      // A column saying the same thing on every row is a code — a currency,
+      // a channel, an account type — not a description. It wins on average
+      // width against a genuinely empty column and then names every
+      // transaction on the statement "ZAR", which is not naming them.
+      if (cells.length > 1 && new Set(cells).size === 1) continue;
       const averageLength = cells.length === 0 ? 0 : cells.reduce((sum, c) => sum + c.length, 0) / cells.length;
       if (averageLength > widest) {
         widest = averageLength;
@@ -654,6 +659,67 @@ function cell(row: string[], index: number | null): string {
   return index == null ? "" : row[index] ?? "";
 }
 
+/** The columns the mapping has already spoken for. */
+function mappedColumns(mapping: StatementMapping): Set<number> {
+  return new Set(
+    [
+      mapping.dateColumn,
+      mapping.amountColumn,
+      mapping.debitColumn,
+      mapping.creditColumn,
+      mapping.counterpartyColumn,
+      mapping.descriptionColumn,
+    ].filter((column): column is number => column != null)
+  );
+}
+
+/**
+ * Whether this cell could be the name of a transaction.
+ *
+ * Two consecutive letters, so a bare "Cr" marker or a reference of digits and
+ * single letters doesn't qualify; not a date; and not an amount, which is the
+ * one that matters — naming a row "12,381.04" off the balance column looks
+ * like a row that has been named, and is worse than one that plainly hasn't,
+ * because it stops announcing that anything is missing.
+ */
+export function looksLikeName(raw: string, decimalSeparator: "." | ","): boolean {
+  const value = raw.trim();
+  if (value.length < 3) return false;
+  if (!/\p{L}{2}/u.test(value)) return false;
+  // A bare ISO currency code is a column of its own on some exports, and
+  // naming every unnamed row "ZAR" is not naming them.
+  if (/^[A-Z]{3}$/.test(value)) return false;
+  if (hasDateShape(value)) return false;
+  return normaliseAmount(value, decimalSeparator) == null;
+}
+
+/**
+ * Text elsewhere on the line, for a row the description column leaves blank.
+ *
+ * A PDF has no columns — only text at coordinates — so a line whose
+ * description is indented differently from the rest (a fee prefixed with "#",
+ * a continuation, a sub-total) has its text assigned to a neighbouring column
+ * and arrives as a row with a correct date, a correct amount and no name at
+ * all. The text was never missing; it is one cell over.
+ *
+ * So rather than a second guess at the column, the row itself is asked. Only
+ * for rows that would otherwise be nameless, only from columns the mapping
+ * isn't already using, and only text that could be a name — the longest of
+ * them, since on a statement the longest run of words on a line is the
+ * description of what happened.
+ */
+export function strayName(row: string[], mapping: StatementMapping): string | null {
+  const taken = mappedColumns(mapping);
+  let best: string | null = null;
+  for (let index = 0; index < row.length; index++) {
+    if (taken.has(index)) continue;
+    const value = (row[index] ?? "").trim();
+    if (!looksLikeName(value, mapping.decimalSeparator)) continue;
+    if (!best || value.length > best.length) best = value;
+  }
+  return best;
+}
+
 // "559.40Cr" is money in; a bare "203.17" on the same statement is money out.
 function markerSign(raw: string): number {
   return /cr\.?$/i.test(raw.trim()) ? 1 : -1;
@@ -717,8 +783,24 @@ export function sectionSigns(rows: string[][], dateColumn: number | null): (1 | 
 }
 
 export function applyMapping(rows: string[][], mapping: StatementMapping): ParsedRow[] {
+  return applyMappingIndexed(rows, mapping).map((entry) => entry.parsed);
+}
+
+/**
+ * The same parse, keeping each row's line of the file beside it.
+ *
+ * Only wanted in one place — the preview, which shows the original line for a
+ * row it could not name, because "why has this come through blank?" has no
+ * answer that isn't the line itself. Kept as the primitive and `applyMapping`
+ * as the projection of it, rather than the other way round, so there is one
+ * implementation of the parse and not two that can drift.
+ */
+export function applyMappingIndexed(
+  rows: string[][],
+  mapping: StatementMapping
+): { line: string[]; parsed: ParsedRow }[] {
   const body = mapping.hasHeader ? rows.slice(1) : rows;
-  const parsed: ParsedRow[] = [];
+  const parsed: { line: string[]; parsed: ParsedRow }[] = [];
 
   // Only consulted where the amounts carry no sign of their own. A statement
   // that marks its figures has already said which way they run, and the
@@ -749,10 +831,17 @@ export function applyMapping(rows: string[][], mapping: StatementMapping): Parse
     // balance-carried-forward line, not a transaction.
     if (amount == null || !Number.isFinite(amount)) continue;
 
-    const description = cell(row, mapping.descriptionColumn).trim() || null;
     const counterparty = cell(row, mapping.counterpartyColumn).trim() || null;
+    // Falls back to text elsewhere on the line, which is where a PDF puts the
+    // description of a row indented differently from the rest. Only for rows
+    // that would otherwise arrive as "Transaction" and a date, and never over
+    // a description the column actually holds.
+    const description = cell(row, mapping.descriptionColumn).trim() || (counterparty ? null : strayName(row, mapping));
 
-    parsed.push({ date, amount: mapping.invertAmounts ? -amount : amount, description, counterparty });
+    parsed.push({
+      line: row,
+      parsed: { date, amount: mapping.invertAmounts ? -amount : amount, description, counterparty },
+    });
   }
 
   return parsed;

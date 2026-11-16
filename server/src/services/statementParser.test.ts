@@ -236,3 +236,57 @@ describe("description column", () => {
     expect(rows.map((r) => r.description)).toEqual(["SPAR", "SHELL"]);
   });
 });
+
+describe("a row the description column leaves blank", () => {
+  /**
+   * A PDF has no columns, only text at coordinates, so a line indented
+   * differently from the rest — a fee prefixed with "#", a sub-total — has
+   * its text assigned to a neighbouring column. The date and the amount are
+   * read correctly and the row arrives with no name at all. The text was
+   * never missing; it is one cell over.
+   */
+  it("takes the text from elsewhere on the line", async () => {
+    const rows = await parse(
+      [
+        "26/10/2026,Inward Swift R026J26Md0,30120.02,12381.04,",
+        "27/10/2026,,2.00,12379.04,Monthly Account Fee",
+        "30/10/2026,Int On Debit Balance,644.28,11734.76,",
+      ].join("\n")
+    );
+    expect(rows.map((r) => r.description)).toEqual([
+      "Inward Swift R026J26Md0",
+      "Monthly Account Fee",
+      "Int On Debit Balance",
+    ]);
+  });
+
+  /**
+   * Never the balance. A row named "12,381.04" reads as a row that has been
+   * identified, where one named "Transaction" at least says it has not — so
+   * the wrong name is worse than no name, and it stays nameless.
+   */
+  it("will not name a row after a number on it", async () => {
+    const rows = await parse(
+      ["Date,Description,Amount,Balance", "27/10/2026,,-2.00,12379.04", "30/10/2026,,-69.00,12310.04"].join("\n")
+    );
+    expect(rows.map((r) => r.description)).toEqual([null, null]);
+  });
+
+  // Nor a currency column, which would name every unnamed row the same thing
+  // and so name none of them.
+  it("will not name a row after a bare currency code", async () => {
+    const rows = await parse(
+      ["Date,Description,Amount,Currency", "27/10/2026,,-2.00,ZAR", "30/10/2026,,-69.00,ZAR"].join("\n")
+    );
+    expect(rows.map((r) => r.description)).toEqual([null, null]);
+  });
+
+  // A description the column does hold is never second-guessed: the fallback
+  // is for rows with nothing, not a competition for rows with something.
+  it("leaves a row that already has a description alone", async () => {
+    const rows = await parse(
+      ["Date,Description,Amount,Note", "27/10/2026,Pick n Pay,-125.00,Card purchase Durban"].join("\n")
+    );
+    expect(rows[0].description).toBe("Pick n Pay");
+  });
+});

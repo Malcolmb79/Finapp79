@@ -608,6 +608,45 @@ export default function StatementImportModal({
                           {row.date}
                           {row.counterparty && row.description ? ` · ${row.counterparty}` : ""}
                         </div>
+                        {/* What the file actually holds on this line, shown
+                            only where nothing could name the row. Either the
+                            text is sitting in a column the mapping isn't
+                            reading — in which case it is right here and the
+                            Description dropdown above fixes it — or the line
+                            really is a date and an amount, which is worth
+                            knowing too, because then no column will help and
+                            the name has to be typed. */}
+                        {preview.lines[i] && (
+                          <div
+                            style={{
+                              fontSize: "0.7rem",
+                              color: "var(--text-muted)",
+                              marginTop: "0.2rem",
+                              display: "flex",
+                              gap: "0.3rem",
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <span>On this line:</span>
+                            {preview.lines[i]!.every((c) => c === "") ? (
+                              <em>nothing but the date and the amount</em>
+                            ) : (
+                              preview.lines[i]!.map((value, column) => (
+                                <span
+                                  key={column}
+                                  style={{
+                                    padding: "0.02rem 0.25rem",
+                                    borderRadius: 3,
+                                    border: "1px solid var(--gridline)",
+                                    fontVariantNumeric: "tabular-nums",
+                                  }}
+                                >
+                                  {column + 1}. {value || "—"}
+                                </span>
+                              ))
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {isDuplicate(i) && (

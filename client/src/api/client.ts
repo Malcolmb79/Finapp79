@@ -315,6 +315,12 @@ export interface StatementPreview {
    * date — so it has to be raised here rather than discovered later.
    */
   unnamed: { count: number; betterColumn: number | null };
+  /**
+   * Aligned with `sample` by index: the file's own line for a row nothing
+   * could name, null for every row that has a name. "Why has this come
+   * through blank?" has no answer that isn't the line itself.
+   */
+  lines: (string[] | null)[];
   // The bank matched from the statement against Enable Banking's directory,
   // offered so the account can carry its real logo.
   detectedBank: { name: string; logo: string | null; country: string } | null;

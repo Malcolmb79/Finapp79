@@ -35,16 +35,37 @@ describe("isUnnamed", () => {
 
 describe("betterDescriptionColumn", () => {
   /**
-   * The shape that causes it: a "Reference" column the bank fills on one row
-   * in four, sitting beside the column that actually names every row. The
-   * header name wins — "reference" is one of the words a description column
-   * is recognised by — and the rows it leaves blank import nameless.
+   * The FNB case, and the reason this guard exists at all.
    *
-   * A column empty on *every* row is caught earlier, in the mapping itself
-   * (see statementParser.test.ts). This is the half-filled case, which no
-   * amount of looking at the header can settle.
+   * A statement whose rows the description column leaves blank, where the
+   * only other column is the running balance. Offering it reads as helpful
+   * and is the worst available outcome: every unnamed row becomes
+   * "12,381.04", which looks like a row that has been identified and no
+   * longer says that anything is missing. Nothing is the right answer.
    */
-  it("finds the column that names the rows the mapped one leaves blank", async () => {
+  it("refuses to offer a balance column", async () => {
+    const { table, mapping, rows } = await mapOf(
+      [
+        "Date,Reference,Amount,Balance",
+        "07/11/2026,,-125.00,12381.04",
+        "05/11/2026,,-114.62,12266.42",
+        "30/10/2026,,-69.00,12197.42",
+      ].join("\n")
+    );
+
+    const unnamed = rows.filter(isUnnamed).length;
+    expect(unnamed).toBe(3);
+    expect(betterDescriptionColumn(table, mapping, unnamed)).toBeNull();
+  });
+
+  /**
+   * A "Reference" column the bank fills on one row in four, sitting beside a
+   * column of text the mapping is not using. The row-level fallback in
+   * `applyMapping` reaches that text first, so there is nothing left for a
+   * column swap to improve — which is the point: a column swap moves every
+   * row, and the rows that already had a name did not need moving.
+   */
+  it("offers nothing once the rows have found their names on their own lines", async () => {
     const { table, mapping, rows } = await mapOf(
       [
         "Date,Reference,Detail,Amount",
@@ -55,18 +76,14 @@ describe("betterDescriptionColumn", () => {
       ].join("\n")
     );
 
-    const unnamed = rows.filter(isUnnamed).length;
-    expect(unnamed).toBe(3);
-
-    const better = betterDescriptionColumn(table, mapping, unnamed);
-    expect(better).not.toBeNull();
-    const fixed = applyMapping(table, { ...mapping, descriptionColumn: better });
-    expect(fixed.map((r) => r.description)).toEqual([
-      "Pick n Pay",
+    expect(rows.map((r) => r.description)).toEqual([
+      "REF88213",
       "Woolworths Food",
       "Uber Trip Johannesburg",
       "Bank Charge",
     ]);
+    expect(rows.filter(isUnnamed)).toHaveLength(0);
+    expect(betterDescriptionColumn(table, mapping, 0)).toBeNull();
   });
 
   // Nothing to suggest, and suggesting anyway would move a mapping that was

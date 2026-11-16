@@ -8,8 +8,10 @@ import { checkStatement, pairDuplicates, type ExistingTransaction } from "../ser
 import { extractPdfRows, looksLikePdf } from "../services/pdfStatement.js";
 import {
   applyMapping,
+  applyMappingIndexed,
   hasDateShape,
   inferMapping,
+  looksLikeName,
   parseDelimited,
   splitPreamble,
   type ParsedRow,
@@ -197,6 +199,16 @@ export function betterDescriptionColumn(
 
   for (let column = 0; column < width; column++) {
     if (taken.has(column)) continue;
+    // A balance column names every row and names none of them: "12,381.04" as
+    // a payee reads as a transaction that has been identified, where
+    // "Transaction" at least says it hasn't. So a candidate has to be text —
+    // measured over the column rather than assumed from its heading, since
+    // the heading is what was wrong in the first place.
+    const cells = table.map((row) => (row[column] ?? "").trim()).filter((value) => value !== "");
+    if (cells.length === 0) continue;
+    const names = cells.filter((value) => looksLikeName(value, mapping.decimalSeparator)).length;
+    if (names * 2 < cells.length) continue;
+
     const named = applyMapping(table, { ...mapping, descriptionColumn: column }).filter(isUnnamed).length;
     if (named < fewest) {
       fewest = named;
@@ -234,7 +246,8 @@ importStatementRouter.post("/preview", async (req, res) => {
 
   const { preamble, table } = splitPreamble(grid);
   const mapping = body.mapping ?? (await inferMapping(table, preamble));
-  const rows = applyMapping(table, mapping);
+  const entries = applyMappingIndexed(table, mapping);
+  const rows = entries.map((entry) => entry.parsed);
 
   // A statement that parses locally and returns nothing in production has no
   // other way of being diagnosed: the file can't be reproduced from an empty
@@ -299,6 +312,16 @@ importStatementRouter.post("/preview", async (req, res) => {
       count: rows.filter(isUnnamed).length,
       betterColumn: betterDescriptionColumn(table, mapping, rows.filter(isUnnamed).length),
     },
+    // The file's own line, for the rows nothing could name — and only those,
+    // aligned with `sample` by index the way `duplicates` is. "Why has this
+    // one come through blank?" has no answer that isn't the line itself:
+    // either the text is sitting in a column the mapping isn't reading, in
+    // which case it is right there to be seen and the column can be changed,
+    // or the line genuinely holds nothing but a date and an amount, which is
+    // equally worth knowing because no mapping will fix it.
+    lines: entries
+      .slice(0, PREVIEW_ROWS)
+      .map((entry) => (isUnnamed(entry.parsed) ? entry.line.map((c) => c.trim()) : null)),
     // Offered rather than applied: the user sees which bank was matched, with
     // its logo, and decides. A wrong logo is worse than no logo.
     detectedBank: await resolveBank(mapping.bankName, mapping.bankCountry),

@@ -237,13 +237,34 @@ query, or one user's data leaks into another's response.
   - `statementParser.ts` ignores a header-name hint for a column that is
     empty on **every** row. "Reference" is one of the words a description
     column is recognised by and is routinely the column a bank leaves blank
-    beside the one that names the transaction.
+    beside the one that names the transaction. It also skips a column whose
+    every row says the same thing, which is a currency or channel code and
+    would otherwise name every transaction on the statement "ZAR".
+  - `strayName()` is the row-level answer, and the one that matters for PDFs:
+    a PDF has no columns, only text at coordinates, so a line indented
+    differently from the rest (an FNB fee prefixed with "#", a sub-total) has
+    its text assigned to a neighbouring column and arrives with a correct
+    date, a correct amount and no name. The text was never missing — it is
+    one cell over. So a row the description column leaves blank takes the
+    longest name-like text elsewhere on its own line. `looksLikeName()` is
+    what keeps that honest: two consecutive letters, not a date, not an
+    amount, not a bare ISO code.
   - `importStatement.ts`'s preview returns `unnamed: {count, betterColumn}`.
     `betterDescriptionColumn()` does not guess harder — it re-applies the
     mapping with each unused column as the description and takes the one
     leaving fewest rows nameless, and only ever offers it. It will never
-    propose the date or amount column: naming a row "-125.00" looks fixed
-    and is worse, because it stops announcing that anything is missing.
+    propose a column that isn't text — not the date, not the amount, and not
+    the running balance, which is the one it actually offered on an FNB
+    statement. Naming a row "12,381.04" looks fixed and is worse, because it
+    stops announcing that anything is missing.
+  - The preview returns `lines`, aligned with `sample` by index: the file's
+    own cells for a row nothing could name, and null for every row that has
+    a name. "Why has this come through blank?" has no answer that isn't the
+    line itself — either the text is in a column the mapping isn't reading,
+    and it is right there to be seen, or the line really is a date and an
+    amount, which is equally worth knowing because no column will fix it.
+    `applyMappingIndexed()` exists for this, with `applyMapping()` as a
+    projection of it, so there is one parse rather than two that can drift.
   - `GET /api/accounts/:id/imports` counts `unnamed` per import, for the
     same reason `futureDated` is there: a perfect-looking import needs
     something that identifies it after the fact. The detail card pairs with
