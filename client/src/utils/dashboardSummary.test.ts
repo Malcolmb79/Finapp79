@@ -135,9 +135,12 @@ describe("dailySpend", () => {
 
 describe("incomeBySource", () => {
   const name = (id: number | null) => ({ 1: "Salary", 2: "Freelance" })[id as 1 | 2] ?? "";
+  // Income is the declared thing, not the positive thing: 1 and 2 are the
+  // categories marked as income, and nothing else counts however it is signed.
+  const isIncome = (id: number | null) => id === 1 || id === 2;
 
   it("groups the month's income and shares it out", () => {
-    const sources = incomeBySource(entries, month, name);
+    const sources = incomeBySource(entries, month, name, isIncome);
     expect(sources).toHaveLength(2);
     expect(sources[0]).toEqual({ label: "Salary", amount: 4200, share: 0.84, count: 1 });
     expect(sources[1].label).toBe("Freelance");
@@ -148,18 +151,32 @@ describe("incomeBySource", () => {
    * source, and a bank reference number would otherwise split them in two.
    */
   it("treats repeat payments from one source as one source", () => {
-    const twice = incomeBySource([tx("2026-11-01", 2100, 1), tx("2026-11-15", 2100, 1)], month, name);
+    const twice = incomeBySource([tx("2026-11-01", 2100, 1), tx("2026-11-15", 2100, 1)], month, name, isIncome);
     expect(twice).toHaveLength(1);
     expect(twice[0]).toMatchObject({ amount: 4200, count: 2, share: 1 });
   });
 
-  it("files income with no category rather than dropping it", () => {
-    expect(incomeBySource([tx("2026-11-01", 500, null)], month, name)[0].label).toBe("Uncategorised");
+  /**
+   * The correction. Every credit used to count, which put refunds, reimbursed
+   * expenses and returned payments on a card headed "where income came from".
+   * A household does not earn money from its own bus fares, and the only
+   * thing that knows the difference is the category's own flag.
+   */
+  it("leaves out a credit in a category that is not income", () => {
+    expect(incomeBySource([tx("2026-11-01", 4200, 1), tx("2026-11-02", 40, 3)], month, name, isIncome)).toEqual([
+      { label: "Salary", amount: 4200, share: 1, count: 1 },
+    ]);
+  });
+
+  // Not filed is not declared. A credit nobody has categorised has not been
+  // called income by anyone, so the card does not call it income either.
+  it("leaves out a credit with no category at all", () => {
+    expect(incomeBySource([tx("2026-11-01", 500, null)], month, name, isIncome)).toEqual([]);
   });
 
   // A source of nothing is not a source.
   it("says nothing at all on a month with no income", () => {
-    expect(incomeBySource([tx("2026-11-01", -500, 3)], month, name)).toEqual([]);
+    expect(incomeBySource([tx("2026-11-01", -500, 3)], month, name, isIncome)).toEqual([]);
   });
 });
 

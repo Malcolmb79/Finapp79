@@ -651,8 +651,21 @@ export default function Dashboard() {
   });
   const glanceDays = dailySpend(glanceEntries, glanceMonth);
   const previousDays = dailySpend(glanceEntries, previousMonthKey);
-  const glanceSources = incomeBySource(glanceEntries, glanceMonth, (id) =>
-    id === null ? "" : (categoryNames.get(id) ?? "")
+  /**
+   * Every category the owner has called income, occasional or not.
+   *
+   * Wider than `incomeCategories` above on purpose: that set drives the
+   * balance projection, which must not draw a bonus or a tax refund forward
+   * as if it repeated. A card reporting where the month's income came from
+   * has the opposite requirement — a bonus is income, and leaving it out
+   * would make the month read as though it never arrived.
+   */
+  const declaredIncome = new Set(categories.filter((c) => c.counts_as_income).map((c) => c.id));
+  const glanceSources = incomeBySource(
+    glanceEntries,
+    glanceMonth,
+    (id) => (id === null ? "" : (categoryNames.get(id) ?? "")),
+    (id) => id != null && declaredIncome.has(id)
   );
   // The full history, for the same reason Analytics uses it: a rhythm cannot
   // be found inside a window shorter than the rhythm.
@@ -801,7 +814,16 @@ export default function Dashboard() {
       body: (
         <CashFlowSankey
           transactions={convertedTx}
-          categoryName={(id) => (id == null ? null : (categoryNames.get(id) ?? null))}
+          // The whole category, not just its name: whether a credit is income
+          // cannot be read off the amount, and grouping by name alone put
+          // refunds on the income side as "Transport" and "Miscellaneous".
+          category={(id) => {
+            if (id == null) return null;
+            const found = categories.find((c) => c.id === id);
+            return found
+              ? { name: found.name, countsAsIncome: !!found.counts_as_income, isTransfer: !!found.is_transfer }
+              : null;
+          }}
           currency={rates?.base ?? null}
         />
       ),
@@ -1024,7 +1046,13 @@ export default function Dashboard() {
       ),
     },
     incomeSources: {
-      body: <IncomeSources sources={glanceSources} money={(value) => (rates ? formatCurrency(value, rates.base) : value.toFixed(2))} />,
+      body: (
+        <IncomeSources
+          sources={glanceSources}
+          anyIncomeCategory={declaredIncome.size > 0}
+          money={(value) => (rates ? formatCurrency(value, rates.base) : value.toFixed(2))}
+        />
+      ),
     },
     subscriptions: {
       headerExtra: (

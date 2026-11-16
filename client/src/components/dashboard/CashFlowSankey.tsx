@@ -68,14 +68,14 @@ function ribbon(y1: number, h1: number, y2: number, h2: number): string {
 
 export default function CashFlowSankey({
   transactions,
-  categoryName,
+  category,
   currency,
 }: {
   transactions: Parameters<typeof cashFlow>[0];
-  categoryName: (id: number | null) => string | null;
+  category: Parameters<typeof cashFlow>[1];
   currency: string | null;
 }) {
-  const flow: CashFlow = useMemo(() => cashFlow(transactions, categoryName), [transactions, categoryName]);
+  const flow: CashFlow = useMemo(() => cashFlow(transactions, category), [transactions, category]);
   const money = (value: number) => (currency ? formatCurrency(value, currency) : value.toFixed(2));
 
   if (flow.totalIn === 0 && flow.totalOut === 0) {

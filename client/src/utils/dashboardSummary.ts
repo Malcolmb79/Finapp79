@@ -168,15 +168,31 @@ export interface Source {
 }
 
 /**
- * Where the month's money came from.
+ * Where the month's income came from.
  *
  * Deliberately by category rather than by payer name: two payslips from one
  * employer are one source, and a bank description that carries a reference
  * number would otherwise split them into two. A category with nothing in it
  * does not appear, because a source of nothing is not a source.
+ *
+ * **Income is the declared thing, not the positive thing.** Every credit used
+ * to count, which put refunds, reimbursed expenses and returned payments on a
+ * card headed "where income came from" — a household does not earn money from
+ * its own bus fares. `isIncome` reads `counts_as_income` off the category, the
+ * same flag the balance projection has always used, so the two agree about
+ * what a salary is.
+ *
+ * Returns nothing at all when no category has been marked as income. That is
+ * a setup state and the card says so, rather than falling back to the sign and
+ * quietly being wrong in the way this exists to fix.
  */
-export function incomeBySource(entries: Entry[], month: string, categoryName: (id: number | null) => string): Source[] {
-  const inMonth = entries.filter((e) => e.booking_date.startsWith(month) && e.amount > 0);
+export function incomeBySource(
+  entries: Entry[],
+  month: string,
+  categoryName: (id: number | null) => string,
+  isIncome: (id: number | null) => boolean
+): Source[] {
+  const inMonth = entries.filter((e) => e.booking_date.startsWith(month) && e.amount > 0 && isIncome(e.category_id ?? null));
   const total = inMonth.reduce((sum, e) => sum + e.amount, 0);
   if (total <= 0) return [];
 

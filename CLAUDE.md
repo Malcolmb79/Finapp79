@@ -805,6 +805,42 @@ and the system prompt labels it as such: a figure read off the page is not a
 figure that was looked up, and the two must never be presented as equally
 checked.
 
+### Income is declared, not positive
+
+The same lesson as subscriptions, on the other side of the ledger. A credit is
+not income. A refund from a shop, a reimbursed expense, a returned payment and
+a mis-keyed correction are all money arriving, and none of them was earned —
+so two cards headed with the word *income* were reporting a household that
+earned money from its own bus fares.
+
+**`counts_as_income` on the category is the only thing that decides**, the
+same flag the balance projection has always used, so the screens now agree
+about what a salary is.
+
+- `cashFlowSankey.ts` takes a `FlowCategory` rather than a name, because the
+  name cannot answer the question. Income-flagged and transfer categories get
+  their own source bands; **every other credit nets against the category it
+  came back to** — a €40 refund on transport means transport cost €40 less,
+  which is what happened and keeps both sides adding up. Only a category that
+  took back more than it ever spent puts the excess on the left, under `Other
+  money in`, never under its own name.
+- An **unfiled** credit is not netted. "Uncategorised" is the absence of a
+  relationship rather than a relationship, so setting one unknown credit
+  against unrelated unknown spending would invent the connection. It goes left
+  under the same `Other money in`, which claims nothing.
+- `incomeBySource` filters on the flag and returns nothing when no category
+  carries it. The card distinguishes that from a quiet month in words, because
+  a setup state reported as "nothing came in" is a lie about a month with a
+  salary in it. It reads `counts_as_income` *including* occasional income —
+  wider than the set the forecast uses, which must not draw a bonus forward as
+  though it repeated, where a card saying where the month's income came from
+  would be wrong to leave one out.
+
+Still sign-based, and deliberately left so for now: the `Monthly cash flow`
+card and the Analytics totals. Those feed the savings rate, and narrowing them
+to the flag would silently drop every income category nobody has marked yet.
+That is a change to make once the flags are known to be complete, not before.
+
 ### Subscriptions: a tag, not a shape
 
 **What is on the Subscriptions page is `categories.is_subscription` and

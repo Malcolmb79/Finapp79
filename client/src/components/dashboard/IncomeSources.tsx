@@ -13,9 +13,36 @@ import type { Source } from "../../utils/dashboardSummary.js";
  * visible here and nowhere else in the app.
  */
 
-export default function IncomeSources({ sources, money }: { sources: Source[]; money: (value: number) => string }) {
+export default function IncomeSources({
+  sources,
+  money,
+  anyIncomeCategory = true,
+}: {
+  sources: Source[];
+  money: (value: number) => string;
+  /** Whether any category has been declared income at all. */
+  anyIncomeCategory?: boolean;
+}) {
+  /**
+   * Nothing declared is a setup state, not an empty month.
+   *
+   * This card used to count every credit, which put refunds and returned
+   * payments on a card headed "where income came from". Reading the flag
+   * instead is right, and means a household that has never set one sees
+   * nothing — so it says which of the two it is, rather than reporting a
+   * month with a salary in it as a month with nothing in it.
+   */
+  if (sources.length === 0 && !anyIncomeCategory) {
+    return (
+      <p className="empty-state">
+        No category is marked as income yet. Mark one on the Transactions page and this fills in — income is read from
+        that, not from which way the money went, so a refund never counts as earnings.
+      </p>
+    );
+  }
+
   if (sources.length === 0) {
-    return <p className="empty-state">Nothing came in this month yet.</p>;
+    return <p className="empty-state">No income this month yet.</p>;
   }
 
   const total = sources.reduce((sum, source) => sum + source.amount, 0);
