@@ -456,6 +456,25 @@ why, and for the migration that added it retroactively.
   a household owning a house in years it did not — inventing wealth, which is
   the worse of the two available errors — while carrying today's value back
   across the years it *was* held merely flattens the line.
+- `categories.is_transfer` marks money that moves between the household's own
+  accounts. A transfer is one event in two rows — €2,000 leaves the current
+  account and the same €2,000 arrives in savings — so counted naively it adds
+  the same money to both sides of a month, and a savings rate built on those
+  two figures is wrong in the numerator and the denominator together.
+
+  **Both rows stay.** The balances need them. What changes is which list a
+  screen reads: `worthTx` (and anything about balances) keeps everything,
+  while every income, spending, category and savings-rate figure comes off a
+  list passed through `excludeTransfers` in `utils/transfers.ts`. Server-side
+  the same exclusion is a `COALESCE(c.is_transfer, FALSE) = FALSE` clause in
+  `plan.ts` and `budgetAdvisor.ts`. It is the same split the app already made
+  for a loan repayment, generalised — and the same "every screen or none"
+  rule the net worth figures live under.
+
+  `findTransferPairs` matches an outflow to an inflow on a *different*
+  account, within a few days and within 2% on amount, each row used once. It
+  only ever suggests: two accounts, four days and a matching amount describes
+  a transfer and equally describes paying somebody who banks where you do.
 - Policy premiums reach `GET /api/plan` through `services/policyPremiums.ts`,
   and only the ones that match no transaction are subtracted from the surplus.
   A premium debited from a tracked account is already inside `typicalSpend` —

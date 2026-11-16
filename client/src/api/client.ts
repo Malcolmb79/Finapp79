@@ -338,6 +338,15 @@ export interface Category {
    * household never receives.
    */
   income_is_occasional?: boolean;
+  /**
+   * Money filed here moves between your own accounts: neither income nor
+   * spending.
+   *
+   * One transfer is two real rows, and counted naively it adds the same money
+   * to both sides of a month. Every total routes through
+   * utils/transfers.ts to drop them.
+   */
+  is_transfer?: boolean;
 }
 
 export interface BudgetProposal {
@@ -466,6 +475,21 @@ export interface BtlDeal {
   retained_share: number;
   rtb_registered: boolean;
 
+  created_at: string;
+}
+
+/**
+ * A note or a thing to do, pinned to the dashboard.
+ *
+ * `done_at` rather than a boolean: a thing ticked off yesterday and one
+ * ticked off in March read differently, and a list that cannot tell them
+ * apart has to clear itself to stay useful.
+ */
+export interface Note {
+  id: string;
+  body: string;
+  done_at: string | null;
+  position: number;
   created_at: string;
 }
 
@@ -937,7 +961,7 @@ export const api = {
 
   impliedRate: (accountId: string) => request<ImpliedRate>(`/accounts/${accountId}/implied-rate`),
 
-  updateCategory: (id: number, patch: { counts_as_income?: boolean; income_is_occasional?: boolean }) =>
+  updateCategory: (id: number, patch: { counts_as_income?: boolean; income_is_occasional?: boolean; is_transfer?: boolean }) =>
     request<Category>(`/categories/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
 
   createCategory: (name: string, parentId?: number | null) =>
@@ -982,6 +1006,18 @@ export const api = {
       body: JSON.stringify({ category_id: categoryId, monthly_limit: monthlyLimit, ...(currency ? { currency } : {}) }),
     }),
   deleteBudget: (id: number) => request<void>(`/budgets/${id}`, { method: "DELETE" }),
+
+  listNotes: () => request<Note[]>("/notes"),
+
+  createNote: (body: string) => request<Note>("/notes", { method: "POST", body: JSON.stringify({ body }) }),
+
+  updateNote: (id: string, patch: { body?: string; done?: boolean; position?: number }) =>
+    request<Note>(`/notes/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+
+  deleteNote: (id: string) => request<void>(`/notes/${id}`, { method: "DELETE" }),
+
+  /** Removes what has already been done, which is the only way the list stays short. */
+  clearDoneNotes: () => request<{ cleared: number }>("/notes", { method: "DELETE" }),
 
   listBtlDeals: () => request<BtlDeal[]>("/btl-deals"),
 

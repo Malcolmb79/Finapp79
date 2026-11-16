@@ -51,6 +51,12 @@ async function loadSpending(userId: string, scope?: string | null) {
          LEFT JOIN categories c ON c.id = t.category_id
          JOIN accounts a ON a.id = t.account_id
         WHERE t.user_id = ? AND t.reviewed_at IS NOT NULL
+          -- Transfers between the user's own accounts are excluded in SQL
+          -- rather than filtered afterwards: one move to savings is two rows,
+          -- and counting them would report income and spending that never
+          -- happened. The balances these rows affect are read elsewhere and
+          -- are unaffected.
+          AND COALESCE(c.is_transfer, FALSE) = FALSE
           AND (CASE WHEN ?::text IS NULL THEN NOT a.hidden ELSE a.id = ?::text END)`
     )
     .all(userId, scope ?? null, scope ?? null)) as unknown as TransactionRow[];

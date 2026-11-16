@@ -14,6 +14,28 @@ import type { Category } from "../api/client.js";
  * the scrolling containers it gets used inside (the import dialog's row list
  * clips anything absolutely positioned within it).
  */
+/**
+ * The matched part of a name, picked out.
+ *
+ * Filtering that only removes rows leaves the reader to work out *why* each
+ * survivor is there. Marking the matched run answers it at a glance, which
+ * matters most on the small screen where only a few rows are visible.
+ */
+function Highlighted({ text, needle }: { text: string; needle: string }) {
+  if (!needle) return <>{text}</>;
+  const at = text.toLowerCase().indexOf(needle);
+  if (at === -1) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <mark style={{ background: "var(--seq-100)", color: "inherit", borderRadius: 2, padding: "0 1px" }}>
+        {text.slice(at, at + needle.length)}
+      </mark>
+      {text.slice(at + needle.length)}
+    </>
+  );
+}
+
 export default function CategorySelect({
   categories,
   value,
@@ -117,23 +139,35 @@ export default function CategorySelect({
     setQuery("");
   }
 
-  // Below this a floating list anchored to a control has nowhere to go once
-  // the keyboard is up, so it becomes a sheet at the bottom of what's visible
-  // — full width, above the keyboard, which is where a phone expects it.
+  /**
+   * On a phone the picker takes the whole screen, with the search at the top.
+   *
+   * It used to open as a sheet pinned to the bottom of the visual viewport,
+   * which is right in principle and wrong on iOS: the keyboard's accessory
+   * bar — the prev/next/done strip — sits above the keyboard and is *not*
+   * inside visualViewport. So the sheet was laid exactly underneath it, and
+   * the filtered list was invisible behind a grey bar while somebody typed.
+   *
+   * Anchoring to the top instead sidesteps the whole measurement problem.
+   * The keyboard can cover as much of the bottom as it likes; the search
+   * field and the first several results are above it either way, and the list
+   * simply scrolls. Nothing has to be measured, so nothing can be measured
+   * wrong on a browser that reports its chrome differently.
+   */
   const asSheet = viewport.width < 560;
   const viewportBottom = viewport.offsetTop + viewport.height;
   const spaceBelow = rect ? viewportBottom - rect.bottom - 8 : 0;
   const spaceAbove = rect ? rect.top - viewport.offsetTop - 8 : 0;
-  const dropUp = !!rect && spaceBelow < 220 && spaceAbove > spaceBelow;
+  const dropUp = !asSheet && !!rect && spaceBelow < 220 && spaceAbove > spaceBelow;
 
   const placement: CSSProperties = asSheet
     ? {
-        left: 8,
-        right: 8,
-        // The gap the keyboard occupies: fixed positioning measures from the
-        // window, so the sheet has to be lifted clear of it explicitly.
-        bottom: Math.max(8, window.innerHeight - viewportBottom + 8),
-        maxHeight: Math.max(180, viewport.height * 0.6),
+        top: viewport.offsetTop,
+        left: 0,
+        right: 0,
+        height: viewport.height,
+        maxHeight: viewport.height,
+        borderRadius: 0,
       }
     : {
         top: dropUp ? undefined : (rect?.bottom ?? 0) + 4,
@@ -169,6 +203,17 @@ export default function CategorySelect({
         <ChevronDown size={13} style={{ flexShrink: 0 }} />
       </button>
 
+      {/* A scrim on the phone, so the dialog underneath stops showing
+          through a list laid over it. Without one the two sets of rows
+          overlapped and the whole thing read as a mess rather than as a
+          picker. Tapping it closes, which is what a sheet should do. */}
+      {open && rect && asSheet && (
+        <div
+          onPointerDown={() => setOpen(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 79, background: "rgba(0, 0, 0, 0.45)" }}
+        />
+      )}
+
       {open && rect && (
         <div
           ref={popoverRef}
@@ -185,8 +230,8 @@ export default function CategorySelect({
             flexDirection: "column",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", padding: "0.4rem 0.5rem", borderBottom: "1px solid var(--border)" }}>
-            <Search size={13} color="var(--text-muted)" />
+          <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", padding: asSheet ? "0.7rem 0.75rem" : "0.4rem 0.5rem", borderBottom: "1px solid var(--border)" }}>
+            <Search size={asSheet ? 15 : 13} color="var(--text-muted)" />
             <input
               autoFocus
               value={query}
@@ -199,9 +244,41 @@ export default function CategorySelect({
                   else if (canCreate) create();
                 }
               }}
-              style={{ flex: 1, border: "none", background: "transparent", fontSize: "0.82rem", padding: 0 }}
+              style={{ flex: 1, border: "none", background: "transparent", fontSize: asSheet ? "1rem" : "0.82rem", padding: 0, minWidth: 0 }}
             />
+            {asSheet && (
+              <button
+                type="button"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  setOpen(false);
+                }}
+                style={{ fontSize: "0.8rem", padding: "0.2rem 0.5rem", flexShrink: 0 }}
+              >
+                Close
+              </button>
+            )}
           </div>
+
+          {/* What it is filtering to, said out loud. A list that silently
+              shortened as somebody typed gave no way to tell "no matches"
+              apart from "the list is scrolled" — which is the complaint that
+              prompted this. */}
+          {needle.length > 0 && (
+            <p
+              style={{
+                fontSize: "0.7rem",
+                color: "var(--text-muted)",
+                margin: 0,
+                padding: "0.3rem 0.75rem",
+                borderBottom: "1px solid var(--gridline)",
+              }}
+            >
+              {matches.length === 0
+                ? `Nothing matches "${query.trim()}"`
+                : `${matches.length} of ${categories.length} ${categories.length === 1 ? "category" : "categories"} match "${query.trim()}"`}
+            </p>
+          )}
 
           <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
             {/* Selecting on pointerdown, not click: the search input holds
@@ -228,10 +305,10 @@ export default function CategorySelect({
                   e.preventDefault();
                   pick(c.id);
                 }}
-                style={{ width: "100%", fontSize: "0.82rem" }}
+                style={{ width: "100%", fontSize: asSheet ? "0.95rem" : "0.82rem", padding: asSheet ? "0.6rem 0.75rem" : undefined }}
               >
                 {c.id === value && <Check size={12} />}
-                {c.name}
+                <Highlighted text={c.name} needle={needle} />
               </button>
             ))}
             {matches.length === 0 && !canCreate && (

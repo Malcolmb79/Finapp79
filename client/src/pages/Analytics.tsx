@@ -17,6 +17,7 @@ import { inBase, useFxRates } from "../utils/fx.js";
 import { cleanDescription } from "../utils/cleanDescription.js";
 import { detectPriceRises } from "../utils/priceRises.js";
 import { detectRecurring } from "../utils/recurring.js";
+import { excludeTransfers, transferCategoryIds } from "../utils/transfers.js";
 
 const TREND_MONTHS = 12;
 
@@ -48,6 +49,17 @@ export default function Analytics() {
   const scopedTx = visibleTransactions(allTransactions, accounts, scope);
   const { items: convertedTx, dropped } = inBase(withinRange(scopedTx, range), rates);
   /**
+   * Transfers between your own accounts are not income and not spending.
+   *
+   * One €2,000 move to savings is two real rows; counted as both, the month
+   * reads as €2,000 better off and €2,000 worse off at once, and the savings
+   * rate built on those two figures is wrong in the numerator and the
+   * denominator together.
+   */
+  const transferIds = transferCategoryIds(categories);
+  const flowTx = excludeTransfers(convertedTx, transferIds);
+
+  /**
    * The same transactions with the date range lifted off, for the widgets
    * that look for a rhythm.
    *
@@ -69,7 +81,8 @@ export default function Analytics() {
   // header's range decides that, and the card now names it.
   const monthKeys = [...new Set(convertedTx.map((tx) => tx.booking_date.slice(0, 7)))].sort().slice(-TREND_MONTHS);
   const monthFlows: MonthFlow[] = monthKeys.map((key) => {
-    const monthTx = convertedTx.filter((tx) => tx.booking_date.startsWith(key));
+    // The flow list, not the balance one — a transfer in is not income.
+    const monthTx = flowTx.filter((tx) => tx.booking_date.startsWith(key));
     // Spending only on the expenses side: a loan repayment leaves the account
     // but is not money spent — see spendingTransactions.
     const monthSpend = spendingTransactions(monthTx);
@@ -95,9 +108,9 @@ export default function Analytics() {
   //
   // Every total built from this is about spending, so loan repayments are out
   // of all of them.
-  const rangedTx = spendingTransactions(convertedTx);
+  const rangedTx = spendingTransactions(flowTx);
 
-  const totalIncome = convertedTx.filter((tx) => tx.amount > 0).reduce((s, tx) => s + tx.amount, 0);
+  const totalIncome = flowTx.filter((tx) => tx.amount > 0).reduce((s, tx) => s + tx.amount, 0);
   const totalExpenses = Math.abs(rangedTx.filter((tx) => tx.amount < 0).reduce((s, tx) => s + tx.amount, 0));
   // Per month of window, not per month the data happens to touch: a 30-day
   // span is one month even when it straddles two, and dividing by the two it
@@ -152,7 +165,8 @@ export default function Analytics() {
 
   const spendIn = (monthKey: string) => {
     const totals = new Map<string, number>();
-    for (const tx of convertedTx) {
+    // Flow list: a transfer out is not this month spending more on anything.
+    for (const tx of flowTx) {
       if (tx.amount >= 0 || !tx.booking_date.startsWith(monthKey)) continue;
       const name = tx.category_id != null ? (categoryNames.get(tx.category_id) ?? "Unknown") : "Uncategorized";
       totals.set(name, (totals.get(name) ?? 0) + Math.abs(tx.amount));
@@ -172,7 +186,7 @@ export default function Analytics() {
 
   // Recurrence needs the full history to find a rhythm — three charges
   // inside one month is not a monthly subscription.
-  const recurring = detectRecurring(fullHistoryTx);
+  const recurring = detectRecurring(excludeTransfers(fullHistoryTx, transferIds));
   // Deliberately from the full history rather than the chosen range: a price
   // rise is established by what came before it, and a three-month window can
   // easily hold the new price and none of the old.

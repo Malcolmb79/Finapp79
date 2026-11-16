@@ -709,3 +709,49 @@ CREATE TABLE IF NOT EXISTS btl_deals (
 );
 
 CREATE INDEX IF NOT EXISTS idx_btl_deals_user ON btl_deals (user_id);
+
+-- A note or a thing to do, pinned to the dashboard.
+--
+-- Deliberately not a task manager. It exists because the things somebody
+-- means to do about their money ("cancel the gym", "chase the deposit",
+-- "move 500 to savings before the 28th") are the one part of a review that
+-- has nowhere to live — they end up in a phone note that is never beside the
+-- figures that prompted them.
+--
+-- `done_at` rather than a boolean: a thing ticked off yesterday and a thing
+-- ticked off in March read differently, and a list that cannot tell them
+-- apart has to clear itself to stay useful.
+CREATE TABLE IF NOT EXISTS notes (
+  id TEXT PRIMARY KEY,                    -- generated uuid
+  user_id TEXT REFERENCES users(id),
+  body TEXT NOT NULL,
+  done_at TEXT,                           -- null = still outstanding
+  -- Hand-ordered, so the thing that matters can be dragged to the top.
+  -- Sparse on purpose: reordering one row should not rewrite every other.
+  position DOUBLE PRECISION NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
+);
+
+CREATE INDEX IF NOT EXISTS idx_notes_user ON notes (user_id, position);
+
+-- Whether money filed here is a movement between the household's own accounts
+-- rather than income or spending.
+--
+-- A transfer is two real transactions describing one event: money leaves the
+-- current account and the same money arrives in the savings account. Counted
+-- naively, that single event adds to income *and* to spending, so a household
+-- moving 2,000 to savings every month reports 2,000 more earned and 2,000
+-- more spent than actually happened — and a savings rate computed from those
+-- two figures is wrong in both the numerator and the denominator.
+--
+-- The same reasoning the app already applies to a loan repayment, which is
+-- also one event wearing two faces. That one is derived from a rule; this one
+-- is declared on the category, because only the owner knows that "Inward
+-- SWIFT" is their own money arriving from elsewhere rather than a client
+-- paying an invoice.
+--
+-- A flag on the category rather than a pairing table: somebody filing these
+-- as "Transfers" has already done the work, and asking them to additionally
+-- match each out to each in would be asking twice. See services/transferPairs
+-- for the matching, which is offered as a check rather than required.
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_transfer BOOLEAN NOT NULL DEFAULT FALSE;

@@ -87,8 +87,8 @@ export default function CategoryManager({ categories, onCreated }: { categories:
    * single question - what kind of money is this - and two tickboxes would
    * also offer "occasional, but not income", which means nothing.
    */
-  const incomeState = (c: Category): "none" | "regular" | "occasional" =>
-    !c.counts_as_income ? "none" : c.income_is_occasional ? "occasional" : "regular";
+  const incomeState = (c: Category): "none" | "regular" | "occasional" | "transfer" =>
+    c.is_transfer ? "transfer" : !c.counts_as_income ? "none" : c.income_is_occasional ? "occasional" : "regular";
 
   const NEXT = {
     none: {
@@ -102,9 +102,15 @@ export default function CategoryManager({ categories, onCreated }: { categories:
       title: "Income that turns up on no schedule, like a tax refund or a bonus. Counted in every total, and kept out of the balance projection so it is not drawn forward as a monthly payment",
     },
     occasional: {
-      patch: { counts_as_income: false },
+      patch: { is_transfer: true },
+      label: "Make a transfer",
+      title:
+        "Money moving between your own accounts. One move is two rows, so counting them would report income and spending that never happened - these are kept out of every income, spending and savings-rate figure, while the balances they affect stay right",
+    },
+    transfer: {
+      patch: { is_transfer: false },
       label: "Unset",
-      title: "Stop treating money filed here as income",
+      title: "Stop treating money filed here as a movement between your own accounts",
     },
   } as const;
 
@@ -230,10 +236,19 @@ export default function CategoryManager({ categories, onCreated }: { categories:
                       // Occasional income is real income, so it is not greyed
                       // out - but it is not something to plan around either,
                       // and the warmer colour says which of the two it is.
-                      color: incomeState(category) === "occasional" ? "var(--warning)" : "var(--good)",
+                      color:
+                        incomeState(category) === "transfer"
+                          ? "var(--accent-2)"
+                          : incomeState(category) === "occasional"
+                            ? "var(--warning)"
+                            : "var(--good)",
                     }}
                   >
-                    {incomeState(category) === "occasional" ? "occasional income" : "regular income"}
+                    {incomeState(category) === "transfer"
+                      ? "transfer, not income"
+                      : incomeState(category) === "occasional"
+                        ? "occasional income"
+                        : "regular income"}
                   </span>
                 )}
                 <button

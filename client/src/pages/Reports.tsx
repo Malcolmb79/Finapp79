@@ -26,6 +26,7 @@ import { inBase, toBase, useFxRates } from "../utils/fx.js";
 import { holdingValue } from "../utils/holdingValue.js";
 import { countsAtCover, policyContribution } from "../utils/policyValue.js";
 import { countsAtValue, propertyContribution } from "../utils/propertyMetrics.js";
+import { excludeTransfers, transferCategoryIds } from "../utils/transfers.js";
 import {
   annualSummary,
   budgetVsActual,
@@ -205,7 +206,15 @@ export default function Reports() {
     // Spending excludes loan repayments: the money became equity in a debt
     // rather than leaving the picture, and counting it as expenditure would
     // show the same money going out and net worth improving by it.
-    const { items: entries } = inBase(spendingTransactions(scoped), rates);
+    //
+    // And transfers between your own accounts, for the same kind of reason:
+    // one move to savings is two rows, and an income statement counting both
+    // reports money earned that was already yours. The balance sheet above is
+    // unaffected — it reads account balances, which need both halves.
+    const { items: entries } = inBase(
+      excludeTransfers(spendingTransactions(scoped), transferCategoryIds(categories)),
+      rates
+    );
 
     return {
       assets: assets.sort((a, b) => b.amount - a.amount),
@@ -220,7 +229,7 @@ export default function Reports() {
       // sidebar builds — kept so the two cannot drift apart.
       mirrored: repaymentMirrors(scoped).length,
     };
-  }, [accounts, transactions, holdings, policies, properties, scope, rates]);
+  }, [accounts, transactions, holdings, policies, properties, categories, scope, rates]);
 
   const reports: Report[] = useMemo(() => {
     if (!rates) return [];

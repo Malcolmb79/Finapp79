@@ -1,5 +1,11 @@
 import {
   CalendarDays,
+  CreditCard as SubscriptionIcon,
+  Gauge,
+  ListTodo,
+  Plus,
+  TrendingDown,
+  Coins,
   Scale,
   Workflow,
   ArrowLeftRight,
@@ -38,6 +44,16 @@ export const WIDGET_IDS = [
   "moneyFlow",
   "spendingCalendar",
   "monthCompare",
+  // Appended for the same reason the three above were: this list is the
+  // fixed registry order that gives each widget its accent colour, so
+  // inserting one in the middle silently recolours every widget after it on
+  // a dashboard somebody has already arranged.
+  "summary",
+  "expenseTrend",
+  "incomeSources",
+  "subscriptions",
+  "notes",
+  "quickAdd",
 ] as const;
 export type WidgetId = (typeof WIDGET_IDS)[number];
 
@@ -101,6 +117,17 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
   budgets: { title: "Budgets", module: "Budgets", icon: Target, defaultEnabled: true, defaultWidth: NARROW_WIDTH, defaultHeight: 264 },
   debts: { title: "Debt overview", module: "Debt Planner", icon: CreditCard, defaultEnabled: false, defaultWidth: NARROW_WIDTH, defaultHeight: 264 },
   savings: { title: "Savings goals", module: "Savings", icon: PiggyBank, defaultEnabled: false, defaultWidth: NARROW_WIDTH, defaultHeight: 264 },
+  // Six tiles across, so it wants the full width and very little height. Off
+  // by default like everything added after the first release: turning
+  // something on in a layout somebody has arranged is not ours to do.
+  summary: { title: "This month at a glance", module: "Dashboard", icon: Gauge, defaultEnabled: false, defaultWidth: WIDE_WIDTH, defaultHeight: 200 },
+  expenseTrend: { title: "Spending through the month", module: "Dashboard", icon: TrendingDown, defaultEnabled: false, defaultWidth: WIDE_WIDTH, defaultHeight: 300 },
+  incomeSources: { title: "Where income came from", module: "Dashboard", icon: Coins, defaultEnabled: false, defaultWidth: NARROW_WIDTH, defaultHeight: 300 },
+  // The same component Analytics uses, offered here too: a standing
+  // commitment is a dashboard fact as much as an analysis one.
+  subscriptions: { title: "Subscriptions", module: "Analytics", icon: SubscriptionIcon, defaultEnabled: false, defaultWidth: NARROW_WIDTH, defaultHeight: 320 },
+  notes: { title: "Notes & to-do", module: "Dashboard", icon: ListTodo, defaultEnabled: false, defaultWidth: NARROW_WIDTH, defaultHeight: 320 },
+  quickAdd: { title: "Quick add", module: "Transactions", icon: Plus, defaultEnabled: false, defaultWidth: NARROW_WIDTH, defaultHeight: 340 },
 };
 
 // Fixed registry order (not display order) -> deterministic widget identity

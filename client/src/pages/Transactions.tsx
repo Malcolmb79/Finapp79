@@ -1,7 +1,8 @@
-import { CopyCheck, Inbox, List, Plus, Tag, Wand2 } from "lucide-react";
+import { ArrowLeftRight, CopyCheck, Inbox, List, Plus, Tag, Wand2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import CategoryManager from "../components/CategoryManager.js";
 import DuplicateReview from "../components/DuplicateReview.js";
+import TransferReconcile from "../components/TransferReconcile.js";
 import CategoryRules from "../components/CategoryRules.js";
 import CsvImport from "../components/CsvImport.js";
 import TransactionForm from "../components/TransactionForm.js";
@@ -24,6 +25,7 @@ const WIDGETS = [
   // Usually empty, and short when it is - it grows only when there is
   // something to answer for.
   { id: "duplicates", defaultWidth: 328, defaultHeight: 260 },
+  { id: "transfers", defaultWidth: 328, defaultHeight: 340 },
   { id: "add", defaultWidth: 328, defaultHeight: 280 },
   { id: "all", defaultWidth: 672, defaultHeight: 520 },
 ];
@@ -86,6 +88,14 @@ export default function Transactions() {
       icon: CopyCheck,
       accentVar: "--accent-2",
       body: <DuplicateReview transactions={transactions} accounts={accounts} onChanged={refresh} />,
+    },
+    transfers: {
+      title: "Transfers between your accounts",
+      icon: ArrowLeftRight,
+      accentVar: "--accent-3",
+      body: (
+        <TransferReconcile transactions={transactions} accounts={accounts} categories={categories} onChanged={refresh} />
+      ),
     },
     add: {
       title: "Add transactions",

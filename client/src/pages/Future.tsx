@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import FireCalculator from "../components/FireCalculator.js";
 import ScenarioPlanner from "../components/ScenarioPlanner.js";
-import { api, type Account, type Holding, type Policy, type Property, type Transaction } from "../api/client.js";
+import { api, type Account, type Category, type Holding, type Policy, type Property, type Transaction } from "../api/client.js";
 import {
   accountBalance,
   accountTxSums,
@@ -16,6 +16,7 @@ import { inBase, toBase, useFxRates } from "../utils/fx.js";
 import { holdingValue } from "../utils/holdingValue.js";
 import { policyContribution } from "../utils/policyValue.js";
 import { propertyContribution } from "../utils/propertyMetrics.js";
+import { excludeTransfers, transferCategoryIds } from "../utils/transfers.js";
 import { monthsCovered, periodOptions, inPeriod } from "../utils/reports.js";
 
 /**
@@ -40,6 +41,7 @@ export default function Future() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [policies, setPolicies] = useState<Policy[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -53,13 +55,15 @@ export default function Future() {
       api.listHoldings().catch(() => []),
       api.listPolicies().catch(() => []),
       api.listProperties().catch(() => []),
+      api.listCategories().catch(() => []),
     ])
-      .then(([a, t, h, p, prop]) => {
+      .then(([a, t, h, p, prop, cats]) => {
         setAccounts(a);
         setTransactions(t);
         setHoldings(h);
         setPolicies(p);
         setProperties(prop);
+        setCategories(cats);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -110,7 +114,10 @@ export default function Future() {
     }
 
     const year = periodOptions().find((p) => p.label === "Last 12 months")!;
-    const { items } = inBase(spendingTransactions(scoped), rates);
+    // Transfers out: a standing move to savings is not spending, and
+    // counting it would have the projection assume a household that both
+    // saves more and can afford less than it can.
+    const { items } = inBase(excludeTransfers(spendingTransactions(scoped), transferCategoryIds(categories)), rates);
     const yearly = inPeriod(items, year);
     const months = Math.max(1, monthsCovered(year, yearly).length);
     const income = yearly.filter((e) => e.amount > 0).reduce((sum, e) => sum + e.amount, 0);
@@ -123,7 +130,7 @@ export default function Future() {
       monthlyExpenses: spend / months,
       monthsOfHistory: months,
     };
-  }, [accounts, transactions, holdings, policies, properties, scope, rates]);
+  }, [accounts, transactions, holdings, policies, properties, categories, scope, rates]);
 
   const widgets: WidgetSpec[] = [
     {

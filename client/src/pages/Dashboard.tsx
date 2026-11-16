@@ -1,6 +1,15 @@
 import { ArrowDownRight, ArrowUpRight, Plus, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import SummaryStrip from "../components/dashboard/SummaryStrip.js";
+import ExpenseTrend from "../components/dashboard/ExpenseTrend.js";
+import IncomeSources from "../components/dashboard/IncomeSources.js";
+import NotesWidget from "../components/dashboard/NotesWidget.js";
+import QuickAdd from "../components/dashboard/QuickAdd.js";
+import Subscriptions from "../components/dashboard/Subscriptions.js";
+import { detectRecurring } from "../utils/recurring.js";
+import { dailySpend, incomeBySource, summaryFigures } from "../utils/dashboardSummary.js";
+import { excludeTransfers, transferCategoryIds } from "../utils/transfers.js";
 import CashFlowCard, { type MonthFlow } from "../components/dashboard/CashFlowCard.js";
 import CashFlowForecast from "../components/dashboard/CashFlowForecast.js";
 import UpcomingBills from "../components/dashboard/UpcomingBills.js";
@@ -343,7 +352,22 @@ export default function Dashboard() {
    * gets one of them wrong whichever way round it is done.
    */
   const worthTx = [...convertedTx, ...repaymentMirrors(convertedTx)];
-  const spendTx = spendingTransactions(convertedTx);
+  /**
+   * Transfers between your own accounts leave the flow figures and stay in
+   * the balance ones.
+   *
+   * Moving €2,000 to savings is one event in two rows. Both are needed for
+   * the balances — the current account really is €2,000 lighter — and
+   * counting them as income and spending reports a month in which €2,000
+   * more was earned and €2,000 more was spent than actually happened.
+   *
+   * So: `worthTx` keeps everything, and everything that totals income or
+   * spending comes off `flowTx`. Same split the app already makes for a loan
+   * repayment, generalised.
+   */
+  const transferIds = transferCategoryIds(categories);
+  const flowTx = excludeTransfers(convertedTx, transferIds);
+  const spendTx = spendingTransactions(flowTx);
 
   /**
    * Where the balance goes next, from what repeats.
@@ -383,12 +407,15 @@ export default function Dashboard() {
     .filter((tx) => tx.booking_date.startsWith(thisMonthKey))
     .reduce((sum, tx) => sum + tx.amount, 0);
 
-  const income = convertedTx.filter((tx) => tx.amount > 0).reduce((sum, tx) => sum + tx.amount, 0);
+  const income = flowTx.filter((tx) => tx.amount > 0).reduce((sum, tx) => sum + tx.amount, 0);
   const expenses = Math.abs(spendTx.filter((tx) => tx.amount < 0).reduce((sum, tx) => sum + tx.amount, 0));
 
   const monthKeys = [...new Set(convertedTx.map((tx) => tx.booking_date.slice(0, 7)))].sort().slice(-6);
   const monthFlows: MonthFlow[] = monthKeys.map((key) => {
-    const monthTx = convertedTx.filter((tx) => tx.booking_date.startsWith(key));
+    // The flow list, not the balance one: a transfer in is not a month of
+    // better income, and drawn on this chart it would be a green bar for
+    // money that was already yours.
+    const monthTx = flowTx.filter((tx) => tx.booking_date.startsWith(key));
     const monthSpend = spendTx.filter((tx) => tx.booking_date.startsWith(key));
     return {
       label: monthLabel(key),
@@ -561,6 +588,50 @@ export default function Dashboard() {
     borrowing.map((a) => ({ amount: amountDrawn(a, byAccount.get(a.id) ?? 0), currency: a.currency })),
     rates
   );
+
+
+  /**
+   * The month the glance widgets describe.
+   *
+   * Fixed to the calendar month rather than following the range picker: "this
+   * month at a glance" is a claim about a month, and a strip of figures
+   * covering the last ninety days under that heading would be a different
+   * claim wearing the same words.
+   */
+  const glanceMonth = thisMonthKey;
+  const previousMonthKey = new Date(Date.UTC(Number(glanceMonth.slice(0, 4)), Number(glanceMonth.slice(5, 7)) - 2, 1))
+    .toISOString()
+    .slice(0, 7);
+
+  // Spending rather than every movement: a loan repayment leaves the account
+  // but the money became equity in a debt, and counting it as spending here
+  // would disagree with every other spending figure in the app.
+  const glanceEntries = spendTx.map((tx) => ({
+    amount: tx.amount,
+    booking_date: tx.booking_date,
+    category_id: tx.category_id,
+  }));
+
+  const budgetedTotal = budgets
+    .filter((b) => !rates || b.currency === rates.base)
+    .reduce((sum, b) => sum + b.monthly_limit, 0);
+  const savedTotal = savingsGoals.reduce((sum, goal) => sum + goal.current_amount, 0);
+
+  const glanceFigures = summaryFigures({
+    entries: glanceEntries,
+    month: glanceMonth,
+    budgeted: budgetedTotal,
+    debt: totalDebt,
+    saved: savedTotal,
+  });
+  const glanceDays = dailySpend(glanceEntries, glanceMonth);
+  const previousDays = dailySpend(glanceEntries, previousMonthKey);
+  const glanceSources = incomeBySource(glanceEntries, glanceMonth, (id) =>
+    id === null ? "" : (categoryNames.get(id) ?? "")
+  );
+  // The full history, for the same reason Analytics uses it: a rhythm cannot
+  // be found inside a window shorter than the rhythm.
+  const dashboardSubscriptions = detectRecurring(excludeTransfers(fullHistoryTx, transferIds));
 
   // Below the breakpoint the canvas stacks. Reading order follows the
   // arrangement on a wide screen — top to bottom, then left to right — so the
@@ -899,6 +970,41 @@ export default function Dashboard() {
             })}
           </div>
         ),
+    },
+    summary: {
+      body: <SummaryStrip figures={glanceFigures} money={(value) => (rates ? formatCurrency(value, rates.base) : value.toFixed(2))} />,
+    },
+    expenseTrend: {
+      body: (
+        <ExpenseTrend
+          points={glanceDays}
+          lastMonth={previousDays}
+          money={(value) => (rates ? formatCurrency(value, rates.base) : value.toFixed(2))}
+        />
+      ),
+    },
+    incomeSources: {
+      body: <IncomeSources sources={glanceSources} money={(value) => (rates ? formatCurrency(value, rates.base) : value.toFixed(2))} />,
+    },
+    subscriptions: {
+      headerExtra: (
+        <Link to="/analytics" className="card__link">
+          All ›
+        </Link>
+      ),
+      body: <Subscriptions payments={dashboardSubscriptions} currency={rates?.base ?? "EUR"} />,
+    },
+    notes: { body: <NotesWidget /> },
+    quickAdd: {
+      body: (
+        <QuickAdd
+          accounts={accounts}
+          categories={categories}
+          onAdded={() => {
+            api.listTransactions().then(setTransactions);
+          }}
+        />
+      ),
     },
   };
 

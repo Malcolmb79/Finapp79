@@ -95,57 +95,84 @@ categoriesRouter.post("/", async (req, res) => {
  * to tell it otherwise. This is the way to tell it.
  */
 /**
- * What the two income flags become after a patch, or null if it says nothing.
+ * What a category's three flags become after a patch, or null if it says
+ * nothing usable.
  *
- * The pair has one combination that cannot mean anything - occasional income
- * on a category that is not income - so the rules are applied here rather than
- * left to whichever screen wrote last. Clearing income clears occasional with
- * it; declaring something occasional declares it income.
+ * Two combinations cannot mean anything, so the rules are applied here rather
+ * than left to whichever screen wrote last:
+ *
+ *   - Occasional income on a category that is not income. Clearing income
+ *     clears occasional with it; declaring something occasional declares it
+ *     income.
+ *   - Income on a category that is a transfer. A transfer is the household's
+ *     own money arriving from the household's own account — it is neither
+ *     income nor spending, and a category claiming to be both would have
+ *     every total disagree with itself depending which flag it read.
  */
-export function incomeFlags(
-  current: { counts_as_income: boolean; income_is_occasional: boolean },
-  patch: { counts_as_income?: unknown; income_is_occasional?: unknown }
-): { counts_as_income: boolean; income_is_occasional: boolean } | null {
+export function categoryFlags(
+  current: { counts_as_income: boolean; income_is_occasional: boolean; is_transfer: boolean },
+  patch: { counts_as_income?: unknown; income_is_occasional?: unknown; is_transfer?: unknown }
+): { counts_as_income: boolean; income_is_occasional: boolean; is_transfer: boolean } | null {
   const hasCounts = "counts_as_income" in patch;
   const hasOccasional = "income_is_occasional" in patch;
-  if (!hasCounts && !hasOccasional) return null;
+  const hasTransfer = "is_transfer" in patch;
+  if (!hasCounts && !hasOccasional && !hasTransfer) return null;
   if (hasCounts && typeof patch.counts_as_income !== "boolean") return null;
   if (hasOccasional && typeof patch.income_is_occasional !== "boolean") return null;
+  if (hasTransfer && typeof patch.is_transfer !== "boolean") return null;
 
   const counts = hasCounts ? (patch.counts_as_income as boolean) : current.counts_as_income;
   const occasional = hasOccasional ? (patch.income_is_occasional as boolean) : current.income_is_occasional;
+  const transfer = hasTransfer ? (patch.is_transfer as boolean) : current.is_transfer;
 
-  // Only what the patch actually says can move the other flag. Reading the
+  // Marking something a transfer settles the other two: it is not income, so
+  // it cannot be occasional income either.
+  if (hasTransfer && transfer) return { counts_as_income: false, income_is_occasional: false, is_transfer: true };
+
+  // And declaring income on a category that was a transfer takes the transfer
+  // flag off, rather than leaving a row that claims to be both.
+  const clearedTransfer = (hasCounts && counts) || (hasOccasional && occasional) ? false : transfer;
+
+  // Only what the patch actually says can move another flag. Reading the
   // carried-over value as an instruction is how "stop treating this as income"
   // turned into no change at all: the occasional flag still sitting on the row
   // put the income flag straight back.
   if (hasCounts && hasOccasional && !counts && occasional) return null;
-  if (hasOccasional && occasional) return { counts_as_income: true, income_is_occasional: true };
-  if (hasCounts && !counts) return { counts_as_income: false, income_is_occasional: false };
-  return { counts_as_income: counts, income_is_occasional: occasional };
+  if (hasOccasional && occasional) return { counts_as_income: true, income_is_occasional: true, is_transfer: false };
+  if (hasCounts && !counts) return { counts_as_income: false, income_is_occasional: false, is_transfer: clearedTransfer };
+  return { counts_as_income: counts, income_is_occasional: occasional, is_transfer: clearedTransfer };
 }
 
 categoriesRouter.patch("/:id", async (req, res) => {
   const existing = await db
     .prepare("SELECT * FROM categories WHERE id = ? AND user_id = ?")
-    .get<{ id: number; counts_as_income: boolean; income_is_occasional: boolean }>(req.params.id, req.user!.id);
+    .get<{ id: number; counts_as_income: boolean; income_is_occasional: boolean; is_transfer: boolean }>(
+      req.params.id,
+      req.user!.id
+    );
   if (!existing) {
     res.status(404).json({ error: "category not found" });
     return;
   }
 
-  const flags = incomeFlags(
-    { counts_as_income: !!existing.counts_as_income, income_is_occasional: !!existing.income_is_occasional },
+  const flags = categoryFlags(
+    {
+      counts_as_income: !!existing.counts_as_income,
+      income_is_occasional: !!existing.income_is_occasional,
+      is_transfer: !!existing.is_transfer,
+    },
     req.body ?? {}
   );
   if (flags === null) {
-    res.status(400).json({ error: "counts_as_income or income_is_occasional must be true or false" });
+    res.status(400).json({ error: "counts_as_income, income_is_occasional or is_transfer must be true or false" });
     return;
   }
 
   await db
-    .prepare("UPDATE categories SET counts_as_income = ?, income_is_occasional = ? WHERE id = ? AND user_id = ?")
-    .run(flags.counts_as_income, flags.income_is_occasional, req.params.id, req.user!.id);
+    .prepare(
+      "UPDATE categories SET counts_as_income = ?, income_is_occasional = ?, is_transfer = ? WHERE id = ? AND user_id = ?"
+    )
+    .run(flags.counts_as_income, flags.income_is_occasional, flags.is_transfer, req.params.id, req.user!.id);
 
   res.json(await db.prepare("SELECT * FROM categories WHERE id = ?").get(req.params.id));
 });
