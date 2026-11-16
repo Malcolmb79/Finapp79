@@ -1443,3 +1443,142 @@ th {
     margin-left: auto;
   }
 }
+
+/* Reports — statements rather than screens.
+
+   Styled closer to a printed document than to the rest of the app: wider
+   leading, a visible rule under each total, and figures in tabular numerals
+   so a column of them lines up on the decimal point. A balance sheet whose
+   digits wander is one nobody trusts. */
+
+.reports-page__list {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.report {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.25rem 1.4rem 1rem;
+}
+
+.report__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+}
+
+.report__title {
+  font-size: 1.02rem;
+  margin: 0;
+}
+
+.report__period {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: 0.15rem 0 0;
+}
+
+.report__actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.report__actions button {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.6rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.report__table th,
+.report__table td {
+  padding: 0.38rem 0.5rem;
+}
+
+.report__section-heading th {
+  padding-top: 0.9rem;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+}
+
+/* A subtotal closes a section and a total closes the statement, so they are
+   told apart by weight and by rule rather than both being merely bold —
+   otherwise "Total assets" and "Net worth" read as the same kind of claim. */
+.report__table tr[data-kind="subtotal"] td {
+  font-weight: 600;
+  border-top: 1px solid var(--baseline);
+}
+
+.report__table tr[data-kind="total"] td {
+  font-weight: 700;
+  font-size: 0.98rem;
+  border-top: 2px solid var(--text-primary);
+  border-bottom: none;
+}
+
+.report__detail {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 0.05rem;
+}
+
+.report__empty {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-style: italic;
+}
+
+.report__notes {
+  margin: 0.85rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.73rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.report__notes li {
+  margin-bottom: 0.2rem;
+}
+
+/* On paper. The app's furniture is navigation to a place the reader of a
+   printed page cannot go, so it goes; the notes stay, because the caveats are
+   part of what the statement claims and dropping them on paper would overstate
+   it exactly where it is least checkable. */
+@media print {
+  .sidebar,
+  .report__actions,
+  .page-header__subtitle,
+  .report__period-label,
+  .reports-page select {
+    display: none !important;
+  }
+
+  body,
+  .app-shell,
+  .report {
+    background: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+  }
+
+  .report {
+    border: none;
+    padding: 0;
+    break-inside: avoid;
+    margin-bottom: 1.5rem;
+  }
+
+  .report__notes,
+  .report__detail,
+  .report__period {
+    color: #444444 !important;
+  }
+}
