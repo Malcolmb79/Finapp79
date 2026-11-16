@@ -232,6 +232,13 @@ query, or one user's data leaks into another's response.
   deleted (`DELETE /api/transactions/:id` filters on `source = 'manual'`) —
   synced and imported transactions are meant to stay in sync with their
   origin instead of being hand-edited away.
+- A row awaiting review (`reviewed_at IS NULL`) can already carry a
+  `category_id`: the detail card opens from the review queue and files it
+  without approving it. So everywhere that decides what approving will write
+  — `PendingReviewWidget`'s `selectedCategory`, `TopHeader`'s `chosen` — reads
+  `category_id ?? suggested_category_id`, never the suggestion alone. The
+  suggestion is a guess and the stored category is a decision; letting the
+  guess win means the tick quietly undoes the edit the screen had just shown.
 - `PATCH /api/transactions/:id` only touches fields actually present in the
   request body (checked via `"field" in req.body`), not just truthy ones —
   needed so a category can be explicitly cleared back to `null`

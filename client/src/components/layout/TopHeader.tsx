@@ -52,8 +52,12 @@ export default function TopHeader({ onOpenNav }: { onOpenNav: () => void }) {
   // said shouldn't appear.
   const selectable = visibleAccounts(accounts);
 
+  // A category already on the row wins over the suggestion, same as in the
+  // review widget: the only way one gets there before approval is somebody
+  // setting it by hand, and approving from here must not undo that.
   function chosen(t: PendingTransaction): number | null {
-    return t.id in selections ? selections[t.id] : t.suggested_category_id;
+    if (t.id in selections) return selections[t.id];
+    return t.category_id ?? t.suggested_category_id;
   }
 
   async function approve(t: PendingTransaction) {

@@ -1253,6 +1253,85 @@ th {
   padding-top: 0;
 }
 
+/* A row awaiting review carries four things where the transactions table
+   carries two: the payee, a category picker, the amount and the tick. In a
+   narrow card the picker and the amount take their fixed widths first and
+   `min-width: 0` let the payee shrink away to nothing — the line read
+   "Q…" over "2026…", which is every question somebody filing it has and no
+   answer to any of them. A floor under the payee, and the controls wrap to
+   their own line instead of squeezing it out. */
+.tx-row--review {
+  flex-wrap: wrap;
+  /* Only ever affects a line that wrapped: on the first line the payee grows
+     to fill it, so there is no free space to distribute. What it does is keep
+     the amount and the tick against the right edge when they drop to a line
+     of their own, rather than stranding them under the payee. */
+  justify-content: flex-end;
+}
+
+.tx-row--review .tx-row__info {
+  min-width: 150px;
+}
+
+/* The payee block of a row awaiting review, made openable. Such a row
+   carries almost nothing on its face — some arrive with no description at
+   all — so the detail card is where the account, the date and the bank's own
+   text live, and the block has to look like it leads somewhere. Button reset
+   first: this is a real <button>, for the keyboard and for screen readers. */
+.tx-row__open {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0.25rem 0.4rem;
+  margin: -0.25rem -0.4rem;
+  border-radius: 8px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.tx-row__open:hover,
+.tx-row__open:focus-visible {
+  background: var(--surface-2);
+}
+
+/* The chevron sits beside the name rather than inside it: the name clips with
+   an ellipsis, and a long payee would have eaten the affordance. */
+.tx-row__open .tx-row__name {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.tx-row__open .tx-row__name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Held back until the row is hovered or focused: an arrow on every line at
+   rest is five arrows all saying the same thing. */
+.tx-row__open-hint {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.tx-row__open:hover .tx-row__open-hint,
+.tx-row__open:focus-visible .tx-row__open-hint {
+  opacity: 1;
+}
+
+/* Touch has no hover, so on a tablet the affordance would never appear. */
+@media (hover: none) {
+  .tx-row__open-hint {
+    opacity: 1;
+  }
+}
+
 .tx-row--clickable {
   cursor: pointer;
   margin: 0 -0.5rem;

@@ -1,8 +1,9 @@
-import { Check, Loader2, Plus, Search, Sparkles, X } from "lucide-react";
+import { Check, ChevronRight, Loader2, Plus, Search, Sparkles, X } from "lucide-react";
 import { useState } from "react";
 import { api, type Account, type Category, type PendingTransaction } from "../../api/client.js";
 import { errorMessage } from "../../utils/errorMessage.js";
 import CategorySelect from "../CategorySelect.js";
+import TransactionDetailModal from "../TransactionDetailModal.js";
 import { cleanDescription } from "../../utils/cleanDescription.js";
 import { formatCurrency } from "../../utils/formatCurrency.js";
 
@@ -34,6 +35,19 @@ export default function PendingReviewWidget({
   // before the parent has refetched (see the `setKnown` below).
   const [known, setKnown] = useState<Category[]>(categories);
   const [lastCategories, setLastCategories] = useState(categories);
+  /**
+   * Which row is open in the detail card, held as an id rather than the row.
+   *
+   * A row here carries almost nothing on its face — some arrive from the bank
+   * with no description at all, and then the line reads "Transaction" and a
+   * date, which answers none of the questions somebody filing it actually
+   * has: which account, what the bank really sent, is this one of a pair.
+   *
+   * Holding the id rather than the object means the card reads the refreshed
+   * list on every change instead of the copy it was handed when it opened,
+   * and it closes by itself if the row stops waiting.
+   */
+  const [openId, setOpenId] = useState<string | null>(null);
 
   // Adjusting state during render — React's documented pattern for "reset
   // state when a prop changes" — rather than in an effect, which rendered the
@@ -83,8 +97,18 @@ export default function PendingReviewWidget({
     return category;
   }
 
+  /**
+   * What this row will be filed as when it is approved.
+   *
+   * A category already on the row outranks the suggestion. The only way one
+   * gets there before approval is somebody setting it by hand in the detail
+   * card, and letting a suggestion win would quietly undo that edit on the
+   * very next click — approving would file it somewhere else than the screen
+   * had just been told.
+   */
   function selectedCategory(t: PendingTransaction): number | null {
-    return t.id in selections ? selections[t.id] : t.suggested_category_id;
+    if (t.id in selections) return selections[t.id];
+    return t.category_id ?? t.suggested_category_id;
   }
 
   async function approve(t: PendingTransaction) {
@@ -134,6 +158,10 @@ export default function PendingReviewWidget({
     });
   }
 
+  // Read back out of the live list rather than stored, so an edit made in
+  // the card shows up the moment the parent refetches.
+  const open = openId ? transactions.find((t) => t.id === openId) ?? null : null;
+
   if (transactions.length === 0) {
     return <p className="empty-state">No new transactions to review.</p>;
   }
@@ -182,6 +210,11 @@ export default function PendingReviewWidget({
           {visible.length === transactions.length
             ? `${transactions.length} awaiting review`
             : `${visible.length} of ${transactions.length} shown`}
+          {/* Said once here when everything waiting is on the same account.
+              The per-row label is suppressed in that case — it would be the
+              same word on every line — which left "which account is this?"
+              unanswered anywhere on the screen. */}
+          {filterableAccounts.length === 1 && ` in ${filterableAccounts[0].name}`}
         </span>
 
         {/* Sets a category on every visible row at once — the point of
@@ -228,12 +261,23 @@ export default function PendingReviewWidget({
       {visible.length === 0 && <p className="empty-state">No transactions match “{query.trim()}”.</p>}
 
       {visible.map((t) => (
-        <div className="tx-row" key={t.id}>
-          <div className="tx-row__info">
+        <div className="tx-row tx-row--review" key={t.id}>
+          {/* Opens the full card. A real button, so the keyboard and a
+              screen reader get it too, and the payee block is the part of the
+              row not already spoken for by a control. */}
+          <button
+            type="button"
+            className="tx-row__info tx-row__open"
+            onClick={() => setOpenId(t.id)}
+            aria-label={`Open ${cleanDescription(t.description) || t.counterparty || "this transaction"} for the account, date and full bank text`}
+          >
             {/* Same cleaning the transactions table does, and titled so the
                 full bank text is still reachable when the row clips it. */}
             <div className="tx-row__name" title={t.description ?? undefined}>
-              {cleanDescription(t.description) || t.counterparty || "Transaction"}
+              <span className="tx-row__name-text">
+                {cleanDescription(t.description) || t.counterparty || "Transaction"}
+              </span>
+              <ChevronRight size={13} className="tx-row__open-hint" aria-hidden="true" />
             </div>
             <div className="tx-row__meta">
               {t.booking_date}
@@ -275,7 +319,7 @@ export default function PendingReviewWidget({
                 </span>
               )}
             </div>
-          </div>
+          </button>
           <CategorySelect
             categories={known}
             value={selectedCategory(t)}
@@ -292,6 +336,25 @@ export default function PendingReviewWidget({
           </button>
         </div>
       ))}
+
+      {/* The same card the transactions table and the dashboard open, so a
+          transaction looks and behaves the same wherever it is clicked.
+          Setting a category in it does not approve the row — approving is
+          still the tick on the row, and the card's choice arrives in the
+          dropdown as the decision already made. `siblings` is everything
+          waiting rather than the filtered view, because fixing a merchant
+          means fixing it everywhere. */}
+      {open && (
+        <TransactionDetailModal
+          key={open.id}
+          transaction={open}
+          account={accounts.find((a) => a.id === open.account_id)}
+          categories={known}
+          siblings={transactions}
+          onClose={() => setOpenId(null)}
+          onChange={onApproved}
+        />
+      )}
     </div>
   );
 }
