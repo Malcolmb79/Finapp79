@@ -397,10 +397,27 @@ export default function Dashboard() {
   const incomeCategories = new Set(
     categories.filter((c) => c.counts_as_income && !c.income_is_occasional).map((c) => c.id)
   );
+  /**
+   * Money arriving from your own accounts is not money arriving.
+   *
+   * The line opens at `spendableTotal`, which is every spendable account
+   * added together — so a transfer between two of them is already inside the
+   * opening figure on both sides. Projecting the inflow leg as income adds
+   * money that was always there, every month, forever.
+   *
+   * The outflow leg is deliberately kept. It usually nets out the same way,
+   * but not always: a transfer to a credit card leaves the spendable total
+   * for a liability account that is not in it. So the two sides are treated
+   * differently on purpose, and each errs the same way — towards a lower
+   * balance, which is the direction a "will there be enough" projection
+   * should be wrong in.
+   */
+  const forecastTx = excludeTransfers(fullHistoryTx, transferIds);
   const forecast = forecastBalance(fullHistoryTx, spendableTotal, {
     from: forecastFrom,
     days: FORECAST_DAYS,
     isIncomeCategory: (id) => id != null && incomeCategories.has(id),
+    incomeFrom: forecastTx,
   });
   const bills = upcomingBills(fullHistoryTx, { from: forecastFrom, until: addDaysIso(forecastFrom, FORECAST_DAYS) });
 

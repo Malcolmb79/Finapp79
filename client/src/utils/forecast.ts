@@ -49,7 +49,38 @@ export function today(now = new Date()): string {
  * overdue or finished, and this catches up to the present rather than
  * projecting a run of dates that have been and gone.
  */
+/**
+ * How far past its own rhythm a commitment can fall and still be believed.
+ *
+ * Half a cycle of slack: a salary paid on the 25th is up to thirty-one days
+ * old the day before the next one, and a statement imported a fortnight late
+ * makes that forty. Past one and a half cycles it has missed a turn, and the
+ * likeliest explanation is that it has stopped.
+ */
+const LIVE_CYCLES = 1.5;
+
+/**
+ * Whether this still looks like something that is going to happen again.
+ *
+ * Without this every charge that ever happened is a commitment forever.
+ * `nextDueDates` steps forward from the last charge and skips the dates that
+ * have been and gone, so a one-off credit from April does not produce April's
+ * dates — it produces next month's, and the month after, indefinitely. The
+ * skipping made it *look* as though old payments were handled.
+ *
+ * That is survivable for a subscription, which at worst makes the line too
+ * pessimistic. On the income side it invents money: a payment received once,
+ * a year ago, is projected as a monthly salary, and a household with a dozen
+ * such credits is shown a balance climbing by a dozen salaries a month.
+ */
+export function stillLive(payment: { cadence: Cadence; lastCharged: string }, asOf: string): boolean {
+  const age = (Date.parse(asOf) - Date.parse(payment.lastCharged)) / DAY;
+  if (!Number.isFinite(age)) return false;
+  return age <= CADENCE_DAYS[payment.cadence] * LIVE_CYCLES;
+}
+
 export function nextDueDates(payment: { cadence: Cadence; lastCharged: string }, from: string, until: string): string[] {
+  if (!stillLive(payment, from)) return [];
   const step = CADENCE_DAYS[payment.cadence];
   const dates: string[] = [];
 
@@ -116,6 +147,16 @@ export interface Forecast {
   low: ForecastPoint | null;
   /** Commitments the projection is built from, so it can say how much it knows. */
   commitments: number;
+  /**
+   * Regular incomes it is counting on, and what they come to each month.
+   *
+   * Both are shown, because the count alone was what let a wrong projection
+   * stay unexplained: a line climbing by ninety thousand euro looked exactly
+   * like a line climbing by nine hundred, and nothing on the card said which
+   * side the number came from or how many payments were behind it.
+   */
+  incomes: number;
+  monthlyIncome: number;
   /** Regular income it found. None means the line only ever goes down. */
   incomeFound: boolean;
 }
@@ -228,12 +269,32 @@ function cadenceFromDates(dates: string[]): Cadence {
 export function forecastBalance(
   transactions: Parameters<typeof detectRecurring>[0],
   openingBalance: number,
-  { from, days, isIncomeCategory }: { from: string; days: number; isIncomeCategory?: (id: number | null | undefined) => boolean }
+  {
+    from,
+    days,
+    isIncomeCategory,
+    /**
+     * The list income is read from, where that differs from the outgoings.
+     *
+     * The caller needs this because the two sides are not symmetrical once
+     * the opening balance is several accounts added together: money moving
+     * between two of them is already in that figure, so the inflow leg is not
+     * income, while the outflow leg may genuinely leave it. Defaults to the
+     * same list, so a caller with one account need not think about it.
+     */
+    incomeFrom,
+  }: {
+    from: string;
+    days: number;
+    isIncomeCategory?: (id: number | null | undefined) => boolean;
+    incomeFrom?: Parameters<typeof detectRecurring>[0];
+  }
 ): Forecast {
   const until = addDays(from, days);
+  const credits = incomeFrom ?? transactions;
 
   const outgoings = detectRecurring(transactions);
-  const detected = detectRecurring(transactions, { direction: "in" });
+  const detected = detectRecurring(credits, { direction: "in" });
 
   /**
    * Declared income wins over detected for the same merchant.
@@ -244,7 +305,7 @@ export function forecastBalance(
    * are kept: marking one category as income is not a claim that nothing else
    * is.
    */
-  const declared = isIncomeCategory ? declaredIncome(transactions, isIncomeCategory) : [];
+  const declared = isIncomeCategory ? declaredIncome(credits, isIncomeCategory) : [];
   const declaredKeys = new Set(declared.map((entry) => entry.key));
   const income = [...declared, ...detected.filter((entry) => !declaredKeys.has(entry.key))];
 
@@ -272,7 +333,17 @@ export function forecastBalance(
     if (low === null || balance < low.balance) low = point;
   }
 
-  return { points, low, commitments: outgoings.length, incomeFound: income.length > 0 };
+  // Only the incomes that actually reach the projection are counted, so the
+  // card describes the line it drew rather than everything that was looked at.
+  const live = income.filter((payment) => stillLive(payment, from));
+  return {
+    points,
+    low,
+    commitments: outgoings.filter((payment) => stillLive(payment, from)).length,
+    incomes: live.length,
+    monthlyIncome: live.reduce((sum, payment) => sum + payment.monthly, 0),
+    incomeFound: live.length > 0,
+  };
 }
 
 /** Re-exported so callers need only this module to work with a projection. */

@@ -558,6 +558,42 @@ why, and for the migration that added it retroactively.
   the same double-count the plan already avoids for debt minimums.
 
 
+### The balance projection, and what it will not project
+
+`utils/forecast.ts` draws the line from today's spendable total and what
+repeats. Three rules keep it from inventing money, and each of them exists
+because it once did.
+
+- **`stillLive()` drops a commitment that has missed its turn** — more than
+  one and a half of its own cycles since the last charge. Without it,
+  `nextDueDates` steps forward from the last charge and skips the dates that
+  have been and gone, which *looks* like old payments are handled: a credit
+  received once in January 2025 produces no 2025 dates, and then produces
+  next month's, and the month after, forever. Harmless on a cancelled
+  subscription, where it only makes the line pessimistic. On the income side
+  it is how a household gets shown a balance climbing by a dozen salaries a
+  month.
+- **Credits carrying a payment reference never group.** `merchantKey` strips
+  digits, so "Inward Swift R026J26Md0" and "Inward Swift R026K7Pb60" are two
+  merchants with one payment each. A merchant with one payment has no spacing
+  to measure, so `declaredIncome` falls back to monthly — a deliberate guess,
+  defensible for a job started last month and catastrophic multiplied by
+  every one-off credit in the history. `stillLive` is what bounds it.
+- **`incomeFrom` lets the caller read income off a different list.** The line
+  opens at `spendableTotal`, which is every spendable account added together,
+  so a transfer between two of them is already inside the opening figure on
+  both sides — projecting the inflow leg adds money that was always there.
+  The Dashboard passes transfers-excluded transactions for income and the
+  full list for outgoings, on purpose: the outflow leg may genuinely leave
+  the spendable total for a liability account that is not in it, and both
+  choices err towards a lower balance, which is the direction a "will there
+  be enough" projection should be wrong in.
+
+The card names both sides — "from 4 regular payments and 1 income worth
+€2,171.55 a month" — because naming only the commitments is what let a wrong
+projection go unexplained: a line climbing by ninety thousand euro read
+exactly like one climbing by nine hundred.
+
 ### Statements that stopped arriving
 
 An account fed by statement import fails silently when you forget it: no

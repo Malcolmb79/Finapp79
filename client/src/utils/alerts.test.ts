@@ -23,6 +23,8 @@ const forecast = (low: { date: string; balance: number } | null): Forecast => ({
   points: [],
   low,
   commitments: 2,
+  incomes: 1,
+  monthlyIncome: 2400,
   incomeFound: true,
 });
 

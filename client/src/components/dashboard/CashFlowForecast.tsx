@@ -108,8 +108,20 @@ export default function CashFlowForecast({
         </p>
       )}
 
+      {/* Both sides, because naming only the outgoings is what let a wrong
+          projection stay unexplained. A line climbing by ninety thousand euro
+          over sixty days read exactly like one climbing by nine hundred, and
+          the figure that would have given it away — how much income a month
+          the line is built on — was the one thing the card didn't say. */}
       <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", margin: "0.4rem 0 0" }}>
-        From {forecast.commitments} regular payment{forecast.commitments === 1 ? "" : "s"} — if nothing unusual happens.
+        From {forecast.commitments} regular payment{forecast.commitments === 1 ? "" : "s"}
+        {forecast.incomes > 0 && (
+          <>
+            {" "}
+            and {forecast.incomes} income{forecast.incomes === 1 ? "" : "s"} worth {money(forecast.monthlyIncome)} a month
+          </>
+        )}{" "}
+        — if nothing unusual happens.
       </p>
     </div>
   );
