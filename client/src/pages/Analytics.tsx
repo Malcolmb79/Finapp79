@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import CashFlowCard, { type MonthFlow } from "../components/dashboard/CashFlowCard.js";
 import MagnitudeBarList from "../components/dashboard/MagnitudeBarList.js";
 import StatTile from "../components/dashboard/StatTile.js";
-import { api, type Account, type Category, type Transaction } from "../api/client.js";
+import { api, type Account, type Category, type Transaction, type TransactionRule } from "../api/client.js";
 import { spendingTransactions, visibleTransactions } from "../utils/accountBalance.js";
 import { useAccountScope, useDateRange } from "../contexts/ViewFilterContext.js";
 import { dateRangeLabel, rangeMonthCount, withinRange } from "../utils/dateRange.js";
@@ -16,7 +16,8 @@ import { formatCurrency } from "../utils/formatCurrency.js";
 import { inBase, useFxRates } from "../utils/fx.js";
 import { cleanDescription } from "../utils/cleanDescription.js";
 import { detectPriceRises } from "../utils/priceRises.js";
-import { detectRecurring } from "../utils/recurring.js";
+import { recurringRepayments, subscriptions } from "../utils/recurring.js";
+import { unclaimedRepayments } from "../utils/loanRepayments.js";
 import { excludeTransfers, transferCategoryIds } from "../utils/transfers.js";
 
 const TREND_MONTHS = 12;
@@ -35,11 +36,16 @@ export default function Analytics() {
   // these figures with them, or the page reports spending from an account the
   // rest of the app has been told to ignore.
   const [accounts, setAccounts] = useState<Account[]>([]);
-  useEffect(() => {
+  // Which loans already have their repayments named, so the subscriptions
+  // card can offer to name the ones that don't.
+  const [rules, setRules] = useState<TransactionRule[]>([]);
+  function refresh() {
     api.listTransactions().then(setTransactions);
     api.listCategories().then(setCategories);
     api.listAccounts().then(setAccounts);
-  }, []);
+    api.listRules().then(setRules).catch(() => {});
+  }
+  useEffect(refresh, []);
 
   const { scope } = useAccountScope();
   const { range } = useDateRange();
@@ -186,11 +192,22 @@ export default function Analytics() {
 
   // Recurrence needs the full history to find a rhythm — three charges
   // inside one month is not a monthly subscription.
-  const recurring = detectRecurring(excludeTransfers(fullHistoryTx, transferIds));
+  //
+  // Loan repayments are out of it for the same reason they are out of every
+  // other spending total on this page: the money buys down a balance rather
+  // than going out of the picture, and a repayment cannot be cancelled, which
+  // is the question a subscriptions list exists to answer.
+  const recurringHistory = excludeTransfers(fullHistoryTx, transferIds);
+  const recurring = subscriptions(recurringHistory);
+  const recurringRepaid = recurringRepayments(recurringHistory);
+  const unclaimed = unclaimedRepayments(recurring, accounts, rules);
   // Deliberately from the full history rather than the chosen range: a price
   // rise is established by what came before it, and a three-month window can
   // easily hold the new price and none of the old.
-  const priceRises = detectPriceRises(fullHistoryTx);
+  //
+  // A loan's instalment moving is a rate change, not a price rise — there is
+  // no provider to ring about it — so repayments leave this too.
+  const priceRises = detectPriceRises(spendingTransactions(fullHistoryTx));
   const recurringAnnual = recurring.reduce((sum, r) => sum + r.annualised, 0);
 
   // The individual charges worth a second look. A category total hides a
@@ -299,7 +316,22 @@ export default function Analytics() {
       accentVar: "--accent-2",
       defaultWidth: 672,
       defaultHeight: 460,
-      render: () => <Subscriptions payments={recurring} currency={rates?.base ?? "EUR"} />,
+      render: () => (
+        <Subscriptions
+          payments={recurring}
+          currency={rates?.base ?? "EUR"}
+          repayments={recurringRepaid}
+          unclaimed={unclaimed}
+          onAttribute={async (hit) => {
+            await api.createRule({
+              match_text: hit.matchText,
+              match_account_id: hit.fromAccountId,
+              repays_account_id: hit.account.id,
+            });
+            refresh();
+          }}
+        />
+      ),
     },
     {
       id: "priceRises",

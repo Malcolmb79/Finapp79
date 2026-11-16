@@ -7,7 +7,8 @@ import IncomeSources from "../components/dashboard/IncomeSources.js";
 import NotesWidget from "../components/dashboard/NotesWidget.js";
 import QuickAdd from "../components/dashboard/QuickAdd.js";
 import Subscriptions from "../components/dashboard/Subscriptions.js";
-import { detectRecurring } from "../utils/recurring.js";
+import { recurringRepayments, subscriptions } from "../utils/recurring.js";
+import { unclaimedRepayments } from "../utils/loanRepayments.js";
 import { dailySpend, incomeBySource, summaryFigures } from "../utils/dashboardSummary.js";
 import { excludeTransfers, transferCategoryIds } from "../utils/transfers.js";
 import CashFlowCard, { type MonthFlow } from "../components/dashboard/CashFlowCard.js";
@@ -30,6 +31,7 @@ import {
   type Property,
   type SavingsGoal,
   type Transaction,
+  type TransactionRule,
 } from "../api/client.js";
 import {
   LAYOUT_GAP,
@@ -199,6 +201,9 @@ export default function Dashboard() {
   const [allPolicies, setPolicies] = useState<Policy[]>([]);
   const [allHoldings, setHoldings] = useState<Holding[]>([]);
   const [allProperties, setProperties] = useState<Property[]>([]);
+  // Loaded only to know which loans already have their repayments named, so
+  // the subscriptions list offers to name the ones that don't.
+  const [rules, setRules] = useState<TransactionRule[]>([]);
   // The transaction whose detail card is open, from the recent list.
   const [openTransaction, setOpenTransaction] = useState<Transaction | null>(null);
   const [config, setConfig] = useState<DashboardConfig>(loadConfig);
@@ -223,6 +228,7 @@ export default function Dashboard() {
     api.listPolicies().then(setPolicies);
     api.listHoldings().then(setHoldings).catch(() => {});
     api.listProperties().then(setProperties).catch(() => {});
+    api.listRules().then(setRules).catch(() => {});
   }
 
   useEffect(refresh, []);
@@ -649,7 +655,17 @@ export default function Dashboard() {
   );
   // The full history, for the same reason Analytics uses it: a rhythm cannot
   // be found inside a window shorter than the rhythm.
-  const dashboardSubscriptions = detectRecurring(excludeTransfers(fullHistoryTx, transferIds));
+  //
+  // Repayments are out of it: a loan instalment comes back every month and is
+  // not a subscription, because it buys down a balance rather than paying for
+  // something and cannot be stopped. `subscriptionRepayments` is what was left
+  // out, so the card can say so rather than quietly totalling less.
+  const dashboardHistory = excludeTransfers(fullHistoryTx, transferIds);
+  const dashboardSubscriptions = subscriptions(dashboardHistory);
+  const subscriptionRepayments = recurringRepayments(dashboardHistory);
+  // A loan whose balance nothing is moving, beside a payment carrying that
+  // loan's own name. Offered under the row, never applied unasked.
+  const unclaimed = unclaimedRepayments(dashboardSubscriptions, allAccounts, rules);
 
   // Below the breakpoint the canvas stacks. Reading order follows the
   // arrangement on a wide screen — top to bottom, then left to right — so the
@@ -1010,7 +1026,22 @@ export default function Dashboard() {
           All ›
         </Link>
       ),
-      body: <Subscriptions payments={dashboardSubscriptions} currency={rates?.base ?? "EUR"} />,
+      body: (
+        <Subscriptions
+          payments={dashboardSubscriptions}
+          currency={rates?.base ?? "EUR"}
+          repayments={subscriptionRepayments}
+          unclaimed={unclaimed}
+          onAttribute={async (hit) => {
+            await api.createRule({
+              match_text: hit.matchText,
+              match_account_id: hit.fromAccountId,
+              repays_account_id: hit.account.id,
+            });
+            refresh();
+          }}
+        />
+      ),
     },
     notes: { body: <NotesWidget /> },
     quickAdd: {

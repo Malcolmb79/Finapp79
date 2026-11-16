@@ -197,7 +197,7 @@ export function declaredIncome(
   transactions: Parameters<typeof detectRecurring>[0],
   isIncomeCategory: (categoryId: number | null | undefined) => boolean
 ): RecurringPayment[] {
-  const byMerchant = new Map<string, { charges: { date: string; amount: number }[]; label: string }>();
+  const byMerchant = new Map<string, { charges: { date: string; amount: number; accountId: string | null }[]; label: string }>();
 
   for (const tx of transactions) {
     if (tx.amount <= 0) continue;
@@ -208,7 +208,7 @@ export function declaredIncome(
     if (key.length < 3) continue;
 
     const entry = byMerchant.get(key) ?? { charges: [], label: cleanDescription(tx.description) || key };
-    entry.charges.push({ date: tx.booking_date, amount: tx.amount });
+    entry.charges.push({ date: tx.booking_date, amount: tx.amount, accountId: tx.account_id ?? null });
     byMerchant.set(key, entry);
   }
 

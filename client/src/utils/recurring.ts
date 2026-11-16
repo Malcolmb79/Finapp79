@@ -1,3 +1,4 @@
+import { spendingTransactions } from "./accountBalance.js";
 import { cleanDescription } from "./cleanDescription.js";
 
 /**
@@ -29,7 +30,7 @@ export interface RecurringPayment {
   /** What it costs in an average month, whatever its cadence. */
   monthly: number;
   /** The charges themselves, oldest first, so the history can be shown. */
-  charges: { date: string; amount: number }[];
+  charges: { date: string; amount: number; accountId: string | null }[];
 }
 
 interface Chargeable {
@@ -39,6 +40,10 @@ interface Chargeable {
   counterparty: string | null;
   /** Optional: only the declared-income reader in forecast.ts looks at it. */
   category_id?: number | null;
+  /** Optional: which account the charge landed on, for naming a funding account. */
+  account_id?: string;
+  /** Optional: set when the payment is already attributed to a loan. */
+  repays_account_id?: string | null;
 }
 
 // Days between charges, and how far either side still counts. Monthly is
@@ -143,9 +148,46 @@ export function detectRecurring(
       // What it costs in an average month whatever its cadence, so a yearly
       // insurance and a monthly streaming bill can be added together.
       monthly: (typical * match.perYear) / 12,
-      charges: ordered.map((tx) => ({ date: tx.booking_date, amount: Math.abs(tx.amount) })),
+      charges: ordered.map((tx) => ({ date: tx.booking_date, amount: Math.abs(tx.amount), accountId: tx.account_id ?? null })),
     });
   }
 
   return found.sort((a, b) => b.annualised - a.annualised);
+}
+
+/**
+ * The regular payments a subscriptions view may call subscriptions.
+ *
+ * A loan repayment is as regular as Netflix and is not the same kind of thing.
+ * A subscription is money spent to keep receiving something, and the question
+ * the list exists to answer — what am I signed up to, and what would stopping
+ * it give me back — has no sensible answer for a loan: you cannot cancel it,
+ * and the money is not gone. It buys down a balance, so net worth is unchanged
+ * by it. Counting it overstates the total twice over: once as spending that
+ * isn't spending, and once as a commitment that could be dropped.
+ *
+ * This is not a new judgement. `spendingTransactions` is the rule the rest of
+ * the app already applies everywhere it totals what was spent — Analytics, the
+ * Dashboard's flow figures, the income and expense report — and a subscriptions
+ * total built without it was the one spending figure in the app disagreeing
+ * with the others.
+ *
+ * It needs the payment to have been attributed, which is a repayment rule on
+ * the loan's own account (see `RepaymentRule`). An untracked loan still looks
+ * exactly like a subscription from here, which is what `unclaimedRepayment`
+ * in `loanRepayments.ts` is for.
+ */
+export function subscriptions(transactions: Chargeable[]): RecurringPayment[] {
+  return detectRecurring(spendingTransactions(transactions));
+}
+
+/**
+ * The same list's other half: the regular payments that are repayments.
+ *
+ * Returned rather than silently dropped, because a total that quietly leaves
+ * things out is a total nobody can reconcile against the account it came from.
+ * Every other place in this app that excludes something says what it excluded.
+ */
+export function recurringRepayments(transactions: Chargeable[]): RecurringPayment[] {
+  return detectRecurring(transactions.filter((tx) => Boolean(tx.repays_account_id)));
 }

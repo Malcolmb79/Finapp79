@@ -558,6 +558,56 @@ why, and for the migration that added it retroactively.
   the same double-count the plan already avoids for debt minimums.
 
 
+### What a subscription is not
+
+A loan instalment comes back every month for an identical amount, which is the
+entire definition `detectRecurring` works from — so "Direct Debit to Novuna
+Personal Fi · Monthly · €187.24/mo" sat above Netflix in the subscriptions
+list, as though stopping it were an option.
+
+It isn't one. A subscription is money spent to keep receiving something; a
+repayment buys down a balance, so net worth is unchanged by it and there is
+nothing to cancel. Counting it overstates the total twice — once as spending
+that isn't spending, once as a commitment that could be dropped.
+
+- `subscriptions()` in `recurring.ts` is `detectRecurring` over
+  `spendingTransactions`, which is the rule the rest of the app already applies
+  to every figure about what was spent. A subscriptions total built without it
+  was the one spending figure in the app disagreeing with the others.
+  `detectRecurring` itself is left alone: the **forecast** must keep the
+  repayment, because the money does leave the account, and a projection that
+  drops a real outgoing errs in the direction a "will there be enough" line
+  must never err in.
+- `recurringRepayments()` returns the other half, and the card prints it —
+  "One loan repayment is not counted here — €170.00 a month". A total that
+  quietly leaves things out is a total nobody can reconcile against the account
+  it came from, which is the same reason `dropped`, the report `notes` and the
+  property totals all name what they excluded.
+- Price rises go the same way. A loan instalment moving is a rate change, not a
+  price rise; there is no provider to ring about it.
+- All of that depends on the payment having been **attributed** — a repayment
+  rule on the loan's own account. Until then an untracked loan is
+  indistinguishable from a subscription, so `loanRepayments.ts` speaks up about
+  the one case where the app can see both halves and nobody has joined them: a
+  loan or card whose balance nothing is moving, beside a payment carrying that
+  account's own name. The owner called it "Novuna" and the bank wrote "Novuna"
+  on the payment — evidence from two independent places, the same footing
+  `statementCharges.ts` stands on.
+
+  `distinctiveWords()` is what keeps it from being a guess: words naming the
+  *kind* of thing (loan, card, personal, finance, direct) are struck out,
+  because every account of a type carries them and matching on one would attach
+  "Personal loan" to the first lender's direct debit it saw. And a loan
+  matching two payments, or a payment matching two loans, is refused outright —
+  a lender charging a monthly fee beside the instalment is the ordinary case,
+  and two cards with one bank is the same ambiguity from the other side. Same
+  exactly-one discipline as `nameUnnamedRows`.
+
+  It only ever offers. Confirming writes the **ordinary repayment rule**, not a
+  flag of this feature's own — so the payment leaves the list *and* the loan's
+  balance starts moving. Hiding the row alone would leave the loan frozen,
+  which is the worse of the two faults.
+
 ### The balance projection, and what it will not project
 
 `utils/forecast.ts` draws the line from today's spendable total and what

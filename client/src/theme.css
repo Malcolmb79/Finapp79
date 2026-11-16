@@ -2355,3 +2355,31 @@ th {
   background: color-mix(in srgb, var(--warning) 18%, transparent);
   color: var(--warning);
 }
+
+/* A reading offered under the subscription it is about, never applied on its
+   own. Set apart from the row above it so it reads as a question rather than
+   as part of the figure. */
+.subs-claim {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  padding: 0 0 0.45rem;
+}
+
+.subs-claim__yes {
+  font-size: 0.72rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.subs-claim__yes:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

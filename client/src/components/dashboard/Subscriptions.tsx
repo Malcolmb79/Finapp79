@@ -1,6 +1,7 @@
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Link2, Loader2 } from "lucide-react";
 import { useState } from "react";
 import type { RecurringPayment } from "../../utils/recurring.js";
+import type { UnclaimedRepayment } from "../../utils/loanRepayments.js";
 import { formatCurrency } from "../../utils/formatCurrency.js";
 import { useMeasuredWidth } from "../../utils/useMeasuredWidth.js";
 
@@ -104,12 +105,62 @@ function Bars({ data, currency }: { data: { month: string; amount: number }[]; c
   );
 }
 
-export default function Subscriptions({ payments, currency }: { payments: RecurringPayment[]; currency: string }) {
+export default function Subscriptions({
+  payments,
+  currency,
+  repayments = [],
+  unclaimed = [],
+  onAttribute,
+}: {
+  payments: RecurringPayment[];
+  currency: string;
+  /** Regular payments left out because they repay a loan — named, not hidden. */
+  repayments?: RecurringPayment[];
+  /** Loans nothing is repaying, beside a payment that looks like the repayment. */
+  unclaimed?: UnclaimedRepayment[];
+  onAttribute?: (hit: UnclaimedRepayment) => Promise<void>;
+}) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [attaching, setAttaching] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
   const money = (value: number) => formatCurrency(value, currency);
+  const suggestionFor = (key: string) => unclaimed.find((hit) => hit.payment.key === key) ?? null;
+
+  async function attribute(hit: UnclaimedRepayment) {
+    if (!onAttribute) return;
+    setAttaching(hit.payment.key);
+    setFailed(null);
+    try {
+      await onAttribute(hit);
+    } catch (err) {
+      setFailed(err instanceof Error ? err.message : "Could not save that.");
+    } finally {
+      setAttaching(null);
+    }
+  }
+
+  /**
+   * What was left out, rather than a quietly smaller total.
+   *
+   * A repayment dropping off this list without a word is indistinguishable
+   * from the detector having missed it, and the figure above can then never be
+   * reconciled against the account it came from.
+   */
+  const excluded = repayments.length > 0 && (
+    <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", margin: "0.35rem 0 0" }}>
+      {repayments.length === 1 ? "One loan repayment is" : `${repayments.length} loan repayments are`} not counted here —{" "}
+      {money(repayments.reduce((sum, p) => sum + p.monthly, 0))} a month that buys down a balance rather than paying for
+      something.
+    </p>
+  );
 
   if (payments.length === 0) {
-    return <p className="empty-state">Nothing charging on a regular rhythm yet.</p>;
+    return (
+      <div>
+        <p className="empty-state">Nothing charging on a regular rhythm yet.</p>
+        {excluded}
+      </div>
+    );
   }
 
   const selected = payments.find((p) => p.key === selectedKey) ?? null;
@@ -184,38 +235,62 @@ export default function Subscriptions({ payments, currency }: { payments: Recurr
 
       <Bars data={chargesFor(payments)} currency={currency} />
 
+      {excluded}
+
       <div style={{ marginTop: "0.7rem" }}>
-        {payments.map((p) => (
-          // A row is the way in rather than a separate link: the whole line is
-          // what you are pointing at when you want to know more about it.
-          <button
-            key={p.key}
-            onClick={() => setSelectedKey(p.key)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "0.6rem",
-              width: "100%",
-              background: "transparent",
-              border: "none",
-              borderTop: "1px solid var(--gridline)",
-              padding: "0.45rem 0",
-              cursor: "pointer",
-              font: "inherit",
-              textAlign: "left",
-            }}
-          >
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.85rem" }}>
-              {p.label}
-              <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}> · {CADENCE_LABEL[p.cadence]}</span>
-            </span>
-            <span style={{ whiteSpace: "nowrap", fontSize: "0.85rem" }}>
-              <strong>{money(p.monthly)}</strong>
-              <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>/mo</span>
-            </span>
-          </button>
-        ))}
+        {payments.map((p) => {
+          const hit = suggestionFor(p.key);
+          return (
+            <div key={p.key} style={{ borderTop: "1px solid var(--gridline)" }}>
+              {/* A row is the way in rather than a separate link: the whole
+                  line is what you are pointing at when you want to know more
+                  about it. */}
+              <button
+                onClick={() => setSelectedKey(p.key)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "0.6rem",
+                  width: "100%",
+                  background: "transparent",
+                  border: "none",
+                  padding: "0.45rem 0",
+                  cursor: "pointer",
+                  font: "inherit",
+                  textAlign: "left",
+                }}
+              >
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.85rem" }}>
+                  {p.label}
+                  <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}> · {CADENCE_LABEL[p.cadence]}</span>
+                </span>
+                <span style={{ whiteSpace: "nowrap", fontSize: "0.85rem" }}>
+                  <strong>{money(p.monthly)}</strong>
+                  <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>/mo</span>
+                </span>
+              </button>
+
+              {/* Offered under the row it is about, and only ever offered.
+                  Confirming it writes the ordinary repayment rule, which is
+                  what moves the loan's balance as well as taking the payment
+                  off this list — hiding the row alone would leave the loan
+                  frozen, which is the worse of the two faults. */}
+              {hit && (
+                <div className="subs-claim">
+                  <Link2 size={11} aria-hidden="true" style={{ flexShrink: 0 }} />
+                  <span>
+                    Looks like the repayment for <strong>{hit.account.name}</strong>, which nothing is repaying.
+                  </span>
+                  <button type="button" onClick={() => attribute(hit)} disabled={attaching !== null || !onAttribute} className="subs-claim__yes">
+                    {attaching === p.key ? <Loader2 size={11} className="spin" /> : "It is"}
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {failed && <div style={{ color: "var(--critical)", fontSize: "0.72rem", paddingTop: "0.3rem" }}>{failed}</div>}
       </div>
     </div>
   );
