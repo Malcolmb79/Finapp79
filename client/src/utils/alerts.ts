@@ -2,6 +2,7 @@ import type { Account, Budget } from "../api/client.js";
 import { budgetPace } from "./budgetPace.js";
 import { bankAccess } from "./bankAccess.js";
 import type { Forecast, UpcomingBill } from "./forecast.js";
+import { behindPhrase, statementsDue } from "./statementsDue.js";
 
 /**
  * The things worth interrupting someone about.
@@ -20,7 +21,7 @@ import type { Forecast, UpcomingBill } from "./forecast.js";
  * months and means nothing.
  */
 
-export type AlertKind = "budget" | "forecast" | "bill" | "sync";
+export type AlertKind = "budget" | "forecast" | "bill" | "sync" | "statement";
 export type AlertSeverity = "critical" | "warning";
 
 export interface Alert {
@@ -181,9 +182,31 @@ export function deriveAlerts(
     });
   }
 
+  // An account fed by statement import fails the same quiet way a broken
+  // sync does — it stops changing, which looks exactly like an account with
+  // nothing happening on it — except there is no error to go red, because
+  // nothing went wrong. Somebody simply forgot, and nothing in the app has
+  // ever been in a position to notice.
+  //
+  // It earns its place by the same test as everything else here: it fires
+  // only when the next statement should already exist, only on accounts that
+  // actually take statements, and it stops firing the moment one is
+  // imported. See `statementsDue` for the three kinds of account it refuses
+  // to ask about.
+  for (const due of statementsDue(accounts, from)) {
+    alerts.push({
+      id: `statement:${due.account.id}`,
+      kind: "statement",
+      severity: "warning",
+      title: `${due.account.name} needs a statement`,
+      detail: `Nothing imported since ${due.coversTo} — ${behindPhrase(due.daysBehind)}`,
+      href: "/accounts",
+    });
+  }
+
   // Critical first, then by kind, so the order is stable between renders
   // rather than following whichever list happened to be built first.
-  const order: Record<AlertKind, number> = { forecast: 0, sync: 1, budget: 2, bill: 3 };
+  const order: Record<AlertKind, number> = { forecast: 0, sync: 1, statement: 2, budget: 3, bill: 4 };
   return alerts.sort(
     (a, b) =>
       (a.severity === b.severity ? 0 : a.severity === "critical" ? -1 : 1) || order[a.kind] - order[b.kind] || a.title.localeCompare(b.title)

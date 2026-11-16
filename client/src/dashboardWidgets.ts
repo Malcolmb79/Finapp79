@@ -1,6 +1,7 @@
 import {
   CalendarDays,
   CreditCard as SubscriptionIcon,
+  FileUp,
   Gauge,
   ListTodo,
   Plus,
@@ -54,6 +55,8 @@ export const WIDGET_IDS = [
   "subscriptions",
   "notes",
   "quickAdd",
+  // Appended, for the same reason as every id above it.
+  "statementsDue",
 ] as const;
 export type WidgetId = (typeof WIDGET_IDS)[number];
 
@@ -128,6 +131,11 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
   subscriptions: { title: "Subscriptions", module: "Analytics", icon: SubscriptionIcon, defaultEnabled: false, defaultWidth: NARROW_WIDTH, defaultHeight: 320 },
   notes: { title: "Notes & to-do", module: "Dashboard", icon: ListTodo, defaultEnabled: false, defaultWidth: NARROW_WIDTH, defaultHeight: 320 },
   quickAdd: { title: "Quick add", module: "Transactions", icon: Plus, defaultEnabled: false, defaultWidth: NARROW_WIDTH, defaultHeight: 340 },
+  // A short list that is usually empty, so it needs very little room. Off by
+  // default like everything added after the first release — the alert in the
+  // bell is what tells you without being asked, and this is for whoever wants
+  // it standing in front of them.
+  statementsDue: { title: "Statements to import", module: "Accounts", icon: FileUp, defaultEnabled: false, defaultWidth: NARROW_WIDTH, defaultHeight: 240 },
 };
 
 // Fixed registry order (not display order) -> deterministic widget identity

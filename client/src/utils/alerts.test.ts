@@ -109,3 +109,48 @@ describe("deriveAlerts", () => {
     expect(alerts.map((a) => a.kind)).toEqual(["forecast", "budget", "bill"]);
   });
 });
+
+describe("a statement that stopped arriving", () => {
+  const stale = {
+    id: "fnb",
+    name: "FNB Cheque",
+    currency: "ZAR",
+    source: "manual",
+    last_import_at: "2026-08-20T09:00:00",
+    last_imported_date: "2026-08-19",
+  } as Account;
+
+  /**
+   * The quietest failure the app has after a broken sync, and quieter still:
+   * a sync that breaks leaves an error, where a statement nobody uploaded
+   * leaves nothing at all. The account simply stops changing.
+   */
+  it("asks for one once the next statement should already exist", () => {
+    const [alert] = deriveAlerts({ ...base, accounts: [stale] }, FROM);
+    expect(alert.kind).toBe("statement");
+    expect(alert.title).toBe("FNB Cheque needs a statement");
+    expect(alert.detail).toContain("2026-08-19");
+    expect(alert.href).toBe("/accounts");
+  });
+
+  // The test every alert in this file has to pass: it must be silent while
+  // the account is merely waiting for its next statement to be issued.
+  it("stays quiet on an account that is up to date", () => {
+    expect(deriveAlerts({ ...base, accounts: [{ ...stale, last_imported_date: "2026-11-07" }] }, FROM)).toEqual([]);
+  });
+
+  it("ranks below a failing sync and above a budget", () => {
+    const kinds = deriveAlerts(
+      {
+        ...base,
+        accounts: [stale, { ...stale, id: "b", name: "Broken", last_sync_error: "token expired" } as Account],
+        budgets: [budget({ spent: 500 })],
+      },
+      FROM
+    ).map((a) => a.kind);
+    // Severity first: a failing sync and an overspent budget are both
+    // critical, so they lead regardless of kind. A statement that is merely
+    // late is a warning and sits under both.
+    expect(kinds).toEqual(["sync", "budget", "statement", "statement"]);
+  });
+});

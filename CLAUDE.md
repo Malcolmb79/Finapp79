@@ -558,6 +558,39 @@ why, and for the migration that added it retroactively.
   the same double-count the plan already avoids for debt minimums.
 
 
+### Statements that stopped arriving
+
+An account fed by statement import fails silently when you forget it: no
+error, nothing turns red, it simply stops changing — which on screen is
+indistinguishable from an account with nothing happening on it. Same quiet
+failure a broken bank sync has, which is why that one is already an alert.
+
+`utils/statementsDue.ts` is the single definition, and two decisions in it
+matter:
+
+- **Coverage, not the upload date.** The accounts list returns both
+  `last_import_at` (when a statement was uploaded) and `last_imported_date`
+  (how far it reached). An import done this morning carrying nothing newer
+  than March means the account has been fed and is still months stale, so the
+  measure is coverage and the upload date is only context.
+- **Forty days, not thirty.** A monthly statement covering the 8th to the 7th
+  is only issued on the 7th, so coverage on a perfectly kept account drifts to
+  thirty-odd days old every month purely by waiting. Firing at thirty would
+  nag every account every month for being up to date.
+
+It refuses to ask about three kinds of account, and each omission is what
+keeps the prompt worth reading: linked accounts (fed by sync, and a quiet one
+is already a sync or authorisation alert in its own words), accounts never
+imported to (no habit to be behind on — inferring one would put every manual
+account on the list permanently), and hidden accounts.
+
+Three surfaces, one rule: the alert in the bell (`deriveAlerts`), the
+`statementsDue` dashboard widget, and the flag beside the account on the
+Accounts page — which reaches it through `staleness()` in `accountBalance.ts`,
+delegating its import half to `statementDue` rather than keeping a second
+definition. Worded per kind there, because "no import in 168 days" is a plain
+lie on an account imported to this morning whose statements stopped in June.
+
 ### Scheduled syncing
 
 `vercel.json`'s `crons` entry calls `GET /api/cron/sync` once a day, and

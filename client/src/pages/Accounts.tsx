@@ -17,6 +17,7 @@ import {
   staleness,
 } from "../utils/accountBalance.js";
 import { bankAccess } from "../utils/bankAccess.js";
+import { behindPhrase } from "../utils/statementsDue.js";
 import { fileToBase64 } from "../utils/fileBytes.js";
 import { accountRef } from "../utils/accountRef.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
@@ -575,9 +576,17 @@ export default function Accounts() {
                         style={{ fontSize: "0.72rem", color: "var(--critical)", display: "flex", alignItems: "center", gap: "0.3rem" }}
                       >
                         <AlertTriangle size={12} />
+                        {/* Worded per kind, because they are different
+                            claims. A sync that hasn't run is about the sync;
+                            a statement is about how far the figures reach,
+                            and "no import in 168 days" would be a plain lie
+                            on an account imported to this morning with a
+                            statement that stopped in June. */}
                         {stale.days === null
                           ? "Never synced"
-                          : `No ${stale.kind === "sync" ? "sync" : "import"} in ${stale.days} days`}
+                          : stale.kind === "sync"
+                            ? `No sync in ${stale.days} days`
+                            : `Statements ${behindPhrase(stale.days)}`}
                       </div>
                     )}
                     {a.last_import_at && (

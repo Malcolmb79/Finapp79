@@ -17,6 +17,7 @@ import { addDaysIso, forecastBalance, today, upcomingBills } from "../utils/fore
 import MagnitudeBarList from "../components/dashboard/MagnitudeBarList.js";
 import NetWorthCard, { type TrendPoint } from "../components/dashboard/NetWorthCard.js";
 import PendingReviewWidget from "../components/dashboard/PendingReviewWidget.js";
+import StatementsDue from "../components/dashboard/StatementsDue.js";
 import CanvasCard, { type WidgetMode } from "../components/dashboard/CanvasCard.js";
 import {
   api,
@@ -1006,6 +1007,9 @@ export default function Dashboard() {
         />
       ),
     },
+    // `accounts` already carries last_import_at and last_imported_date from
+    // the accounts list, so this widget needs no fetch of its own.
+    statementsDue: { body: <StatementsDue accounts={accounts} today={forecastFrom} /> },
   };
 
   const availableWidgets = WIDGET_IDS.filter((id) => !config.enabled.includes(id));

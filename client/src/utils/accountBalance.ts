@@ -1,3 +1,4 @@
+import { statementDue } from "./statementsDue.js";
 import type { Account, AccountType } from "../api/client.js";
 
 export const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
@@ -72,7 +73,13 @@ export type Staleness = { days: number | null; kind: "sync" | "import" };
  *   figures from the day it was linked and nothing since.
  *
  *   A manual account that has been imported to is fed by importing, so an
- *   import that stopped is the same signal in the other form.
+ *   import that stopped is the same signal in the other form. That half is
+ *   `statementDue`'s to decide, so the flag here, the alert in the bell and
+ *   the dashboard list cannot end up disagreeing about the same account. It
+ *   measures how far the statements *reach* rather than when one was last
+ *   uploaded, and waits longer than a sync does — a monthly statement is only
+ *   issued once a month, so coverage on a perfectly kept account is always a
+ *   few weeks old.
  *
  *   A manual account never imported to is kept by hand and is not stale for
  *   going a month without an entry — a savings account nobody touched all
@@ -84,10 +91,14 @@ export type Staleness = { days: number | null; kind: "sync" | "import" };
  */
 export function staleness(account: Account, now = Date.now()): Staleness | null {
   const linked = account.source === "enablebanking";
-  if (!linked && !account.last_import_at) return null;
 
-  const kind = linked ? "sync" : "import";
-  const last = linked ? account.balance_synced_at : account.last_import_at;
+  if (!linked) {
+    const due = statementDue(account, new Date(now).toISOString().slice(0, 10));
+    return due ? { days: due.daysBehind, kind: "import" } : null;
+  }
+
+  const kind = "sync";
+  const last = account.balance_synced_at;
   if (!last) return { days: null, kind };
 
   // Timestamps are stored UTC, some with a space instead of a T and without a

@@ -85,8 +85,12 @@ describe("staleness", () => {
   const daysAgo = (n: number) => new Date(NOW - n * 86_400_000).toISOString();
   const linked = (synced: string | null) =>
     ({ id: "l", name: "Linked", currency: "EUR", source: "enablebanking", balance_synced_at: synced }) as Account;
-  const manual = (lastImport: string | null) =>
-    ({ id: "m", name: "Manual", currency: "EUR", source: "manual", last_import_at: lastImport }) as Account;
+  const dateAgo = (n: number) => daysAgo(n).slice(0, 10);
+  // Two dates, because they answer different questions: when a statement was
+  // uploaded, and how far it reached. Only the second says whether the
+  // account is current.
+  const manual = (lastImport: string | null, coversTo: string | null = lastImport ? dateAgo(0) : null) =>
+    ({ id: "m", name: "Manual", currency: "EUR", source: "manual", last_import_at: lastImport, last_imported_date: coversTo }) as Account;
 
   it("flags a linked account that hasn't synced in 30 days", () => {
     expect(staleness(linked(daysAgo(45)), NOW)).toEqual({ days: 45, kind: "sync" });
@@ -100,8 +104,26 @@ describe("staleness", () => {
     expect(staleness(linked(null), NOW)).toEqual({ days: null, kind: "sync" });
   });
 
-  it("flags a manual account whose imports have stopped", () => {
-    expect(staleness(manual(daysAgo(60)), NOW)).toEqual({ days: 60, kind: "import" });
+  it("flags a manual account whose statements have stopped", () => {
+    expect(staleness(manual(daysAgo(60), dateAgo(60)), NOW)).toEqual({ days: 60, kind: "import" });
+  });
+
+  /**
+   * Coverage, not the upload. An import done this morning carrying nothing
+   * newer than March means the account has been fed and is still months
+   * stale, and measuring the upload would call it up to date.
+   */
+  it("measures how far the statements reach, not when one was uploaded", () => {
+    expect(staleness(manual(daysAgo(0), dateAgo(120)), NOW)).toEqual({ days: 120, kind: "import" });
+    expect(staleness(manual(daysAgo(120), dateAgo(2)), NOW)).toBeNull();
+  });
+
+  // A monthly statement is only issued monthly, so coverage on a perfectly
+  // kept account is always a few weeks old. Flagging at thirty would mean
+  // flagging every account every month for being up to date.
+  it("waits longer than a sync does, because a statement arrives monthly", () => {
+    expect(staleness(manual(daysAgo(35), dateAgo(35)), NOW)).toBeNull();
+    expect(staleness(manual(daysAgo(40), dateAgo(40)), NOW)).toEqual({ days: 40, kind: "import" });
   });
 
   // The rule that keeps the flag worth having: an account kept by hand isn't
@@ -120,11 +142,12 @@ describe("staleness", () => {
   // space and no zone. Read as local time they drift by the offset.
   it("reads a space-separated UTC timestamp as UTC", () => {
     const stamp = new Date(NOW - 40 * 86_400_000).toISOString().replace("T", " ").replace("Z", "");
-    expect(staleness(manual(stamp), NOW)).toEqual({ days: 40, kind: "import" });
+    expect(staleness(linked(stamp), NOW)).toEqual({ days: 40, kind: "sync" });
   });
 
   it("says nothing when the timestamp is unreadable, rather than guessing", () => {
-    expect(staleness(manual("not a date"), NOW)).toBeNull();
+    expect(staleness(linked("not a date"), NOW)).toBeNull();
+    expect(staleness(manual(daysAgo(60), "not a date"), NOW)).toBeNull();
   });
 });
 
