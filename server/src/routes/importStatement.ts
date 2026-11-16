@@ -67,6 +67,19 @@ interface StatementBody {
    * to skip; a duplicate they chose to keep is simply not marked.
    */
   skip?: boolean[];
+  /**
+   * A name typed for a row the statement didn't name, aligned by index.
+   *
+   * Some rows have no description in the file at all — an FNB statement
+   * prints its own fee postings with the description column empty, so no
+   * mapping and no amount of looking at the line will produce one. Typing it
+   * during the import is the only way it is ever going to be there, and it
+   * is far cheaper here, beside the amount and the date, than later against
+   * a list of rows all reading "Transaction".
+   *
+   * Never overrides a description the file does carry.
+   */
+  descriptions?: (string | null)[];
 }
 
 type Failure = { error: string; status: number };
@@ -158,6 +171,24 @@ function columnLabels(table: string[][], mapping: StatementMapping) {
 /** A row nothing in the statement names. */
 export function isUnnamed(row: ParsedRow): boolean {
   return !row.description?.trim() && !row.counterparty?.trim();
+}
+
+/**
+ * The description a row is stored with: the file's, or the one typed for it.
+ *
+ * Only where the file has none. Some statements genuinely do not name some
+ * rows — an FNB statement prints its own fee postings with the description
+ * column empty, and the PDF's text layer has nothing there at all — so no
+ * mapping will ever produce one and typing it during the import is the only
+ * way it is going to be there.
+ *
+ * The statement's own wording always wins where it exists. A box left over
+ * from an earlier mapping, when the row was blank and now isn't, must not
+ * overwrite what the bank actually said.
+ */
+export function importedDescription(row: ParsedRow, typed: string | null | undefined): string | null {
+  if (row.description?.trim()) return row.description;
+  return (typed ?? "").trim() || null;
 }
 
 /**
@@ -422,9 +453,15 @@ importStatementRouter.post("/", async (req, res) => {
       }
       const chosen = chosenCategories[index];
       const categoryId = chosen != null && ownedCategories.has(chosen) ? chosen : null;
+      const description = importedDescription(row, body.descriptions?.[index]);
       // Content-hashed id: re-importing an overlapping statement is a no-op
       // rather than a pile of duplicates, which matters because exports
       // routinely overlap at the period boundary.
+      //
+      // Hashed on what the *file* said, never on the typed name — otherwise
+      // naming a row changes its identity, and next month's overlapping
+      // statement imports the same fee again as a second row because the
+      // name doesn't match what was typed last time.
       const hashInput = `${body.account_id}:${row.date}:${row.amount}:${row.description ?? ""}:${row.counterparty ?? ""}`;
 
       // A row the user chose to keep despite it matching one already on the
@@ -443,7 +480,7 @@ importStatementRouter.post("/", async (req, res) => {
           row.date,
           row.amount,
           account.currency,
-          row.description,
+          description,
           row.counterparty,
           categoryId
         );

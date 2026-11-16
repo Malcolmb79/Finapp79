@@ -86,6 +86,16 @@ export default function StatementImportModal({
   // without appearing here, so flipping one back to "import" is recorded as a
   // deliberate choice rather than an absence.
   const [rowSkip, setRowSkip] = useState<Record<number, boolean>>({});
+  /**
+   * Names typed for the rows the statement doesn't name.
+   *
+   * Some statements have no description for some rows at all — FNB prints
+   * its own fee postings with the column empty — so no mapping produces one
+   * and the row can only ever be named by hand. Doing it here, beside the
+   * date and the amount and with the statement still open, is far cheaper
+   * than doing it later against a list of rows all reading "Transaction".
+   */
+  const [rowNames, setRowNames] = useState<Record<number, string>>({});
 
   const isDuplicate = (index: number) => !!preview?.duplicates[index];
   const isSkipped = (index: number) => rowSkip[index] ?? isDuplicate(index);
@@ -181,13 +191,17 @@ export default function StatementImportModal({
     try {
       const perRow = preview.sample.map((_, index) => rowCategories[index] ?? null);
       const skip = preview.sample.map((_, index) => isSkipped(index));
+      // Only ever sent for rows the file left blank; the server ignores one
+      // against a row that already has a name.
+      const names = preview.sample.map((_, index) => rowNames[index]?.trim() || null);
       const result = await api.importStatement(
         accountId,
         contentBase64,
         mapping,
         applyLogo && !!preview.detectedBank,
         perRow,
-        skip
+        skip,
+        names
       );
       onImported(result);
     } catch (e) {
@@ -587,7 +601,23 @@ export default function StatementImportModal({
                     <div className="tx-row" key={i} style={isSkipped(i) ? { opacity: 0.45 } : undefined}>
                       <div className="tx-row__info">
                         <div className="tx-row__name">
-                          {row.description || row.counterparty || "—"}
+                          {/* A row the file names shows its name; a row it
+                              doesn't gets a box, because a dash is a dead end
+                              and this is the only moment the name is ever
+                              going to be typed with the statement in front of
+                              you. Left empty it imports as it would have
+                              anyway, so the box costs nothing to ignore. */}
+                          {preview.lines[i] ? (
+                            <input
+                              value={rowNames[i] ?? ""}
+                              onChange={(e) => setRowNames((current) => ({ ...current, [i]: e.target.value }))}
+                              placeholder="Name this one"
+                              aria-label={`Name the ${row.date} transaction, which the statement doesn't name`}
+                              style={{ width: "100%", maxWidth: 260, padding: "0.2rem 0.4rem", fontSize: "0.85rem" }}
+                            />
+                          ) : (
+                            row.description || row.counterparty || "—"
+                          )}
                           {isDuplicate(i) && (
                             <span
                               title={`Already on this account as "${preview.duplicates[i]?.description ?? "a transaction"}"`}

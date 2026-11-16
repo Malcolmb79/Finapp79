@@ -1178,7 +1178,9 @@ export const api = {
     mapping: StatementMapping,
     applyBankLogo = false,
     categories: (number | null)[] = [],
-    skip: boolean[] = []
+    skip: boolean[] = [],
+    /** Names typed for rows the statement didn't name, aligned by index. */
+    descriptions: (string | null)[] = []
   ) =>
     request<{ imported: number; skipped: number; duplicates: number; parsed: number; brandedAs: string | null }>(
       "/import/statement",
@@ -1191,6 +1193,7 @@ export const api = {
           apply_bank_logo: applyBankLogo,
           categories,
           skip,
+          descriptions,
         }),
       }
     ),

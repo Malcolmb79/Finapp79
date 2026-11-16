@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { betterDescriptionColumn, isUnnamed } from "./importStatement.js";
-import { applyMapping, inferMapping, parseDelimited, splitPreamble } from "../services/statementParser.js";
+import { betterDescriptionColumn, importedDescription, isUnnamed } from "./importStatement.js";
+import { applyMapping, inferMapping, parseDelimited, splitPreamble, type ParsedRow } from "../services/statementParser.js";
 
 /**
  * The failure these guard against imports perfectly.
@@ -129,5 +129,36 @@ describe("betterDescriptionColumn", () => {
     );
     expect(rows.filter(isUnnamed)).toHaveLength(2);
     expect(betterDescriptionColumn(table, mapping, 2)).toBeNull();
+  });
+});
+
+describe("importedDescription", () => {
+  const row = (description: string | null): ParsedRow => ({
+    date: "2026-10-27",
+    amount: -2,
+    description,
+    counterparty: null,
+  });
+
+  /**
+   * The FNB fee lines. The PDF's text layer has no run at all in the
+   * description column on those rows — not text in the wrong column, nothing
+   * — so no mapping produces a name and typing it during the import is the
+   * only way one is ever going to be there.
+   */
+  it("takes the typed name for a row the file doesn't name", () => {
+    expect(importedDescription(row(null), "Service Fee")).toBe("Service Fee");
+  });
+
+  // The statement's own wording is the record. A box left over from an
+  // earlier mapping, when this row was blank and now isn't, must not win.
+  it("never overrides what the statement says", () => {
+    expect(importedDescription(row("Int On Debit Balance"), "Service Fee")).toBe("Int On Debit Balance");
+  });
+
+  it("leaves a row the owner didn't name alone", () => {
+    expect(importedDescription(row(null), "")).toBeNull();
+    expect(importedDescription(row(null), "   ")).toBeNull();
+    expect(importedDescription(row(null), undefined)).toBeNull();
   });
 });

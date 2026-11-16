@@ -265,6 +265,15 @@ query, or one user's data leaks into another's response.
     amount, which is equally worth knowing because no column will fix it.
     `applyMappingIndexed()` exists for this, with `applyMapping()` as a
     projection of it, so there is one parse rather than two that can drift.
+  - And some statements genuinely do not name some rows. An FNB cheque
+    account prints its own fee postings with the description column empty —
+    the PDF's text layer has no run at that x-position at all, not text in
+    the wrong column — so no mapping will ever produce one. Those rows get a
+    box in the preview instead of a dash, and `importedDescription()` stores
+    what was typed. It never overrides a description the file carries, and
+    the content hash is still taken from the file's own description, so
+    naming a row does not change its identity and next month's overlapping
+    statement still dedupes against it.
   - `GET /api/accounts/:id/imports` counts `unnamed` per import, for the
     same reason `futureDated` is there: a perfect-looking import needs
     something that identifies it after the fact. The detail card pairs with
