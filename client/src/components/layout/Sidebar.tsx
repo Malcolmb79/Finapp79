@@ -4,6 +4,7 @@ import {
   BarChart3,
   FileText,
   Flame,
+  Home,
   Landmark,
   LayoutDashboard,
   LogOut,
@@ -16,11 +17,12 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { api, type Account, type Holding, type Policy, type Transaction } from "../../api/client.js";
+import { api, type Account, type Holding, type Policy, type Property, type Transaction } from "../../api/client.js";
 import { useAuth } from "../../contexts/AuthContext.js";
 import { accountBalance, accountTxSums, visibleAccounts, visibleTransactions } from "../../utils/accountBalance.js";
 import { formatCurrency } from "../../utils/formatCurrency.js";
 import { netWorthNote } from "../../utils/netWorthNote.js";
+import { propertyContributions } from "../../utils/propertyMetrics.js";
 import { holdingContributions } from "../../utils/holdingValue.js";
 import { policyContributions } from "../../utils/policyValue.js";
 import { sumInBase, useFxRates } from "../../utils/fx.js";
@@ -38,6 +40,7 @@ const NAV_ITEMS = [
   { to: "/debt-planner", label: "Debt Planner", icon: PiggyBank },
   { to: "/savings", label: "Savings", icon: PiggyBank },
   { to: "/investments", label: "Investments", icon: TrendingUp },
+  { to: "/property", label: "Property", icon: Home },
   { to: "/household", label: "Household", icon: Users },
   { to: "/policies", label: "Policies", icon: Umbrella },
 ];
@@ -47,6 +50,7 @@ export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onC
   const [allAccounts, setAccounts] = useState<Account[]>([]);
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [holdings, setHoldings] = useState<Holding[]>([]);
+  const [properties, setProperties] = useState<Property[]>([]);
   const { user, logout } = useAuth();
 
   // The sidebar lives outside the router, so it mounts once and would
@@ -60,6 +64,7 @@ export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onC
     api.listAccounts().then(setAccounts);
     api.listHoldings().then(setHoldings).catch(() => {});
     api.listPolicies().then(setPolicies);
+    api.listProperties().then(setProperties).catch(() => {});
   }, [version]);
 
   const { scope } = useAccountScope();
@@ -93,8 +98,12 @@ export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onC
   // numbers right, and only one of them explaining itself.
   const policyParts = scope ? [] : policyContributions(policies);
   const holdingParts = scope ? [] : holdingContributions(holdings);
+  // And property, on the same terms: only what each one was explicitly set to
+  // contribute, and nothing at all while a single account is in scope.
+  const propertyParts = scope ? [] : propertyContributions(properties);
   const { converted: policyTotal } = sumInBase(policyParts, rates);
   const { converted: holdingTotal } = sumInBase(holdingParts, rates);
+  const { converted: propertyTotal } = sumInBase(propertyParts, rates);
 
   const { converted: netWorth } = sumInBase(
     [
@@ -103,6 +112,7 @@ export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onC
       // And investments, on exactly the same terms — a figure here that left
       // them out would disagree with the dashboard about the same number.
       ...holdingParts,
+      ...propertyParts,
     ],
     rates
   );
@@ -111,6 +121,7 @@ export default function Sidebar({ navOpen, onCloseNav }: { navOpen: boolean; onC
     ? netWorthNote({
         policyTotal,
         holdingTotal,
+        propertyTotal,
         coverNames: scope ? [] : policies.filter((p) => p.net_worth_source === "cover").map((p) => p.name),
         money: (value) => formatCurrency(value, rates.base),
       })

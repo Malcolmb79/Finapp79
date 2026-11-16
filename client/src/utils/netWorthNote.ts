@@ -23,6 +23,8 @@ export interface NetWorthParts {
   policyTotal: number;
   /** Investment holdings, likewise. */
   holdingTotal: number;
+  /** Property counted, at equity or at full value as each one was set. */
+  propertyTotal?: number;
   /** Names of policies counted at their cover amount rather than a cash value. */
   coverNames: string[];
   /** Formats a figure in the currency being displayed. */
@@ -33,13 +35,19 @@ export interface NetWorthParts {
  * One line for under the figure, or null when the figure really is just the
  * accounts and there is nothing to disclose.
  */
-export function netWorthNote({ policyTotal, holdingTotal, coverNames, money }: NetWorthParts): string | null {
+export function netWorthNote({ policyTotal, holdingTotal, propertyTotal = 0, coverNames, money }: NetWorthParts): string | null {
   const parts: string[] = [];
   if (policyTotal !== 0) parts.push(`${money(policyTotal)} in policies`);
   if (holdingTotal !== 0) parts.push(`${money(holdingTotal)} in investments`);
+  // Property belongs in the same sentence for the same reason the other two
+  // do: it is the largest single thing that can sit inside this figure without
+  // appearing on the accounts page at all.
+  if (propertyTotal !== 0) parts.push(`${money(propertyTotal)} in property`);
   if (parts.length === 0) return null;
 
-  const base = `incl. ${parts.join(" and ")}`;
+  // Two join with "and"; three or more need the comma, or the line reads as
+  // one item whose name happens to contain the word "and".
+  const base = `incl. ${parts.length <= 2 ? parts.join(" and ") : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`}`;
   if (coverNames.length === 0) return base;
 
   // Named rather than counted: "one at cover" leaves somebody hunting for

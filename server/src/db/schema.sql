@@ -617,3 +617,40 @@ CREATE TABLE IF NOT EXISTS household_shares (
 
 CREATE INDEX IF NOT EXISTS idx_household_shares_owner ON household_shares (owner_user_id);
 CREATE INDEX IF NOT EXISTS idx_household_shares_member ON household_shares (member_user_id);
+
+-- Property held as an investment or lived in.
+--
+-- Kept out of `accounts` for the reason policies are: a property has no
+-- transactions, no IBAN and no bank connection, so folding it in would offer a
+-- house as a transaction target in every account dropdown, the statement
+-- importer, the account filter and the debt planner.
+--
+-- The mortgage lives here as a plain balance rather than as a link to a loan
+-- account, and that is a deliberate limitation rather than an oversight: a
+-- household that already tracks its mortgage as a loan account would otherwise
+-- have the same debt counted twice. `net_worth_source` is what resolves it —
+-- same mechanism as a policy's, and defaulting the same way, to `none`. A
+-- property is in no total until asked in.
+CREATE TABLE IF NOT EXISTS properties (
+  id TEXT PRIMARY KEY,                    -- generated uuid
+  user_id TEXT REFERENCES users(id),
+  address TEXT NOT NULL,
+  property_type TEXT NOT NULL DEFAULT 'rental', -- residence | rental | multi_family | commercial | land
+  currency TEXT NOT NULL DEFAULT 'EUR',
+  purchase_price DOUBLE PRECISION,
+  purchase_date TEXT,
+  market_value DOUBLE PRECISION,          -- what it is worth now, which is the figure every metric uses
+  mortgage_balance DOUBLE PRECISION,      -- outstanding principal, stored positive
+  mortgage_payment DOUBLE PRECISION,      -- per month: the debt service a DSCR is measured against
+  monthly_rent DOUBLE PRECISION,          -- gross, before vacancy
+  monthly_expenses DOUBLE PRECISION,      -- operating only: rates, insurance, maintenance, management
+  vacancy_rate DOUBLE PRECISION,          -- percentage: 5 means five per cent of the year empty
+  -- none | equity | value. Equity is the usual answer; value is for a property
+  -- whose mortgage is already tracked as a loan account, where counting the
+  -- equity would subtract that debt a second time.
+  net_worth_source TEXT NOT NULL DEFAULT 'none',
+  notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
+);
+
+CREATE INDEX IF NOT EXISTS idx_properties_user ON properties (user_id);

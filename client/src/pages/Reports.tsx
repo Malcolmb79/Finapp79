@@ -7,6 +7,7 @@ import {
   type Category,
   type Holding,
   type Policy,
+  type Property,
   type Transaction,
 } from "../api/client.js";
 import {
@@ -24,6 +25,7 @@ import { formatCurrency } from "../utils/formatCurrency.js";
 import { inBase, toBase, useFxRates } from "../utils/fx.js";
 import { holdingValue } from "../utils/holdingValue.js";
 import { countsAtCover, policyContribution } from "../utils/policyValue.js";
+import { countsAtValue, propertyContribution } from "../utils/propertyMetrics.js";
 import {
   annualSummary,
   budgetVsActual,
@@ -63,6 +65,7 @@ export default function Reports() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [policies, setPolicies] = useState<Policy[]>([]);
+  const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
 
   const { scope } = useAccountScope();
@@ -81,14 +84,16 @@ export default function Reports() {
       api.listBudgets(),
       api.listHoldings().catch(() => []),
       api.listPolicies().catch(() => []),
+      api.listProperties().catch(() => []),
     ])
-      .then(([a, t, c, b, h, p]) => {
+      .then(([a, t, c, b, h, p, prop]) => {
         setAccounts(a);
         setTransactions(t);
         setCategories(c);
         setBudgets(b);
         setHoldings(h);
         setPolicies(p);
+        setProperties(prop);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -177,6 +182,26 @@ export default function Reports() {
       });
     }
 
+    // Property, at whichever figure each one was set to count at. A
+    // statement that left it out would disagree with the sidebar about the
+    // same household.
+    for (const property of properties) {
+      const native = propertyContribution(property);
+      if (native === 0) continue;
+      const value = toBase(native, property.currency, rates);
+      if (value === null) {
+        unconvertible.add(property.currency);
+        continue;
+      }
+      assets.push({
+        label: property.address,
+        detail: countsAtValue(property)
+          ? "Property — full value, mortgage counted as a loan account"
+          : "Property — equity, value less its mortgage",
+        amount: value,
+      });
+    }
+
     // Spending excludes loan repayments: the money became equity in a debt
     // rather than leaving the picture, and counting it as expenditure would
     // show the same money going out and net worth improving by it.
@@ -195,7 +220,7 @@ export default function Reports() {
       // sidebar builds — kept so the two cannot drift apart.
       mirrored: repaymentMirrors(scoped).length,
     };
-  }, [accounts, transactions, holdings, policies, scope, rates]);
+  }, [accounts, transactions, holdings, policies, properties, scope, rates]);
 
   const reports: Report[] = useMemo(() => {
     if (!rates) return [];

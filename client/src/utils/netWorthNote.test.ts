@@ -30,6 +30,18 @@ describe("netWorthNote", () => {
   });
 
   /**
+   * Property belongs in the same sentence for the same reason the other two
+   * do: it is the largest single thing that can sit inside this figure without
+   * appearing anywhere on the accounts page.
+   */
+  it("names property, and joins three of them readably", () => {
+    expect(netWorthNote({ ...base, propertyTotal: 222000 })).toBe("incl. €222000.00 in property");
+    expect(netWorthNote({ ...base, policyTotal: 100, holdingTotal: 200, propertyTotal: 300 })).toBe(
+      "incl. €100.00 in policies, €200.00 in investments and €300.00 in property"
+    );
+  });
+
+  /**
    * A sum assured is what pays out on death, not money anybody holds.
    * Counting it is allowed; letting it disappear into a total is not.
    */

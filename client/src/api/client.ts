@@ -421,6 +421,46 @@ export interface PolicyValuation {
   surrender_value: number | null;
 }
 
+export type PropertyType = "residence" | "rental" | "multi_family" | "commercial" | "land";
+
+/**
+ * Property, held as an investment or lived in.
+ *
+ * Every money field is nullable and null means "not known" rather than zero.
+ * The distinction carries real weight downstream: a property with no value
+ * recorded has an unknown cap rate, while one valued at zero would have an
+ * infinite one.
+ */
+export interface Property {
+  id: string;
+  address: string;
+  property_type: PropertyType;
+  currency: string;
+  purchase_price: number | null;
+  purchase_date: string | null;
+  /** What it is worth now. Every metric is measured against this, not the purchase price. */
+  market_value: number | null;
+  /** Outstanding principal, stored positive. */
+  mortgage_balance: number | null;
+  /** Per month — the debt service a coverage ratio is measured against. */
+  mortgage_payment: number | null;
+  /** Gross, before any allowance for the months it sits empty. */
+  monthly_rent: number | null;
+  /** Operating costs only: rates, insurance, maintenance, management. Never the mortgage. */
+  monthly_expenses: number | null;
+  /** A percentage: 5 means five per cent of the year empty. */
+  vacancy_rate: number | null;
+  /**
+   * Which figure counts towards net worth, and `none` until asked.
+   *
+   * `value` is for a household whose mortgage is already tracked as a loan
+   * account here — counting the equity as well would subtract that debt twice.
+   */
+  net_worth_source: "none" | "equity" | "value";
+  notes: string | null;
+  created_at: string;
+}
+
 export interface Policy {
   id: string;
   name: string;
@@ -894,6 +934,16 @@ export const api = {
       body: JSON.stringify({ category_id: categoryId, monthly_limit: monthlyLimit, ...(currency ? { currency } : {}) }),
     }),
   deleteBudget: (id: number) => request<void>(`/budgets/${id}`, { method: "DELETE" }),
+
+  listProperties: () => request<Property[]>("/properties"),
+
+  createProperty: (body: Partial<Property>) =>
+    request<Property>("/properties", { method: "POST", body: JSON.stringify(body) }),
+
+  updateProperty: (id: string, body: Partial<Property>) =>
+    request<Property>(`/properties/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+
+  deleteProperty: (id: string) => request<void>(`/properties/${id}`, { method: "DELETE" }),
 
   listPolicies: () => request<Policy[]>("/policies"),
 

@@ -17,6 +17,7 @@ import {
   type PendingTransaction,
   type Holding,
   type Policy,
+  type Property,
   type SavingsGoal,
   type Transaction,
 } from "../api/client.js";
@@ -47,6 +48,7 @@ import { formatCurrency } from "../utils/formatCurrency.js";
 import { monthsToPayoff } from "../utils/payoff.js";
 import { countsAtCover, policyContribution, policyContributions, policyContributionsAt } from "../utils/policyValue.js";
 import { holdingContributions, holdingContributionsAt } from "../utils/holdingValue.js";
+import { propertyContribution, propertyContributions, propertyContributionsAt } from "../utils/propertyMetrics.js";
 
 /** How far back a widget looks, where that is a choice rather than a fixed span. */
 type WidgetRange = "month" | "3m" | "6m" | "1y" | "all";
@@ -186,6 +188,7 @@ export default function Dashboard() {
   const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
   const [allPolicies, setPolicies] = useState<Policy[]>([]);
   const [allHoldings, setHoldings] = useState<Holding[]>([]);
+  const [allProperties, setProperties] = useState<Property[]>([]);
   // The transaction whose detail card is open, from the recent list.
   const [openTransaction, setOpenTransaction] = useState<Transaction | null>(null);
   const [config, setConfig] = useState<DashboardConfig>(loadConfig);
@@ -209,6 +212,7 @@ export default function Dashboard() {
     api.listSavingsGoals().then(setSavingsGoals);
     api.listPolicies().then(setPolicies);
     api.listHoldings().then(setHoldings).catch(() => {});
+    api.listProperties().then(setProperties).catch(() => {});
   }
 
   useEffect(refresh, []);
@@ -287,6 +291,7 @@ export default function Dashboard() {
   // Same reasoning as policies: a scope narrows to one account, and a holding
   // is not that account, so investments drop out entirely while one is set.
   const holdings = scope ? [] : allHoldings;
+  const properties = scope ? [] : allProperties;
 
   // Accounts alone, kept apart from the headline because the trend below needs
   // it: the line is anchored on this figure and walked backwards through the
@@ -294,9 +299,17 @@ export default function Dashboard() {
   const { converted: accountsNetWorth, unconvertible: accountsUnconvertible } = sumInBase(balances, rates);
   const { converted: policyTotal, unconvertible: policyUnconvertible } = sumInBase(policyContributions(policies), rates);
   const { converted: holdingTotal, unconvertible: holdingUnconvertible } = sumInBase(holdingContributions(holdings), rates);
-  const netWorth = accountsNetWorth + policyTotal + holdingTotal;
+  // Property on the same terms, and for the same reason: a figure here that
+  // left it out would disagree with the sidebar about one household.
+  const { converted: propertyTotal, unconvertible: propertyUnconvertible } = sumInBase(
+    propertyContributions(properties),
+    rates
+  );
+  const netWorth = accountsNetWorth + policyTotal + holdingTotal + propertyTotal;
 
-  const unconvertible = [...new Set([...accountsUnconvertible, ...policyUnconvertible, ...holdingUnconvertible])];
+  const unconvertible = [
+    ...new Set([...accountsUnconvertible, ...policyUnconvertible, ...holdingUnconvertible, ...propertyUnconvertible]),
+  ];
   // Named so the reason net worth exceeds the accounts stays visible. A cover
   // amount pays out on death rather than being held now; counting it is the
   // user's call, but it should never become an anonymous part of a total.
@@ -416,7 +429,13 @@ export default function Dashboard() {
         // than projected backwards at today it.
         value =
           sumInBase(policyContributionsAt(policies, date), rates).converted +
-          sumInBase(holdingContributionsAt(holdings, date), rates).converted;
+          sumInBase(holdingContributionsAt(holdings, date), rates).converted +
+          // Property joins from the date it was bought, at today's figure.
+          // There is no valuation history behind a property the way there is
+          // behind a policy, so its part of the line is flat — an
+          // approximation that is visibly one, rather than a house appearing
+          // in years it was not owned.
+          sumInBase(propertyContributionsAt(properties, date), rates).converted;
         policyOnDate.set(date, value);
       }
       return value;
@@ -427,6 +446,24 @@ export default function Dashboard() {
     for (const tx of sorted) {
       running += tx.amount;
       cumulative.set(tx.booking_date, running + policiesOn(tx.booking_date));
+    }
+
+    /**
+     * The line ends today, not at the last transaction.
+     *
+     * Everything that is not a transaction — a policy's valuation, a holding's
+     * price, a property — is dated independently of the account history, so
+     * anything valued since the last payment never reached the end of the
+     * line. The card then printed one figure above a chart that finished at a
+     * different one, on the same card. The balance has not moved since the
+     * last transaction, so carrying `running` forward is not an assumption;
+     * the only thing this adds is the part of today's figure that was already
+     * being shown above it.
+     */
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const lastBooked = sorted[sorted.length - 1]?.booking_date;
+    if (sorted.length > 0 && lastBooked && todayIso > lastBooked) {
+      cumulative.set(todayIso, running + policiesOn(todayIso));
     }
 
     const start = rangeStart(netWorthRange);
@@ -491,6 +528,11 @@ export default function Dashboard() {
     const contribution = policyContribution(policy);
     if (contribution === 0) continue;
     currencyTotals.set(policy.currency, (currencyTotals.get(policy.currency) ?? 0) + contribution);
+  }
+  for (const property of properties) {
+    const contribution = propertyContribution(property);
+    if (contribution === 0) continue;
+    currencyTotals.set(property.currency, (currencyTotals.get(property.currency) ?? 0) + contribution);
   }
 
   const recentTransactions = [...transactions]

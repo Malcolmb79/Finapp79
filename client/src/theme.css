@@ -1789,3 +1789,31 @@ th {
   background: var(--surface-1);
   z-index: 1;
 }
+
+/* Property — the metrics row under each address. Wraps rather than scrolls:
+   seven figures across a phone is a horizontal scroll nobody discovers. */
+
+.property-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+  gap: 0.5rem 0.9rem;
+}
+
+.property-metrics div {
+  display: grid;
+  gap: 0.05rem;
+  min-width: 0;
+}
+
+.property-metrics span {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.property-metrics strong {
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}

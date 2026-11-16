@@ -7,6 +7,7 @@ import Accounts from "./pages/Accounts.js";
 import Analytics from "./pages/Analytics.js";
 import Reports from "./pages/Reports.js";
 import Future from "./pages/Future.js";
+import Properties from "./pages/Properties.js";
 import BankLink from "./pages/BankLink.js";
 import BankLinkCallback from "./pages/BankLinkCallback.js";
 import Budgets from "./pages/Budgets.js";
@@ -106,6 +107,7 @@ export default function App() {
         {/* Where an invite email lands. Same page; the token is read off the query. */}
         <Route path="/household/accept" element={<Household />} />
         <Route path="/policies" element={<Policies />} />
+        <Route path="/property" element={<Properties />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
     </Routes>

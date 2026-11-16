@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import FireCalculator from "../components/FireCalculator.js";
 import ScenarioPlanner from "../components/ScenarioPlanner.js";
-import { api, type Account, type Holding, type Policy, type Transaction } from "../api/client.js";
+import { api, type Account, type Holding, type Policy, type Property, type Transaction } from "../api/client.js";
 import {
   accountBalance,
   accountTxSums,
@@ -15,6 +15,7 @@ import { useAccountScope } from "../contexts/ViewFilterContext.js";
 import { inBase, toBase, useFxRates } from "../utils/fx.js";
 import { holdingValue } from "../utils/holdingValue.js";
 import { policyContribution } from "../utils/policyValue.js";
+import { propertyContribution } from "../utils/propertyMetrics.js";
 import { monthsCovered, periodOptions, inPeriod } from "../utils/reports.js";
 
 /**
@@ -39,6 +40,7 @@ export default function Future() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [policies, setPolicies] = useState<Policy[]>([]);
+  const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
 
   const { scope } = useAccountScope();
@@ -50,12 +52,14 @@ export default function Future() {
       api.listTransactions(),
       api.listHoldings().catch(() => []),
       api.listPolicies().catch(() => []),
+      api.listProperties().catch(() => []),
     ])
-      .then(([a, t, h, p]) => {
+      .then(([a, t, h, p, prop]) => {
         setAccounts(a);
         setTransactions(t);
         setHoldings(h);
         setPolicies(p);
+        setProperties(prop);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -96,6 +100,15 @@ export default function Future() {
       if (value !== null) netWorth += value;
     }
 
+    // Property counts towards net worth and never towards the pot, for the
+    // same reason the home is excluded from it: equity in a building does not
+    // pay for groceries unless it is sold, and a rental's equity is not
+    // reachable without ending the rent that made it worth holding.
+    for (const property of properties) {
+      const value = toBase(propertyContribution(property), property.currency, rates);
+      if (value !== null) netWorth += value;
+    }
+
     const year = periodOptions().find((p) => p.label === "Last 12 months")!;
     const { items } = inBase(spendingTransactions(scoped), rates);
     const yearly = inPeriod(items, year);
@@ -110,7 +123,7 @@ export default function Future() {
       monthlyExpenses: spend / months,
       monthsOfHistory: months,
     };
-  }, [accounts, transactions, holdings, policies, scope, rates]);
+  }, [accounts, transactions, holdings, policies, properties, scope, rates]);
 
   const widgets: WidgetSpec[] = [
     {
