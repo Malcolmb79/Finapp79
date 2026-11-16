@@ -6,6 +6,7 @@ import TopHeader from "./components/layout/TopHeader.js";
 import Accounts from "./pages/Accounts.js";
 import Analytics from "./pages/Analytics.js";
 import Reports from "./pages/Reports.js";
+import Future from "./pages/Future.js";
 import BankLink from "./pages/BankLink.js";
 import BankLinkCallback from "./pages/BankLinkCallback.js";
 import Budgets from "./pages/Budgets.js";
@@ -97,6 +98,7 @@ export default function App() {
         <Route path="/budgets" element={<Budgets />} />
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/reports" element={<Reports />} />
+        <Route path="/future" element={<Future />} />
         <Route path="/debt-planner" element={<DebtPlanner />} />
         <Route path="/savings" element={<Savings />} />
         <Route path="/investments" element={<Investments />} />

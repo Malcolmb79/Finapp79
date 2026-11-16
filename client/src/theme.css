@@ -1582,3 +1582,150 @@ th {
     color: #444444 !important;
   }
 }
+
+/* Scenario planner — the household as it is, and two ways it could go.
+
+   Columns rather than rows, because the comparison is horizontal: the eye
+   reads "work optional in" across three futures in one movement, and a
+   stacked layout would make that a scroll. */
+
+.scenarios {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.75rem;
+}
+
+.scenario {
+  border: 1px solid var(--gridline);
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem;
+  min-width: 0;
+}
+
+/* The real position is marked rather than merely first. Three identical
+   columns invite reading the leftmost as just another guess. */
+.scenario[data-base="true"] {
+  background: var(--surface-2);
+  border-color: var(--baseline);
+}
+
+.scenario__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+}
+
+.scenario__name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: transparent;
+  border: none;
+  border-bottom: 1px dotted var(--text-muted);
+  padding: 0.1rem 0;
+  width: 100%;
+  min-width: 0;
+  color: inherit;
+}
+
+.scenario__name--base {
+  border-bottom: none;
+}
+
+.scenario__reset {
+  padding: 0.1rem 0.3rem;
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
+
+.scenario__figures {
+  margin: 0 0 0.6rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.scenario__figures div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.scenario__figures dt {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.scenario__figures dd {
+  margin: 0;
+  font-size: 0.84rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.scenario__sliders {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.scenario__sliders label {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.scenario__sliders input[type="range"] {
+  width: 100%;
+}
+
+.scenario__slider-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.4rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.scenario__toggle {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-start;
+  margin-top: 0.5rem;
+  font-size: 0.72rem;
+}
+
+.scenario__toggle em {
+  display: block;
+  font-style: normal;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  line-height: 1.35;
+  margin-top: 0.1rem;
+}
+
+.scenario__verdict {
+  font-size: 0.75rem;
+  margin: 0.6rem 0 0;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--gridline);
+  line-height: 1.4;
+}
+
+.scenario__verdict--base {
+  color: var(--text-muted);
+}
+
+.scenario__presets {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-top: 0.8rem;
+  font-size: 0.73rem;
+  color: var(--text-muted);
+}
+
+.scenario__presets button {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.5rem;
+}
