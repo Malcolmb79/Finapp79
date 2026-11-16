@@ -826,11 +826,12 @@ confirmation is good for `REVIEW_GOOD_FOR_DAYS` (a year — the cycle a price
 rise, a contract end or a trial-turned-bill actually moves on; shorter would
 stale the whole list together and train you to clear it without reading).
 
-One state jumps the queue: **marked as cancelling and still charging**. It is
-the only thing on the page known to be wrong *now* rather than merely
-unconfirmed, and it exists because a cancellation that failed looks exactly
-like one that worked until the next charge arrives. That is also why marking
-one as cancelling does not remove it.
+**The page cancels nothing and tracks no intent to.** It briefly also carried
+a "cancelling" mark that watched whether the charges actually stopped; it was
+dropped at the owner's request, and the schema drops the column rather than
+leaving a dead one for the next reader to work out the status of. One date is
+the whole of what this page is for, and a second state is a second thing to
+keep honest.
 
 `nextCharge()` returns null for a dormant subscription rather than stepping
 forward from a year-old charge to produce "due next Tuesday" — the same

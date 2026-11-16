@@ -83,7 +83,6 @@ export interface SubscriptionReview {
   merchant_key: string;
   label: string;
   reviewed_at: string | null;
-  cancelling_at: string | null;
 }
 
 /**
@@ -1146,8 +1145,8 @@ export const api = {
   deleteHolding: (id: string) => request<void>(`/holdings/${id}`, { method: "DELETE" }),
 
   listSubscriptionReviews: () => request<SubscriptionReview[]>("/subscription-reviews"),
-  /** Stamps a look, or marks one as on its way out. Omitted fields are left alone. */
-  reviewSubscription: (review: { merchant_key: string; label: string; reviewed?: boolean; cancelling?: boolean }) =>
+  /** Stamps a look. An omitted `reviewed` leaves the existing date alone. */
+  reviewSubscription: (review: { merchant_key: string; label: string; reviewed?: boolean }) =>
     request<SubscriptionReview>("/subscription-reviews", { method: "POST", body: JSON.stringify(review) }),
 
   listRules: () => request<TransactionRule[]>("/rules"),

@@ -784,12 +784,20 @@ CREATE TABLE IF NOT EXISTS subscription_reviews (
   merchant_key TEXT NOT NULL,        -- merchantKey() of the recurring payment
   label TEXT NOT NULL,
   reviewed_at TEXT,                  -- ISO date it was last confirmed as wanted
-  -- Set when it has been marked as on its way out. Not a deletion: the point
-  -- of the mark is to keep watching, because a cancellation that did not take
-  -- looks exactly like one that did until the next charge arrives.
-  cancelling_at TEXT,
   created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subscription_reviews_user_merchant
   ON subscription_reviews (user_id, merchant_key);
+
+-- This table briefly also carried `cancelling_at`, for marking a subscription
+-- as on its way out and watching whether the charges actually stopped. It was
+-- dropped at the owner's request: one date is the whole of what this page is
+-- for, and a second state to maintain is a second thing to keep honest.
+--
+-- Dropped rather than left in place unused, because a column nothing writes
+-- is a column the next reader has to work out the status of — and a database
+-- created after this change would not have had it at all, so leaving it would
+-- mean two different shapes of the same table depending on when it was made.
+-- Only ever held a value set by the feature being removed.
+ALTER TABLE subscription_reviews DROP COLUMN IF EXISTS cancelling_at;

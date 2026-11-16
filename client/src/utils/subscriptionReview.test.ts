@@ -26,7 +26,6 @@ const review = (over: Partial<SubscriptionReview> = {}): SubscriptionReview => (
   merchant_key: "netflix com",
   label: "Netflix.com",
   reviewed_at: null,
-  cancelling_at: null,
   ...over,
 });
 
@@ -61,32 +60,12 @@ describe("reviewItems", () => {
   });
 
   /**
-   * The one state where something is known to be wrong right now rather than
-   * merely unconfirmed — a cancellation that did not take looks exactly like
-   * one that did until the next charge arrives.
+   * Where nothing has been confirmed there is nothing else to go on, so the
+   * dearest is the better guess at what to look at first.
    */
-  it("puts a cancellation that is still charging above everything", () => {
-    const rows = reviewItems(
-      commitments(monthly("NETFLIX.COM", 25.99), monthly("SPOTIFY", 900)),
-      [review({ cancelling_at: "2026-09-01" })],
-      [],
-      TODAY
-    );
-    expect(rows[0].commitment.payment.label).toBe("Netflix.com");
-    expect(rows[0].flags).toContain("still-charging");
-  });
-
-  // A cancellation that worked is not a problem, and saying "still charging"
-  // about something that stopped two months ago would train you to ignore it.
-  it("says nothing about a cancellation that worked", () => {
-    const [row] = reviewItems(
-      commitments(monthly("NETFLIX.COM", 25.99, "2026-06-02")),
-      [review({ cancelling_at: "2026-06-10" })],
-      [],
-      TODAY
-    );
-    expect(row.flags).toContain("dormant");
-    expect(row.flags).not.toContain("still-charging");
+  it("falls back to cost where neither has ever been looked at", () => {
+    const rows = reviewItems(commitments(monthly("NETFLIX.COM", 25.99), monthly("SPOTIFY", 900)), [], [], TODAY);
+    expect(rows.map((r) => r.commitment.payment.label)).toEqual(["Spotify", "Netflix.com"]);
   });
 
   it("flags one that has quietly stopped charging", () => {

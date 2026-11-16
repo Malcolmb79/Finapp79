@@ -35,8 +35,6 @@ export type ReviewFlag =
   | "dormant"
   /** The price went up and the rise is still in force. */
   | "rose"
-  /** Marked as cancelling, and still charging. */
-  | "still-charging"
   /** Never confirmed by anybody. */
   | "never-checked"
   /** Confirmed, but long enough ago that it says nothing now. */
@@ -98,10 +96,6 @@ export function reviewItems(
     const flags: ReviewFlag[] = [];
     if (!live) flags.push("dormant");
     if (rise) flags.push("rose");
-    // Marked as on its way out and still charging, which is the one thing a
-    // cancellation never tells you about itself. A cancellation that did not
-    // take looks exactly like one that did until the next charge arrives.
-    if (review?.cancelling_at && live) flags.push("still-charging");
     if (checkedDaysAgo == null) flags.push("never-checked");
     else if (checkedDaysAgo >= REVIEW_GOOD_FOR_DAYS) flags.push("stale");
 
@@ -119,19 +113,12 @@ export function reviewItems(
   return items.sort(byNeglect);
 }
 
-/**
- * Longest unexamined first, and anything already answered last.
- *
- * A cancellation that is still charging jumps the queue regardless of when it
- * was looked at: it is the only state on this page where something is known
- * to be wrong right now rather than merely unconfirmed.
- */
+/** Longest unexamined first, and anything already answered last. */
 function byNeglect(a: ReviewItem, b: ReviewItem): number {
   const urgency = (item: ReviewItem) => {
-    if (item.flags.includes("still-charging")) return 0;
-    if (item.flags.includes("never-checked")) return 1;
-    if (item.flags.includes("stale")) return 2;
-    return 3;
+    if (item.flags.includes("never-checked")) return 0;
+    if (item.flags.includes("stale")) return 1;
+    return 2;
   };
 
   const difference = urgency(a) - urgency(b);

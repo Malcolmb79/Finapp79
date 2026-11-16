@@ -26,7 +26,6 @@ export interface SubscriptionReview {
   merchant_key: string;
   label: string;
   reviewed_at: string | null;
-  cancelling_at: string | null;
 }
 
 /** Today as an ISO date, matching how every other date in this app is stored. */
@@ -37,7 +36,7 @@ function today(): string {
 subscriptionReviewsRouter.get("/", async (req, res) => {
   const rows = (await db
     .prepare(
-      `SELECT merchant_key, label, reviewed_at, cancelling_at
+      `SELECT merchant_key, label, reviewed_at
          FROM subscription_reviews WHERE user_id = ? ORDER BY label`
     )
     .all(req.user!.id)) as unknown as SubscriptionReview[];
@@ -45,16 +44,15 @@ subscriptionReviewsRouter.get("/", async (req, res) => {
 });
 
 /**
- * Records a look, or a cancellation in progress.
+ * Records a look.
  *
  * An upsert on (user, merchant key) rather than an insert: reviewing the same
  * subscription a year later is the same row with a newer date, and a table of
  * every time anybody glanced at Netflix would answer no question this page
- * asks. Only the fields present in the body are touched, so marking one as
- * cancelling does not silently also stamp it as reviewed.
+ * asks.
  */
 subscriptionReviewsRouter.post("/", async (req, res) => {
-  const { merchant_key, label, reviewed, cancelling } = req.body as Record<string, unknown>;
+  const { merchant_key, label, reviewed } = req.body as Record<string, unknown>;
 
   if (typeof merchant_key !== "string" || !merchant_key.trim()) {
     res.status(400).json({ error: "Say which subscription this is about." });
@@ -67,32 +65,23 @@ subscriptionReviewsRouter.post("/", async (req, res) => {
 
   const key = merchant_key.trim();
   const existing = (await db
-    .prepare("SELECT reviewed_at, cancelling_at FROM subscription_reviews WHERE user_id = ? AND merchant_key = ?")
-    .get(req.user!.id, key)) as unknown as Pick<SubscriptionReview, "reviewed_at" | "cancelling_at"> | undefined;
+    .prepare("SELECT reviewed_at FROM subscription_reviews WHERE user_id = ? AND merchant_key = ?")
+    .get(req.user!.id, key)) as unknown as Pick<SubscriptionReview, "reviewed_at"> | undefined;
 
-  // Absent means "leave as it was", which is what lets the two buttons act
-  // independently; false is an explicit undo, for a mis-click.
-  const reviewedAt =
-    "reviewed" in req.body ? (reviewed ? today() : null) : (existing?.reviewed_at ?? null);
-  const cancellingAt =
-    "cancelling" in req.body ? (cancelling ? today() : null) : (existing?.cancelling_at ?? null);
+  // Absent means "leave as it was"; false is an explicit undo, for a mis-click.
+  const reviewedAt = "reviewed" in req.body ? (reviewed ? today() : null) : (existing?.reviewed_at ?? null);
 
   if (existing) {
     await db
-      .prepare(
-        "UPDATE subscription_reviews SET label = ?, reviewed_at = ?, cancelling_at = ? WHERE user_id = ? AND merchant_key = ?"
-      )
-      .run(label.trim(), reviewedAt, cancellingAt, req.user!.id, key);
+      .prepare("UPDATE subscription_reviews SET label = ?, reviewed_at = ? WHERE user_id = ? AND merchant_key = ?")
+      .run(label.trim(), reviewedAt, req.user!.id, key);
   } else {
     await db
-      .prepare(
-        `INSERT INTO subscription_reviews (id, user_id, merchant_key, label, reviewed_at, cancelling_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      )
-      .run(randomUUID(), req.user!.id, key, label.trim(), reviewedAt, cancellingAt);
+      .prepare("INSERT INTO subscription_reviews (id, user_id, merchant_key, label, reviewed_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomUUID(), req.user!.id, key, label.trim(), reviewedAt);
   }
 
-  res.status(201).json({ merchant_key: key, label: label.trim(), reviewed_at: reviewedAt, cancelling_at: cancellingAt });
+  res.status(201).json({ merchant_key: key, label: label.trim(), reviewed_at: reviewedAt });
 });
 
 export default subscriptionReviewsRouter;

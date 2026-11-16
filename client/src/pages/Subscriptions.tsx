@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, Loader2, Moon, Ban, TrendingUp } from "lucide-react";
+import { Check, Loader2, Moon, TrendingUp } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   api,
@@ -40,7 +40,6 @@ import { useAccountScope } from "../contexts/ViewFilterContext.js";
  */
 
 const FLAG_LABEL: Record<string, { text: string; icon: typeof Moon; tone: string }> = {
-  "still-charging": { text: "Still charging", icon: AlertTriangle, tone: "var(--critical)" },
   dormant: { text: "Stopped charging", icon: Moon, tone: "var(--text-muted)" },
   rose: { text: "Price went up", icon: TrendingUp, tone: "var(--warning)" },
 };
@@ -77,14 +76,14 @@ export default function Subscriptions() {
   const commitments = classifyCommitments(subscriptions(history), { policies, categories });
   const rows = reviewItems(commitments, reviews, detectPriceRises(history), today);
 
-  async function mark(item: ReviewItem, patch: { reviewed?: boolean; cancelling?: boolean }) {
+  async function confirm(item: ReviewItem) {
     setBusy(item.commitment.payment.key);
     setFailed(null);
     try {
       await api.reviewSubscription({
         merchant_key: item.commitment.payment.key,
         label: item.commitment.payment.label,
-        ...patch,
+        reviewed: true,
       });
       setReviews(await api.listSubscriptionReviews());
     } catch (err) {
@@ -157,9 +156,7 @@ export default function Subscriptions() {
                       return (
                         <div key={flag} className="sub-row__flag" style={{ color: tone }}>
                           <Icon size={12} aria-hidden="true" />
-                          {flag === "still-charging"
-                            ? `Marked as cancelling on ${row.review?.cancelling_at}, and still charging`
-                            : `${text} — nothing since ${payment.lastCharged}`}
+                          {text} — nothing since {payment.lastCharged}
                         </div>
                       );
                     })}
@@ -177,29 +174,14 @@ export default function Subscriptions() {
                   >
                     {checkedPhrase(row.checkedDaysAgo)}
                   </span>
-                  <div style={{ display: "flex", gap: "0.3rem" }}>
-                    <button
-                      type="button"
-                      onClick={() => mark(row, { reviewed: true })}
-                      disabled={busy !== null}
-                      title="Record that you have looked at this and still want it"
-                    >
-                      {busy === payment.key ? <Loader2 size={12} className="spin" /> : <Check size={12} />} Looks right
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => mark(row, { cancelling: !row.review?.cancelling_at })}
-                      disabled={busy !== null}
-                      title={
-                        row.review?.cancelling_at
-                          ? "Stop watching this one for charges that should have stopped"
-                          : "Mark as on its way out — it stays on this list until the charges actually stop"
-                      }
-                      className={row.review?.cancelling_at ? "btn-accent" : undefined}
-                    >
-                      <Ban size={12} /> {row.review?.cancelling_at ? "Cancelling" : "Cancel it"}
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => confirm(row)}
+                    disabled={busy !== null}
+                    title="Record that you have looked at this and still want it"
+                  >
+                    {busy === payment.key ? <Loader2 size={12} className="spin" /> : <Check size={12} />} Looks right
+                  </button>
                 </div>
               </div>
             );
@@ -209,8 +191,8 @@ export default function Subscriptions() {
 
       <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "1rem", maxWidth: "52rem" }}>
         A confirmation is good for a year, which is the cycle these things actually move on — a price rise, a contract
-        ending, a trial turning into a bill. Marking one as cancelling does not remove it: it keeps charging until it
-        doesn't, and a cancellation that failed looks exactly like one that worked until the next charge arrives.
+        ending, a trial turning into a bill. Nothing here cancels anything: this records that you looked, so what you
+        have not looked at in a long time rises to the top on its own.
       </p>
     </div>
   );
