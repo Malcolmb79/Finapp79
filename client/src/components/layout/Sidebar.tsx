@@ -5,6 +5,7 @@ import {
   FileText,
   Flame,
   Home,
+  KeyRound,
   Landmark,
   LayoutDashboard,
   LogOut,
@@ -41,6 +42,7 @@ const NAV_ITEMS = [
   { to: "/savings", label: "Savings", icon: PiggyBank },
   { to: "/investments", label: "Investments", icon: TrendingUp },
   { to: "/property", label: "Property", icon: Home },
+  { to: "/buy-to-let", label: "Buy to Let", icon: KeyRound },
   { to: "/household", label: "Household", icon: Users },
   { to: "/policies", label: "Policies", icon: Umbrella },
 ];

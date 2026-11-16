@@ -654,3 +654,58 @@ CREATE TABLE IF NOT EXISTS properties (
 );
 
 CREATE INDEX IF NOT EXISTS idx_properties_user ON properties (user_id);
+
+-- A buy-to-let deal being appraised, which is not the same thing as a property
+-- owned (`properties`). A deal is a candidate: a price somebody might pay, a
+-- rent they think they would get, and a structure they have not committed to.
+-- Most of them are never bought, and the ones that are become a `properties`
+-- row with a different set of facts behind it.
+--
+-- Kept as its own table rather than as draft properties for that reason: a
+-- half-modelled purchase has no equity, no tenancy and no mortgage, and
+-- letting it into `properties` would put candidates into net worth.
+CREATE TABLE IF NOT EXISTS btl_deals (
+  id TEXT PRIMARY KEY,                    -- generated uuid
+  user_id TEXT REFERENCES users(id),
+  name TEXT NOT NULL,
+  address TEXT,
+  notes TEXT,
+  currency TEXT NOT NULL DEFAULT 'EUR',
+
+  purchase_price DOUBLE PRECISION NOT NULL DEFAULT 0,
+  ltv DOUBLE PRECISION NOT NULL DEFAULT 0.7,
+  mortgage_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
+  interest_only BOOLEAN NOT NULL DEFAULT FALSE,
+  term_years DOUBLE PRECISION NOT NULL DEFAULT 25,
+  arrangement_fees DOUBLE PRECISION NOT NULL DEFAULT 0,
+  purchase_fees DOUBLE PRECISION NOT NULL DEFAULT 0,
+  -- Three or more apartments in one block stop at the 2% stamp duty band.
+  apartment_block BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Ten or more units inside twelve months: 15% on the whole price (s31E).
+  bulk_purchase BOOLEAN NOT NULL DEFAULT FALSE,
+
+  refurb_cost DOUBLE PRECISION NOT NULL DEFAULT 0,
+  value_after_works DOUBLE PRECISION NOT NULL DEFAULT 0,
+  furnishings_cost DOUBLE PRECISION NOT NULL DEFAULT 0,
+
+  units INTEGER NOT NULL DEFAULT 1,
+  rent_per_unit DOUBLE PRECISION NOT NULL DEFAULT 0,
+  vacancy_rate DOUBLE PRECISION NOT NULL DEFAULT 5,
+
+  management_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
+  lpt_annual DOUBLE PRECISION NOT NULL DEFAULT 0,
+  insurance_monthly DOUBLE PRECISION NOT NULL DEFAULT 0,
+  maintenance_monthly DOUBLE PRECISION NOT NULL DEFAULT 0,
+  service_charge_monthly DOUBLE PRECISION NOT NULL DEFAULT 0,
+  rtb_fee_annual DOUBLE PRECISION NOT NULL DEFAULT 0,
+  other_monthly DOUBLE PRECISION NOT NULL DEFAULT 0,
+
+  ownership TEXT NOT NULL DEFAULT 'personal',   -- personal | company
+  marginal_rate DOUBLE PRECISION NOT NULL DEFAULT 0.4,
+  retained_share DOUBLE PRECISION NOT NULL DEFAULT 1,
+  rtb_registered BOOLEAN NOT NULL DEFAULT TRUE,
+
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
+);
+
+CREATE INDEX IF NOT EXISTS idx_btl_deals_user ON btl_deals (user_id);

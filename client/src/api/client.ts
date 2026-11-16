@@ -421,6 +421,54 @@ export interface PolicyValuation {
   surrender_value: number | null;
 }
 
+/**
+ * A buy-to-let deal under appraisal, which is not a property owned.
+ *
+ * Column names match the table rather than the client's own calculator input,
+ * so a round trip never has to guess which spelling it is holding. The
+ * appraisal itself is computed on the client — see utils/btlDeal.ts.
+ */
+export interface BtlDeal {
+  id: string;
+  name: string;
+  address: string | null;
+  notes: string | null;
+  currency: string;
+
+  purchase_price: number;
+  ltv: number;
+  mortgage_rate: number;
+  interest_only: boolean;
+  term_years: number;
+  arrangement_fees: number;
+  purchase_fees: number;
+  apartment_block: boolean;
+  bulk_purchase: boolean;
+
+  refurb_cost: number;
+  value_after_works: number;
+  furnishings_cost: number;
+
+  units: number;
+  rent_per_unit: number;
+  vacancy_rate: number;
+
+  management_rate: number;
+  lpt_annual: number;
+  insurance_monthly: number;
+  maintenance_monthly: number;
+  service_charge_monthly: number;
+  rtb_fee_annual: number;
+  other_monthly: number;
+
+  ownership: "personal" | "company";
+  marginal_rate: number;
+  retained_share: number;
+  rtb_registered: boolean;
+
+  created_at: string;
+}
+
 export type PropertyType = "residence" | "rental" | "multi_family" | "commercial" | "land";
 
 /**
@@ -934,6 +982,16 @@ export const api = {
       body: JSON.stringify({ category_id: categoryId, monthly_limit: monthlyLimit, ...(currency ? { currency } : {}) }),
     }),
   deleteBudget: (id: number) => request<void>(`/budgets/${id}`, { method: "DELETE" }),
+
+  listBtlDeals: () => request<BtlDeal[]>("/btl-deals"),
+
+  createBtlDeal: (body: Partial<BtlDeal>) =>
+    request<BtlDeal>("/btl-deals", { method: "POST", body: JSON.stringify(body) }),
+
+  updateBtlDeal: (id: string, body: Partial<BtlDeal>) =>
+    request<BtlDeal>(`/btl-deals/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+
+  deleteBtlDeal: (id: string) => request<void>(`/btl-deals/${id}`, { method: "DELETE" }),
 
   listProperties: () => request<Property[]>("/properties"),
 

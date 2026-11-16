@@ -266,7 +266,7 @@ the client for a while with nothing calling it), `Budgets`, `Analytics`
 time via `utils/payoff.ts`'s amortization math, computed client-side since
 it's a projection that changes with every payment, plus the payoff
 modeller, refinance check and credit utilisation described below),
-`Savings`, `Reports` / `Future` / `Properties` (see "Statements,
+`Savings`, `Reports` / `Future` / `Properties` / `BuyToLet` (see "Statements,
 projections and property" below), `Policies`
 (life cover: upload a statement, confirm what was read from it, and choose
 per policy which figure counts towards net worth — see the data model below),
@@ -322,6 +322,49 @@ separately from how the buyer financed it, so two identical houses do not
 report different performance because one owner borrowed more. Every metric
 returns null rather than zero when its input is missing, and the portfolio
 totals count what they left out.
+
+**`BuyToLet`** appraises a deal before it is bought, and exists because a
+UK landlord's deal spreadsheet gives the wrong Irish answer confidently.
+`utils/irishTax.ts` holds every rate in one dated block so a Finance Act
+can be absorbed in one place; `utils/btlDeal.ts` is the deal model on top
+of it. The corrections that matter, each of which a UK sheet gets wrong in
+a different direction:
+
+- **No second-home stamp duty surcharge.** Ireland charges a landlord the
+  same 1% / 2% / 6% bands as an owner occupier (three or more apartments in
+  one block stop at 2%; ten or more units inside twelve months is 15% on the
+  whole price, s31E SDCA 1999). A UK sheet's surcharge overstates the entry
+  cost by more than the duty itself.
+- **No Section 24.** Interest is 100% deductible under s97(2)(e) TCA 1997,
+  so the UK add-back overstates the tax on every geared deal. But the
+  deduction is conditional on RTB registration and is *lost in full* for the
+  year without it — a cliff edge, not a taper, and `personalRentalTax` adds
+  the interest back when `rtbRegistered` is false.
+- **USC and PRSI sit on top of income tax**, so a higher-rate landlord is
+  near 52% rather than the UK's 40%. The RPRIR landlord credit reduces
+  income tax only, never USC or PRSI, and is not refundable.
+- **A close company is usually worse here.** 25% corporation tax on rental
+  profit plus a 20% surcharge on what it retains, about 40% all in, and the
+  dividend out is taxed again at the shareholder's rate. The UK sheet's
+  usual conclusion reverses. `comparePersonalAndCompany` returns a
+  comparison rather than a recommendation because the answer genuinely
+  swings on the band and on whether the money is needed.
+- **Local Property Tax is the owner's**, where UK council tax is the
+  tenant's, so a UK sheet has no line for it at all.
+
+Two modelling points worth not undoing. **Capital repayment is cash out and
+is not deductible**, which a UK sheet sidesteps by assuming interest-only —
+the normal UK BTL product and the unusual Irish one. So `taxableProfit` is
+cash flow *plus* the capital repaid *minus* wear and tear, and the first
+year's split comes from the real amortization schedule rather than an
+average of the term. The default worked example shows why it matters: a
+deal with +€210 a month of cash flow is -€19 a month after tax. And
+**vacancy is allowed for**, because a deal that only works at full
+occupancy is a deal with no margin in it.
+
+A deal is its own table rather than a draft `properties` row: a candidate
+has no equity, no tenancy and no mortgage, and letting one into
+`properties` would put things nobody has bought into net worth.
 
 Also on `DebtPlanner`: `utils/amortization.ts` produces the month-by-month
 schedule with and without an extra payment, and `compareRefinance` exists

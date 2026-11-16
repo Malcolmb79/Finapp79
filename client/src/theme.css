@@ -1817,3 +1817,160 @@ th {
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
+
+/* Buy to let — a deal sheet. The comparison table scrolls sideways rather
+   than wrapping, because a column is a deal and splitting one across two rows
+   destroys the only thing the layout is for. */
+
+.btl-compare {
+  overflow-x: auto;
+}
+
+.btl-compare table {
+  min-width: 32rem;
+}
+
+.btl-compare th:first-child,
+.btl-compare td:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--surface-1);
+  min-width: 11rem;
+}
+
+.btl-tax {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.5rem;
+}
+
+.btl-route {
+  display: grid;
+  gap: 0.15rem;
+  text-align: left;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--gridline);
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  min-width: 0;
+}
+
+/* Chosen and cheaper are different claims and are shown differently: the
+   border says which one this deal is set to, the tint says which one costs
+   less. They are frequently not the same, which is the point. */
+.btl-route[data-chosen="true"] {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.btl-route[data-better="true"] {
+  background: color-mix(in srgb, var(--good) 8%, transparent);
+}
+
+.btl-route strong {
+  font-size: 0.8rem;
+}
+
+.btl-route__figure {
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.btl-route__detail {
+  font-size: 0.69rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.btl-verdict {
+  font-size: 0.78rem;
+  margin: 0.55rem 0 0;
+  line-height: 1.45;
+}
+
+.btl-warnings {
+  list-style: none;
+  padding: 0;
+  margin: 0.6rem 0 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.btl-warnings li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  font-size: 0.74rem;
+  color: var(--warning);
+  line-height: 1.4;
+}
+
+.btl-warnings svg {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+}
+
+.btl-toggle {
+  background: transparent;
+  border: none;
+  padding: 0.6rem 0 0;
+  cursor: pointer;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.btl-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.btl-fields fieldset {
+  border: 1px solid var(--gridline);
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem 0.65rem;
+  min-width: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.btl-fields legend {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding: 0 0.3rem;
+}
+
+.btl-fields label {
+  display: grid;
+  grid-template-columns: 1fr 5.5rem;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  min-width: 0;
+}
+
+.btl-fields label input {
+  font-size: 0.78rem;
+  padding: 0.15rem 0.35rem;
+  width: 100%;
+  min-width: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.btl-fields .btl-check {
+  grid-template-columns: auto 1fr;
+}
+
+.btl-fields .btl-check input {
+  width: auto;
+  text-align: left;
+}
