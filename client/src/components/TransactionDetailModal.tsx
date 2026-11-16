@@ -350,8 +350,18 @@ export default function TransactionDetailModal({
           </div>
         </div>
 
+        {/* When it was stored, on an imported row only. A transaction with no
+            description is unfilable on its own, and the question it raises is
+            which statement it came in on — `created_at` is exactly the
+            identity an import is listed and undone by on the Accounts page,
+            so naming it here is the whole answer rather than a hint at it.
+            Pointless on a synced or hand-entered row, where the source is
+            already the whole story. */}
         <p className="page-header__subtitle" style={{ marginTop: "1rem", marginBottom: 0 }}>
           {SOURCE_LABEL[transaction.source]}
+          {transaction.source === "csv" && transaction.created_at && (
+            <> · imported {transaction.created_at.slice(0, 16).replace("T", " ")}</>
+          )}
         </p>
 
         {/* Under the category, because it is the same question asked more

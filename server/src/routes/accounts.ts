@@ -467,7 +467,15 @@ accountsRouter.get("/:id/imports", async (req, res) => {
               MIN(booking_date) AS first_date,
               MAX(booking_date) AS last_date,
               SUM(amount) AS total,
-              SUM(CASE WHEN booking_date > ? THEN 1 ELSE 0 END) AS future_dated
+              SUM(CASE WHEN booking_date > ? THEN 1 ELSE 0 END) AS future_dated,
+              -- Rows the statement named nothing. The tell for a description
+              -- column mapped to the wrong field: the import is otherwise
+              -- perfect, so there is nothing else here that would identify
+              -- which statement left a queue of unnamed rows behind.
+              SUM(
+                CASE WHEN COALESCE(NULLIF(TRIM(description), ''), NULLIF(TRIM(counterparty), '')) IS NULL
+                     THEN 1 ELSE 0 END
+              ) AS unnamed
          FROM transactions
         WHERE account_id = ? AND user_id = ? AND source = 'csv'
         GROUP BY created_at
@@ -480,6 +488,7 @@ accountsRouter.get("/:id/imports", async (req, res) => {
     last_date: string;
     total: number;
     future_dated: number;
+    unnamed: number;
   }[];
 
   res.json(
@@ -490,6 +499,7 @@ accountsRouter.get("/:id/imports", async (req, res) => {
       lastDate: r.last_date,
       total: Number(r.total),
       futureDated: Number(r.future_dated),
+      unnamed: Number(r.unnamed),
     }))
   );
 });

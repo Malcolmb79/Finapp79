@@ -105,6 +105,13 @@ export interface AccountImport {
   total: number;
   /** Rows booked after today — the tell for a statement whose dates were misread. */
   futureDated: number;
+  /**
+   * Rows the statement named nothing — the tell for a description column
+   * mapped to the wrong field. The import is otherwise perfect, so this is
+   * the only thing that identifies which statement left a queue of lines
+   * reading "Transaction" over a date.
+   */
+  unnamed: number;
 }
 
 export type AccountType = "current" | "savings" | "credit_card" | "loan";
@@ -301,6 +308,13 @@ export interface StatementPreview {
   // Counted across every parsed row, so the dialog can catch a statement that
   // came out all one direction.
   direction: { inflow: number; outflow: number };
+  /**
+   * Rows the statement gives no name to, and a column that would name more of
+   * them. This is the one mapping error that imports perfectly — every date
+   * and every amount correct, and the rows arriving as "Transaction" over a
+   * date — so it has to be raised here rather than discovered later.
+   */
+  unnamed: { count: number; betterColumn: number | null };
   // The bank matched from the statement against Enable Banking's directory,
   // offered so the account can carry its real logo.
   detectedBank: { name: string; logo: string | null; country: string } | null;

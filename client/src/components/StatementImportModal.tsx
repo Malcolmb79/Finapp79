@@ -445,6 +445,64 @@ export default function StatementImportModal({
               </div>
             )}
 
+            {/* The one mapping error that imports perfectly. Every date and
+                every amount is right; the rows simply arrive with no name,
+                and that is not visible in a total or a balance — it surfaces
+                days later as a review queue of lines reading "Transaction"
+                over a date, by which point which statement did it is
+                anybody's guess. So it is raised here, while the file that
+                caused it is still open and the column is one click away. */}
+            {preview.unnamed.count > 0 && (
+              <div
+                role="alert"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.6rem",
+                  flexWrap: "wrap",
+                  margin: "0.75rem 0",
+                  padding: "0.6rem 0.75rem",
+                  borderRadius: "var(--radius)",
+                  // Louder when it is the whole statement: a handful of
+                  // unnamed rows is normal (bank charges, interest), where
+                  // every row unnamed is the column being wrong.
+                  border: `1px solid ${preview.unnamed.count === preview.parsed ? "var(--critical)" : "var(--border)"}`,
+                  background:
+                    preview.unnamed.count === preview.parsed
+                      ? "color-mix(in srgb, var(--critical) 12%, transparent)"
+                      : "var(--surface-2)",
+                }}
+              >
+                <AlertTriangle
+                  size={15}
+                  color={preview.unnamed.count === preview.parsed ? "var(--critical)" : "var(--text-muted)"}
+                />
+                <span style={{ flex: 1, minWidth: 220, fontSize: "0.85rem" }}>
+                  {preview.unnamed.count === preview.parsed ? (
+                    <>
+                      None of these <strong>{preview.parsed}</strong> transactions has a description — they will import as
+                      &ldquo;Transaction&rdquo; and a date.
+                    </>
+                  ) : (
+                    <>
+                      <strong>{preview.unnamed.count}</strong> of {preview.parsed} have no description, and will import as
+                      &ldquo;Transaction&rdquo; and a date.
+                    </>
+                  )}{" "}
+                  {preview.unnamed.betterColumn != null
+                    ? "Another column names more of them."
+                    : "Check the Description column above if that's wrong."}
+                </span>
+                {preview.unnamed.betterColumn != null && (
+                  <button onClick={() => update({ descriptionColumn: preview.unnamed.betterColumn })}>
+                    Use{" "}
+                    {columnOptions.find((c) => c.index === preview.unnamed.betterColumn)?.label ??
+                      `column ${preview.unnamed.betterColumn + 1}`}
+                  </button>
+                )}
+              </div>
+            )}
+
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.4rem" }}>
               <h3 style={{ margin: 0, fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-secondary)" }}>
                 {preview.parsed} transaction{preview.parsed === 1 ? "" : "s"} to import

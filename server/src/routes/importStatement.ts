@@ -153,6 +153,60 @@ function columnLabels(table: string[][], mapping: StatementMapping) {
   });
 }
 
+/** A row nothing in the statement names. */
+export function isUnnamed(row: ParsedRow): boolean {
+  return !row.description?.trim() && !row.counterparty?.trim();
+}
+
+/**
+ * A column that would name more rows than the one currently mapped.
+ *
+ * The description column is picked as the widest free-text column, which is
+ * the right guess on most exports and wrong on the ones that put the narrative
+ * in a narrow column beside a wide reference. When that happens the import
+ * succeeds — every date and every amount is right — and the rows land with no
+ * name at all, which only shows up later as a queue of lines reading
+ * "Transaction" over a date.
+ *
+ * Rather than guess harder, the candidate columns are actually tried: the
+ * mapping is re-applied with each unused column as the description and the
+ * one that leaves fewest rows nameless wins. It is offered, never applied —
+ * the mapping came from reading the file and this is a suggestion about it.
+ */
+export function betterDescriptionColumn(
+  table: string[][],
+  mapping: StatementMapping,
+  unnamed: number
+): number | null {
+  if (unnamed === 0) return null;
+
+  const taken = new Set(
+    [
+      mapping.dateColumn,
+      mapping.amountColumn,
+      mapping.debitColumn,
+      mapping.creditColumn,
+      mapping.counterpartyColumn,
+      mapping.descriptionColumn,
+    ].filter((column): column is number => column != null)
+  );
+
+  const width = table.reduce((widest, row) => Math.max(widest, row.length), 0);
+  let best: number | null = null;
+  let fewest = unnamed;
+
+  for (let column = 0; column < width; column++) {
+    if (taken.has(column)) continue;
+    const named = applyMapping(table, { ...mapping, descriptionColumn: column }).filter(isUnnamed).length;
+    if (named < fewest) {
+      fewest = named;
+      best = column;
+    }
+  }
+
+  return best;
+}
+
 async function ownedAccount(accountId: string, userId: string) {
   return db
     .prepare("SELECT currency, iban FROM accounts WHERE id = ? AND user_id = ?")
@@ -235,6 +289,15 @@ importStatementRouter.post("/preview", async (req, res) => {
     direction: {
       inflow: rows.filter((r) => r.amount > 0).length,
       outflow: rows.filter((r) => r.amount < 0).length,
+    },
+    // Rows the statement gives no name to. Counted over everything rather
+    // than the visible sample, and raised in its own right, because this is
+    // the one mapping error that imports perfectly: every date and every
+    // amount is correct, and the rows arrive as "Transaction" over a date,
+    // which is unfilable and only noticed days later in the review queue.
+    unnamed: {
+      count: rows.filter(isUnnamed).length,
+      betterColumn: betterDescriptionColumn(table, mapping, rows.filter(isUnnamed).length),
     },
     // Offered rather than applied: the user sees which bank was matched, with
     // its logo, and decides. A wrong logo is worse than no logo.

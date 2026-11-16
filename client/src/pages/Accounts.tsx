@@ -1009,6 +1009,20 @@ export default function Accounts() {
                                     · {imp.futureDated} dated in the future
                                   </span>
                                 )}
+                                {/* The only thing that says which statement
+                                    left a queue of lines reading
+                                    "Transaction" over a date. That import
+                                    was otherwise perfect — right dates, right
+                                    amounts, right total — so nothing else
+                                    here would ever point at it. */}
+                                {imp.unnamed > 0 && (
+                                  <span
+                                    style={{ color: "var(--warning)" }}
+                                    title="The description column was probably mapped to the wrong field. Undo this import and upload the statement again, picking the right Description column."
+                                  >
+                                    · {imp.unnamed} with no description
+                                  </span>
+                                )}
                               </div>
                               <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
                                 {imp.firstDate} to {imp.lastDate} · imported {imp.importedAt.slice(0, 16).replace("T", " ")} ·{" "}

@@ -201,3 +201,38 @@ describe("year for dates that omit one", () => {
     expect(rows[0].date).toBe("2027-06-15");
   });
 });
+
+describe("description column", () => {
+  /**
+   * "Reference" is one of the words a description column is recognised by,
+   * and it is routinely the column a bank leaves empty, sitting beside the
+   * one that names the transaction. Honouring the name there maps every row
+   * to a blank — an import that succeeds completely, with every date and
+   * every amount right, and arrives as a queue of rows reading "Transaction"
+   * over a date. The name only counts while the column holds something.
+   */
+  it("ignores a header name on a column that is empty on every row", async () => {
+    const rows = await parse(
+      [
+        "Date,Reference,Detail,Amount",
+        "07/11/2026,,Pick n Pay,-125.00",
+        "05/11/2026,,Woolworths Food,-114.62",
+        "27/10/2026,,Bank Charge,-2.00",
+      ].join("\n")
+    );
+    expect(rows.map((r) => r.description)).toEqual(["Pick n Pay", "Woolworths Food", "Bank Charge"]);
+  });
+
+  // The name still wins where it means something: a narrow "Details" column
+  // beside a long transaction reference should not lose on average width.
+  it("still prefers the named column when it carries the text", async () => {
+    const rows = await parse(
+      [
+        "Date,Details,Transaction reference number,Amount",
+        "07/11/2026,SPAR,PMT-0000000000000881234-ZA,-125.00",
+        "05/11/2026,SHELL,PMT-0000000000000881235-ZA,-114.62",
+      ].join("\n")
+    );
+    expect(rows.map((r) => r.description)).toEqual(["SPAR", "SHELL"]);
+  });
+});

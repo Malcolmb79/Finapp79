@@ -470,7 +470,14 @@ function heuristicMapping(rows: string[][], preamble: string[][] = []): Statemen
   }
 
   // Description: the widest free-text column that isn't the date or a number.
+  //
+  // The header name is only consulted while the column it names actually
+  // holds something. "Reference" matches the pattern below and is routinely
+  // the column a bank leaves empty, sitting beside the one that names the
+  // transaction — and honouring the name there maps every row to a blank,
+  // which imports perfectly and arrives as "Transaction" over a date.
   let descriptionColumn = hinted.descriptionColumn ?? null;
+  if (descriptionColumn != null && columnCells(descriptionColumn).length === 0) descriptionColumn = null;
   if (descriptionColumn == null) {
     let widest = -1;
     for (let i = 0; i < columnCount; i++) {

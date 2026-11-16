@@ -228,6 +228,27 @@ query, or one user's data leaks into another's response.
   instead of creating duplicates. Enable Banking transactions dedupe the
   same way, preferring the provider's `transaction_id`/`entry_reference`
   and falling back to a content hash if neither is present.
+- A statement whose **description column is mapped to the wrong field**
+  imports perfectly — every date, every amount and the total all correct —
+  and the rows arrive with no name, surfacing days later as a review queue of
+  lines reading "Transaction" over a date, with nothing left to say which
+  statement did it. Three places address it, and they are three different
+  problems rather than one repeated:
+  - `statementParser.ts` ignores a header-name hint for a column that is
+    empty on **every** row. "Reference" is one of the words a description
+    column is recognised by and is routinely the column a bank leaves blank
+    beside the one that names the transaction.
+  - `importStatement.ts`'s preview returns `unnamed: {count, betterColumn}`.
+    `betterDescriptionColumn()` does not guess harder — it re-applies the
+    mapping with each unused column as the description and takes the one
+    leaving fewest rows nameless, and only ever offers it. It will never
+    propose the date or amount column: naming a row "-125.00" looks fixed
+    and is worse, because it stops announcing that anything is missing.
+  - `GET /api/accounts/:id/imports` counts `unnamed` per import, for the
+    same reason `futureDated` is there: a perfect-looking import needs
+    something that identifies it after the fact. The detail card pairs with
+    it by printing a csv row's `created_at`, which is exactly the key an
+    import is listed and undone by.
 - Manual transactions (`source = 'manual'`) are the only ones that can be
   deleted (`DELETE /api/transactions/:id` filters on `source = 'manual'`) —
   synced and imported transactions are meant to stay in sync with their
