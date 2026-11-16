@@ -620,6 +620,26 @@ is already a sync or authorisation alert in its own words), accounts never
 imported to (no habit to be behind on — inferring one would put every manual
 account on the list permanently), and hidden accounts.
 
+`statementsMissing()` covers that second case with a narrower question that
+needs no guessing: **has anything ever gone in, by any route?** A hand-kept
+account has entries; one never imported to that *also* holds nothing at all
+is a balance with no history behind it. It reads `transaction_count` from the
+accounts route, counted over all time, because the client's transaction list
+is filtered by range and scope and so cannot answer "ever" — and only an
+explicit zero counts, since treating a missing count as emptiness would list
+every hand-kept account the moment anything upstream stopped sending the
+field. A new account gets `NEW_ACCOUNT_GRACE_DAYS` before being asked,
+because the gap between making one and feeding it is part of setting it up.
+
+That half is deliberately **not** in the bell. Being behind is news: it
+became true on a particular day and stops being true when you act. An account
+that has always been empty is not news on any day, and an alert that fires
+every day until you deal with it is one you learn to ignore — so it lives in
+the widget and on the account row, where a standing list belongs. The widget
+keeps the two in separate sections for the same reason: one account needs its
+next statement, the other its first, and running them together makes the
+second read as a lapse rather than as setup nobody finished.
+
 Three surfaces, one rule: the alert in the bell (`deriveAlerts`), the
 `statementsDue` dashboard widget, and the flag beside the account on the
 Accounts page — which reaches it through `staleness()` in `accountBalance.ts`,

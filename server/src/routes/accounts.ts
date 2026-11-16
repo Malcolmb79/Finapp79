@@ -36,7 +36,16 @@ accountsRouter.get("/", async (req, res) => {
                 (SELECT MAX(t.created_at) FROM transactions t
                   WHERE t.account_id = a.id AND t.source = 'csv') AS last_import_at,
                 (SELECT MAX(t.booking_date) FROM transactions t
-                  WHERE t.account_id = a.id AND t.source = 'csv') AS last_imported_date
+                  WHERE t.account_id = a.id AND t.source = 'csv') AS last_imported_date,
+                -- Whether anything has ever gone in, by any route. An account
+                -- with no import is not necessarily waiting for one: it may be
+                -- kept by hand. One with nothing in it at all, by any route,
+                -- is a different thing — a balance with no history behind it.
+                -- Counted over all time rather than taken from the client's
+                -- list, which is filtered by date range and account scope and
+                -- so cannot answer "ever".
+                (SELECT COUNT(*) FROM transactions t
+                  WHERE t.account_id = a.id) AS transaction_count
          FROM accounts a
          LEFT JOIN bank_connections bc ON bc.id = a.bank_connection_id
          WHERE a.user_id = ?

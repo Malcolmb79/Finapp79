@@ -259,6 +259,16 @@ export interface Account {
   last_sync_error?: string | null;
   /** The most recent transaction date any import brought in — how current the account is. */
   last_imported_date?: string | null;
+  /**
+   * How many transactions it holds, over all time and by any route.
+   *
+   * Zero is what distinguishes an account waiting for its first statement
+   * from one kept by hand: the second has entries, the first has a balance
+   * and nothing behind it.
+   */
+  transaction_count?: number;
+  /** When the account was created — so a new one isn't told it's behind. */
+  created_at?: string;
 }
 
 // How a statement file's columns map onto this app's transaction shape. The

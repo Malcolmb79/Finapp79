@@ -95,6 +95,55 @@ export function statementDue(account: Account, today: string, staleAfterDays = S
   return { account, coversTo, lastImportAt: account.last_import_at, daysBehind };
 }
 
+/**
+ * How long an account is given before being asked for its first statement.
+ *
+ * An account created this morning is not missing anything. The gap between
+ * making one and feeding it is a normal part of setting the thing up, and a
+ * prompt that appears during it is a prompt about your own unfinished
+ * sentence.
+ */
+export const NEW_ACCOUNT_GRACE_DAYS = 3;
+
+/**
+ * Accounts that have never been given anything at all.
+ *
+ * Deliberately not the same question as being behind, and deliberately
+ * narrower than "has never been imported to". An account kept by hand has no
+ * imports either, and telling somebody their hand-kept savings account is
+ * missing a statement is how a list like this gets ignored — which is why
+ * `statementDue` refuses to guess at it.
+ *
+ * What can be said without guessing is that **nothing has ever gone in, by
+ * any route**: no import, no hand-entered row, nothing. That is not an
+ * account being maintained differently, it is an account whose balance has
+ * no history behind it — every figure it contributes to is a number somebody
+ * typed once, and the transactions page shows nothing when you go looking.
+ */
+export function statementsMissing(accounts: Account[], today: string): Account[] {
+  return accounts
+    .filter((account) => {
+      if (account.hidden) return false;
+      // A linked account fills itself from the bank; an empty one is waiting
+      // for its first sync, which is a different prompt with its own words.
+      if (account.source !== "manual") return false;
+      if (account.last_import_at) return false;
+      // Anything at all having been entered means it is being kept some other
+      // way, and that is not ours to second-guess.
+      //
+      // Only an explicit zero counts. A missing count is an older response or
+      // a caller that doesn't carry one, and treating absence of information
+      // as evidence of emptiness would put every hand-kept account on this
+      // list the moment anything upstream stopped sending the field.
+      if (account.transaction_count !== 0) return false;
+
+      if (!account.created_at) return true;
+      const age = (Date.parse(today) - Date.parse(account.created_at.replace(" ", "T"))) / 86_400_000;
+      return !Number.isFinite(age) || age >= NEW_ACCOUNT_GRACE_DAYS;
+    })
+    .sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? "") || a.name.localeCompare(b.name));
+}
+
 /** How long it has been, in the words somebody would use. */
 export function behindPhrase(daysBehind: number): string {
   const months = Math.floor(daysBehind / 30);

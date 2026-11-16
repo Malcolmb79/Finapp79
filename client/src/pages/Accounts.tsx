@@ -583,7 +583,9 @@ export default function Accounts() {
                             on an account imported to this morning with a
                             statement that stopped in June. */}
                         {stale.days === null
-                          ? "Never synced"
+                          ? stale.kind === "sync"
+                            ? "Never synced"
+                            : "No statement imported yet"
                           : stale.kind === "sync"
                             ? `No sync in ${stale.days} days`
                             : `Statements ${behindPhrase(stale.days)}`}

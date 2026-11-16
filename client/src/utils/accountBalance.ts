@@ -1,4 +1,4 @@
-import { statementDue } from "./statementsDue.js";
+import { statementDue, statementsMissing } from "./statementsDue.js";
 import type { Account, AccountType } from "../api/client.js";
 
 export const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
@@ -93,8 +93,14 @@ export function staleness(account: Account, now = Date.now()): Staleness | null 
   const linked = account.source === "enablebanking";
 
   if (!linked) {
-    const due = statementDue(account, new Date(now).toISOString().slice(0, 10));
-    return due ? { days: due.daysBehind, kind: "import" } : null;
+    const today = new Date(now).toISOString().slice(0, 10);
+    const due = statementDue(account, today);
+    if (due) return { days: due.daysBehind, kind: "import" };
+    // Nothing has ever gone in, by any route — a balance with no history
+    // behind it. `days: null` is the same "never" the linked side already
+    // uses, so both read the same way down the list.
+    if (statementsMissing([account], today).length > 0) return { days: null, kind: "import" };
+    return null;
   }
 
   const kind = "sync";
