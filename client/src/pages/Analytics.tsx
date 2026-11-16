@@ -206,8 +206,8 @@ export default function Analytics() {
   const recurring = subscriptions(recurringHistory);
   const recurringRepaid = recurringRepayments(recurringHistory);
   const unclaimed = unclaimedRepayments(recurring, accounts, rules);
-  // Which of them are insurance rather than subscriptions — from a policy held
-  // or a category filed under, never from a list of insurers.
+  // What kind each one is, from the category it was filed under — never from
+  // a list of merchants.
   const commitments = classifyCommitments(recurring, { policies, categories });
   // Deliberately from the full history rather than the chosen range: a price
   // rise is established by what came before it, and a three-month window can
@@ -319,7 +319,7 @@ export default function Analytics() {
     },
     {
       id: "subscriptions",
-      title: "Subscriptions",
+      title: "Standing commitments",
       icon: CreditCard,
       accentVar: "--accent-2",
       defaultWidth: 672,
@@ -331,6 +331,12 @@ export default function Analytics() {
           repayments={recurringRepaid}
           unclaimed={unclaimed}
           commitments={commitments}
+          categories={categories}
+          onFile={async (_payment, categoryId, matchText) => {
+            const rule = await api.createRule({ match_text: matchText, match_account_id: null, category_id: categoryId });
+            await api.applyRule(rule.id);
+            refresh();
+          }}
           onAttribute={async (hit) => {
             await api.createRule({
               match_text: hit.matchText,

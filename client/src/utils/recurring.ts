@@ -39,6 +39,15 @@ export interface RecurringPayment {
    * insurance premium — see `commitments.ts`.
    */
   categoryIds: (number | null)[];
+  /**
+   * The descriptions exactly as the bank wrote them, deduped.
+   *
+   * `label` is cleaned for reading and `key` is stripped for matching, so
+   * neither is reliably a substring of what is actually on the transaction.
+   * A standing rule has to match the bank's own text, so the raw text has to
+   * survive the grouping — see `sharedToken` in `commitments.ts`.
+   */
+  texts: string[];
 }
 
 interface Chargeable {
@@ -158,6 +167,7 @@ export function detectRecurring(
       monthly: (typical * match.perYear) / 12,
       charges: ordered.map((tx) => ({ date: tx.booking_date, amount: Math.abs(tx.amount), accountId: tx.account_id ?? null })),
       categoryIds: [...ordered].reverse().map((tx) => tx.category_id ?? null),
+      texts: [...new Set(ordered.map((tx) => `${tx.description ?? ""} ${tx.counterparty ?? ""}`.trim()).filter(Boolean))],
     });
   }
 

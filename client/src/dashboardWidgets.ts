@@ -128,7 +128,7 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
   incomeSources: { title: "Where income came from", module: "Dashboard", icon: Coins, defaultEnabled: false, defaultWidth: NARROW_WIDTH, defaultHeight: 300 },
   // The same component Analytics uses, offered here too: a standing
   // commitment is a dashboard fact as much as an analysis one.
-  subscriptions: { title: "Subscriptions", module: "Analytics", icon: SubscriptionIcon, defaultEnabled: false, defaultWidth: NARROW_WIDTH, defaultHeight: 320 },
+  subscriptions: { title: "Standing commitments", module: "Analytics", icon: SubscriptionIcon, defaultEnabled: false, defaultWidth: NARROW_WIDTH, defaultHeight: 320 },
   notes: { title: "Notes & to-do", module: "Dashboard", icon: ListTodo, defaultEnabled: false, defaultWidth: NARROW_WIDTH, defaultHeight: 320 },
   quickAdd: { title: "Quick add", module: "Transactions", icon: Plus, defaultEnabled: false, defaultWidth: NARROW_WIDTH, defaultHeight: 340 },
   // A short list that is usually empty, so it needs very little room. Off by

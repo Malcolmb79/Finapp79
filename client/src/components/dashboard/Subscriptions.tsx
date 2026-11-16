@@ -2,7 +2,8 @@ import { ChevronLeft, Link2, Loader2 } from "lucide-react";
 import { useState } from "react";
 import type { RecurringPayment } from "../../utils/recurring.js";
 import type { UnclaimedRepayment } from "../../utils/loanRepayments.js";
-import type { Commitment } from "../../utils/commitments.js";
+import type { Category } from "../../api/client.js";
+import { groupCommitments, sharedToken, UNFILED, type Commitment } from "../../utils/commitments.js";
 import { formatCurrency } from "../../utils/formatCurrency.js";
 import { useMeasuredWidth } from "../../utils/useMeasuredWidth.js";
 
@@ -112,7 +113,9 @@ export default function Subscriptions({
   repayments = [],
   unclaimed = [],
   commitments = [],
+  categories = [],
   onAttribute,
+  onFile,
 }: {
   payments: RecurringPayment[];
   currency: string;
@@ -121,16 +124,20 @@ export default function Subscriptions({
   /** Loans nothing is repaying, beside a payment that looks like the repayment. */
   unclaimed?: UnclaimedRepayment[];
   /**
-   * What each payment actually is. Insurance is spending like any other and
-   * stays in every figure here — it only stops being called a subscription,
-   * under a heading whose whole promise is "here is what you could stop
-   * paying for".
+   * What each payment actually is, in the owner's own words. Everything here
+   * is spending and stays in every figure — the kinds only stop a phone bill
+   * and a life policy being called subscriptions.
    */
   commitments?: Commitment[];
+  /** Offered for filing a payment nobody has said anything about yet. */
+  categories?: Category[];
   onAttribute?: (hit: UnclaimedRepayment) => Promise<void>;
+  /** Files this merchant under a category, now and from now on. */
+  onFile?: (payment: RecurringPayment, categoryId: number, matchText: string) => Promise<void>;
 }) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [attaching, setAttaching] = useState<string | null>(null);
+  const [filing, setFiling] = useState<string | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const money = (value: number) => formatCurrency(value, currency);
   const suggestionFor = (key: string) => unclaimed.find((hit) => hit.payment.key === key) ?? null;
@@ -145,6 +152,19 @@ export default function Subscriptions({
       setFailed(err instanceof Error ? err.message : "Could not save that.");
     } finally {
       setAttaching(null);
+    }
+  }
+
+  async function file(payment: RecurringPayment, categoryId: number, matchText: string) {
+    if (!onFile) return;
+    setFiling(payment.key);
+    setFailed(null);
+    try {
+      await onFile(payment, categoryId, matchText);
+    } catch (err) {
+      setFailed(err instanceof Error ? err.message : "Could not file that.");
+    } finally {
+      setFiling(null);
     }
   }
 
@@ -188,21 +208,16 @@ export default function Subscriptions({
     }));
 
   /**
-   * The split, and which side of it the headline figure speaks for.
+   * The headline speaks for every commitment on the card, and the sections
+   * say what each kind of it is.
    *
-   * The big number answers "what am I signed up to that I could stop", so it
-   * counts subscriptions and not insurance — a premium quoted inside that
-   * total is an invitation to cancel cover to save money, which is the one
-   * conclusion this card must not lead anybody to. The premiums are still
-   * here, still charted, still added up: under their own heading, where the
-   * figure means something different.
+   * It used to say "€528.59 a month across 8 subscriptions" over a list whose
+   * largest three entries were a personal loan, a life policy and a phone
+   * bill. The figure was right and the sentence was wrong, and a wrong
+   * sentence over a right figure is the more convincing of the two.
    */
-  const insuranceKeys = new Set(commitments.filter((c) => c.kind === "insurance").map((c) => c.payment.key));
-  const insuranceReason = new Map(commitments.filter((c) => c.because).map((c) => [c.payment.key, c.because as string]));
-  const subs = payments.filter((p) => !insuranceKeys.has(p.key));
-  const insured = payments.filter((p) => insuranceKeys.has(p.key));
-  const sum = (list: RecurringPayment[]) => list.reduce((total, p) => total + p.monthly, 0);
-  const monthlyTotal = sum(subs);
+  const groups = groupCommitments(commitments.length > 0 ? commitments : payments.map(fallbackCommitment));
+  const monthlyTotal = groups.reduce((total, group) => total + group.monthly, 0);
 
   if (selected) {
     const history = [...selected.charges].sort((a, b) => b.date.localeCompare(a.date));
@@ -245,136 +260,157 @@ export default function Subscriptions({
     );
   }
 
+
   return (
     <div>
-      {/* Zero subscriptions is a sentence, not a €0.00. Everything on a
-          rhythm being insurance or a repayment is a real and perfectly
-          ordinary answer, and printing it as a nil total reads as the
-          detector having failed. */}
-      {subs.length === 0 ? (
-        <p style={{ fontSize: "0.85rem", margin: "0 0 0.5rem" }}>
-          Nothing here is a subscription — everything charging on a rhythm is insurance or a loan repayment, and neither is
-          something to stop paying.
-        </p>
-      ) : (
-        <div style={{ display: "flex", alignItems: "baseline", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
-          <span className="stat-tile__value" style={{ fontSize: "1.5rem" }}>
-            {money(monthlyTotal)}
-          </span>
-          <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-            a month across {subs.length} {subs.length === 1 ? "subscription" : "subscriptions"} · {money(monthlyTotal * 12)} a
-            year
-          </span>
-        </div>
-      )}
+      <div style={{ display: "flex", alignItems: "baseline", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+        <span className="stat-tile__value" style={{ fontSize: "1.5rem" }}>
+          {money(monthlyTotal)}
+        </span>
+        <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+          a month across {payments.length} {payments.length === 1 ? "commitment" : "commitments"} ·{" "}
+          {money(monthlyTotal * 12)} a year
+        </span>
+      </div>
 
       <Bars data={chargesFor(payments)} currency={currency} />
 
       {excluded}
 
-      <div style={{ marginTop: "0.7rem" }}>
-        {subs.map((p) => {
-          const hit = suggestionFor(p.key);
-          return (
-            <div key={p.key} style={{ borderTop: "1px solid var(--gridline)" }}>
-              {/* A row is the way in rather than a separate link: the whole
-                  line is what you are pointing at when you want to know more
-                  about it. */}
-              <button
-                onClick={() => setSelectedKey(p.key)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: "0.6rem",
-                  width: "100%",
-                  background: "transparent",
-                  border: "none",
-                  padding: "0.45rem 0",
-                  cursor: "pointer",
-                  font: "inherit",
-                  textAlign: "left",
-                }}
-              >
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.85rem" }}>
-                  {p.label}
-                  <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}> · {CADENCE_LABEL[p.cadence]}</span>
-                </span>
-                <span style={{ whiteSpace: "nowrap", fontSize: "0.85rem" }}>
-                  <strong>{money(p.monthly)}</strong>
-                  <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>/mo</span>
-                </span>
-              </button>
-
-              {/* Offered under the row it is about, and only ever offered.
-                  Confirming it writes the ordinary repayment rule, which is
-                  what moves the loan's balance as well as taking the payment
-                  off this list — hiding the row alone would leave the loan
-                  frozen, which is the worse of the two faults. */}
-              {hit && (
-                <div className="subs-claim">
-                  <Link2 size={11} aria-hidden="true" style={{ flexShrink: 0 }} />
-                  <span>
-                    Looks like the repayment for <strong>{hit.account.name}</strong>, which nothing is repaying.
-                  </span>
-                  <button type="button" onClick={() => attribute(hit)} disabled={attaching !== null || !onAttribute} className="subs-claim__yes">
-                    {attaching === p.key ? <Loader2 size={11} className="spin" /> : "It is"}
-                  </button>
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {failed && <div style={{ color: "var(--critical)", fontSize: "0.72rem", paddingTop: "0.3rem" }}>{failed}</div>}
-      </div>
-
-      {/* Insurance, under its own heading and its own total.
-          Not hidden and not subtracted: the money is spent, unlike a loan
-          repayment, so it belongs in every spending figure this app prints.
-          What it is not is something you could stop paying for and be fine —
-          cancelling Netflix costs you Netflix, cancelling cover costs you the
-          cover. Each row says what it was read from, so a wrong reading can
-          be seen and argued with rather than silently moving a figure. */}
-      {insured.length > 0 && (
-        <div style={{ marginTop: "0.8rem" }}>
+      {/* A section per kind, named in the owner's own words, each carrying its
+          own total — so no figure on the card is ever read as speaking for a
+          kind it does not cover. There is no list of merchants behind these
+          headings and there should never be one: "Utilities" appears because
+          somebody typed "Utilities". */}
+      {groups.map((group) => (
+        <div key={group.name} style={{ marginTop: "0.8rem" }}>
           <div className="subs-section">
-            <span>Insurance — not a subscription, and not something to cancel to save money</span>
-            <strong>{money(sum(insured))}/mo</strong>
-          </div>
-          {insured.map((p) => (
-            <button
-              key={p.key}
-              onClick={() => setSelectedKey(p.key)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: "0.6rem",
-                width: "100%",
-                background: "transparent",
-                border: "none",
-                borderTop: "1px solid var(--gridline)",
-                padding: "0.45rem 0",
-                cursor: "pointer",
-                font: "inherit",
-                textAlign: "left",
-              }}
-            >
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.85rem" }}>
-                {p.label}
-                <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>
-                  {" · "}
-                  {insuranceReason.get(p.key) ?? CADENCE_LABEL[p.cadence]}
+            <span>
+              {group.name}
+              {group.name === UNFILED && (
+                <span>
+                  {" — "}
+                  {group.commitments.length === 1 ? "this one has" : "these have"} no category, so nothing here can say
+                  what {group.commitments.length === 1 ? "it is" : "they are"}
                 </span>
-              </span>
-              <span style={{ whiteSpace: "nowrap", fontSize: "0.85rem" }}>
-                <strong>{money(p.monthly)}</strong>
-                <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>/mo</span>
-              </span>
-            </button>
-          ))}
+              )}
+            </span>
+            <strong>{money(group.monthly)}/mo</strong>
+          </div>
+
+          {group.commitments.map(({ payment: p, readFrom }) => {
+            const hit = suggestionFor(p.key);
+            const token = group.name === UNFILED ? sharedToken(p) : null;
+            return (
+              <div key={p.key} style={{ borderTop: "1px solid var(--gridline)" }}>
+                {/* A row is the way in rather than a separate link: the whole
+                    line is what you are pointing at when you want to know more
+                    about it. */}
+                <button
+                  onClick={() => setSelectedKey(p.key)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "0.6rem",
+                    width: "100%",
+                    background: "transparent",
+                    border: "none",
+                    padding: "0.45rem 0",
+                    cursor: "pointer",
+                    font: "inherit",
+                    textAlign: "left",
+                  }}
+                >
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.85rem" }}>
+                    {p.label}
+                    <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>
+                      {" · "}
+                      {/* Named when the grouping was read rather than filed, so
+                          a reading can be seen and argued with. */}
+                      {readFrom ?? CADENCE_LABEL[p.cadence]}
+                    </span>
+                  </span>
+                  <span style={{ whiteSpace: "nowrap", fontSize: "0.85rem" }}>
+                    <strong>{money(p.monthly)}</strong>
+                    <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>/mo</span>
+                  </span>
+                </button>
+
+                {/* Offered under the row it is about, and only ever offered.
+                    Confirming it writes the ordinary repayment rule, which is
+                    what moves the loan's balance as well as taking the payment
+                    off this list — hiding the row alone would leave the loan
+                    frozen, which is the worse of the two faults. */}
+                {hit && (
+                  <div className="subs-claim">
+                    <Link2 size={11} aria-hidden="true" style={{ flexShrink: 0 }} />
+                    <span>
+                      Looks like the repayment for <strong>{hit.account.name}</strong>, which nothing is repaying.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => attribute(hit)}
+                      disabled={attaching !== null || !onAttribute}
+                      className="subs-claim__yes"
+                    >
+                      {attaching === p.key ? <Loader2 size={11} className="spin" /> : "It is"}
+                    </button>
+                  </div>
+                )}
+
+                {/* The answer offered from where the question is visible. A
+                    heading that only says "nothing has said what these are" is
+                    a scold; filing from here writes the ordinary rule, so it
+                    holds for every future charge and every past one too.
+
+                    Nothing is offered without a token present in every one of
+                    this merchant's own descriptions — a rule whose text was
+                    invented would file transactions nobody looked at. */}
+                {!hit && token && onFile && categories.length > 0 && (
+                  <div className="subs-claim">
+                    <span>File as</span>
+                    <select
+                      aria-label={`Category for ${p.label}`}
+                      value=""
+                      disabled={filing !== null}
+                      onChange={(e) => e.target.value && file(p, Number(e.target.value), token)}
+                      style={{ fontSize: "0.72rem" }}
+                    >
+                      <option value="">Choose…</option>
+                      {categories.map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                    {filing === p.key ? (
+                      <Loader2 size={11} className="spin" />
+                    ) : (
+                      <span>
+                        and everything matching “{token}”
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
-      )}
+      ))}
+
+      {failed && <div style={{ color: "var(--critical)", fontSize: "0.72rem", paddingTop: "0.3rem" }}>{failed}</div>}
     </div>
   );
+}
+
+/**
+ * What a payment is when nobody has passed a classification in.
+ *
+ * Keeps the card working on its own — in a test, or from a caller that has no
+ * categories to hand — rather than making the grouping a required prop and
+ * the card unusable without one.
+ */
+function fallbackCommitment(payment: RecurringPayment): Commitment {
+  return { payment, categoryId: null, group: UNFILED, readFrom: null };
 }

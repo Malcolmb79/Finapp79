@@ -667,9 +667,10 @@ export default function Dashboard() {
   // A loan whose balance nothing is moving, beside a payment carrying that
   // loan's own name. Offered under the row, never applied unasked.
   const unclaimed = unclaimedRepayments(dashboardSubscriptions, allAccounts, rules);
-  // Which of them are insurance rather than subscriptions. Read from a policy
-  // held or a category filed under — never from a list of insurers, which is
-  // the merchant list `recurring.ts` deliberately does without.
+  // What kind each one is, from the category it was filed under — never from
+  // a list of merchants, which is what `recurring.ts` deliberately does
+  // without and what would need a new entry every time a household pays for
+  // something nobody thought of.
   const commitments = classifyCommitments(dashboardSubscriptions, { policies: allPolicies, categories });
 
   // Below the breakpoint the canvas stacks. Reading order follows the
@@ -1038,6 +1039,16 @@ export default function Dashboard() {
           repayments={subscriptionRepayments}
           unclaimed={unclaimed}
           commitments={commitments}
+          categories={categories}
+          onFile={async (_payment, categoryId, matchText) => {
+            // A rule rather than a one-off edit, for the same reason the
+            // repayment is: written once and every future charge is filed by
+            // it. Applying it fills blanks only, so it can never overwrite a
+            // category somebody chose by hand.
+            const rule = await api.createRule({ match_text: matchText, match_account_id: null, category_id: categoryId });
+            await api.applyRule(rule.id);
+            refresh();
+          }}
           onAttribute={async (hit) => {
             await api.createRule({
               match_text: hit.matchText,

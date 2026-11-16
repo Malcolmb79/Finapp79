@@ -608,28 +608,49 @@ that isn't spending, once as a commitment that could be dropped.
   balance starts moving. Hiding the row alone would leave the loan frozen,
   which is the worse of the two faults.
 
-**Insurance is the other thing in that list that isn't a subscription, and it
-is a different correction.** A loan repayment leaves because it isn't spending
-at all. A premium *is* spending — the money is gone and no balance went down —
-so it stays in every total and only stops being called a subscription.
-`commitments.ts` does that, and the card gives it its own heading and its own
-figure. What the headline figure must not do is quote €95.90 of cover inside a
-total whose whole promise is "here is what you could stop paying for":
-cancelling Netflix costs you Netflix, cancelling cover costs you the cover.
+**The rest of that list isn't subscriptions either, and the third correction
+is what made it a rule rather than a third special case.** A premium is not a
+subscription; neither is broadband, or a phone bill — and the one after that
+is the gym, or the creche, or the bins. There is no end to that list, and
+every entry on it is the app deciding something about a household's money that
+the household is better placed to decide.
 
-Nothing in that file reads a merchant, and nothing in it ever should.
-`recurring.ts` finds the gym and the accountant as readily as Netflix exactly
-because it knows no merchants, and a list of insurers would only ever
-recognise the ones somebody thought of. The two routes are both the owner's own
-words read back: **a policy they hold** whose name or insurer appears on a
-payment of about the right size (two independent places agreeing, as in
-`loanRepayments.ts`), or **a category they filed it under**, which is the only
-thing that covers car and home cover — neither of which is in `policies` at
-all. `distinctiveWords.ts` is shared with the loan matcher so the two cannot
-drift, and strikes out the words naming the *kind* of thing: every policy is a
-"life cover plan" of some sort, and matching on one of those would read any
-payment mentioning life as a premium. Two policies fitting one payment is
-refused rather than guessed at, same as everywhere else.
+So `commitments.ts` enumerates nothing. **A payment's kind is the category it
+is filed under**, in the owner's own words, and the card prints a section per
+kind carrying its own total. "Utilities" appears because somebody typed
+"Utilities". That generalises for free and cannot be wrong about a merchant it
+has never heard of, because it never looks at merchants — which is the same
+reason `recurring.ts` finds the gym and the accountant as readily as Netflix.
+
+The card is `Standing commitments` now, not `Subscriptions`. It said "€528.59
+a month across 8 subscriptions" over a list whose largest three entries were a
+personal loan, a life policy and a phone bill; the figure was right and the
+sentence was wrong, and a wrong sentence over a right figure is the more
+convincing of the two. Insurance is still *in* every spending figure — unlike a
+repayment, the money is gone — it merely stops being counted under a heading
+whose promise is "here is what you could stop paying for".
+
+Two things keep the gap honest rather than guessed:
+
+- A payment nobody has filed gets the heading **`Not filed yet`**, pinned last
+  however much it costs, because it is the only heading that is a question and
+  a question at the top of a card reads as the card's main finding. And since a
+  heading that only scolds is no use, the row offers to file itself: the
+  ordinary categorisation rule, applied, so the answer holds for every past
+  charge and every future one. `sharedToken()` is what it may safely match on —
+  a word present in **every** one of that merchant's own descriptions as the
+  bank wrote them, longest first ("talktalk" over "telecom", which half a
+  statement carries). Null when nothing qualifies, and then nothing is offered;
+  a rule whose text was invented files transactions nobody looked at.
+- One reading earns itself: a **policy** whose name or insurer appears on a
+  payment of about the right premium, which is two independent places agreeing,
+  as in `loanRepayments.ts`. It applies only where nothing was filed, so it can
+  never overrule a decision somebody made, and the row names it so a wrong
+  reading can be argued with. `distinctiveWords.ts` is shared with the loan
+  matcher so the two cannot drift, and strikes out the words naming the *kind*
+  of thing: every policy is a "life cover plan" of some sort, and matching on
+  one of those would read any payment mentioning life as a premium. Two
+  policies fitting one payment is refused rather than guessed at.
 
 ### The balance projection, and what it will not project
 
