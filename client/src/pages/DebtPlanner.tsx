@@ -1,4 +1,4 @@
-import { ImageUp, Landmark, LineChart, Loader2, Pencil, Scale, Sparkles } from "lucide-react";
+import { CalendarClock, ImageUp, Landmark, LineChart, Loader2, Pencil, Scale, Sparkles } from "lucide-react";
 import MonthlyPlan from "../components/MonthlyPlan.js";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -15,6 +15,7 @@ import { sumInBase, useFxRates } from "../utils/fx.js";
 import { useAccountScope } from "../contexts/ViewFilterContext.js";
 import DebtAdvisor from "../components/DebtAdvisor.js";
 import DebtCharts from "../components/DebtCharts.js";
+import LoanPayoffModeller from "../components/LoanPayoffModeller.js";
 import StatTile from "../components/dashboard/StatTile.js";
 import { monthsToPayoff } from "../utils/payoff.js";
 
@@ -241,6 +242,29 @@ export default function DebtPlanner() {
   ).converted;
 
   const widgets: WidgetSpec[] = [
+    {
+      /**
+       * Deliberately a modeller rather than a view of one account.
+       *
+       * The rest of this page reports what is owed. This asks what a different
+       * payment would do, which is a question about a loan that does not exist
+       * yet as much as about the ones that do — so it opens on a worked
+       * example and offers the real loans as a starting point rather than
+       * requiring one.
+       */
+      id: "payoff",
+      title: "Pay it off faster",
+      icon: CalendarClock,
+      accentVar: "--accent-3",
+      defaultWidth: 1008,
+      defaultHeight: 760,
+      render: () => (
+        <LoanPayoffModeller
+          loans={borrowing.map((a) => ({ account: a, balance: amountDrawn(a, byAccount.get(a.id) ?? 0) }))}
+          currency={rates?.base ?? "EUR"}
+        />
+      ),
+    },
     {
       id: "plan",
       title: "Monthly plan",

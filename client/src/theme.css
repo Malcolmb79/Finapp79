@@ -1729,3 +1729,63 @@ th {
   font-size: 0.72rem;
   padding: 0.15rem 0.5rem;
 }
+
+/* Loan payoff modeller — the inputs, then the consequence, then the proof. */
+
+.loan-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: 0.5rem;
+}
+
+.loan-form label {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.loan-form label span {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.loan-form input,
+.loan-form select {
+  font-size: 0.82rem;
+  padding: 0.25rem 0.4rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.loan-schedule__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.3rem;
+}
+
+/* Scrolls inside the card rather than growing it. A 360-row table that
+   stretches the widget makes everything above it unreachable without a
+   journey, and the summary is the part most readers want. */
+.loan-schedule {
+  max-height: 16rem;
+  overflow-y: auto;
+  border: 1px solid var(--gridline);
+  border-radius: 8px;
+}
+
+.loan-schedule table {
+  font-size: 0.74rem;
+}
+
+.loan-schedule th,
+.loan-schedule td {
+  padding: 0.22rem 0.45rem;
+}
+
+.loan-schedule thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-1);
+  z-index: 1;
+}
