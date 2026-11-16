@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amortize, comparePayoff, monthlyPayment, neverClears, termLabel } from "./amortization.js";
+import { amortize, comparePayoff, compareRefinance, monthlyPayment, neverClears, termLabel } from "./amortization.js";
 
 /**
  * The figures in the first block are checkable against any mortgage
@@ -147,6 +147,54 @@ describe("comparePayoff", () => {
     expect(result.accelerated.months).toBe(6);
     expect(result.interestSaved).toBe(0);
     expect(result.monthsSaved).toBe(6);
+  });
+});
+
+describe("compareRefinance", () => {
+  // Twenty years into a thirty-year mortgage: the balance and the remaining
+  // term, which is the position anybody is in when an offer arrives.
+  const current = { balance: 180000, annualRate: 6.5, termMonths: 120 };
+
+  it("compares the same debt on the terms offered", () => {
+    const result = compareRefinance(current, { annualRate: 4.5, termMonths: 120, fees: 2000 });
+    expect(result.monthlySaving).toBeGreaterThan(150);
+    expect(result.interestSaved).toBeGreaterThan(20000);
+    expect(result.netSaving).toBe(result.interestSaved - 2000);
+  });
+
+  it("says how many months of the smaller payment the fees take back", () => {
+    const result = compareRefinance(current, { annualRate: 4.5, termMonths: 120, fees: 2000 });
+    expect(result.breakEvenMonths).toBeGreaterThan(0);
+    expect(result.breakEvenMonths).toBeLessThan(24);
+  });
+
+  /**
+   * The trap the whole function exists for. A refinance is sold on the monthly
+   * payment and paid for in total interest, and a longer term moves those two
+   * in opposite directions — somebody twenty years in, offered a lower rate
+   * over a fresh thirty, is shown a smaller number and handed a larger bill.
+   */
+  it("flags a smaller payment that costs more overall", () => {
+    const result = compareRefinance(current, { annualRate: 5.5, termMonths: 360 });
+    expect(result.monthlySaving).toBeGreaterThan(0);
+    expect(result.interestSaved).toBeLessThan(0);
+    expect(result.cheaperButCostlier).toBe(true);
+  });
+
+  it("does not flag a genuinely better deal", () => {
+    expect(compareRefinance(current, { annualRate: 4.5, termMonths: 120 }).cheaperButCostlier).toBe(false);
+  });
+
+  // Nothing to recover the fees from, so the answer is "never" rather than a
+  // very large number of months.
+  it("has no break-even when the payment does not fall", () => {
+    const result = compareRefinance(current, { annualRate: 8, termMonths: 120, fees: 2000 });
+    expect(result.monthlySaving).toBeLessThan(0);
+    expect(result.breakEvenMonths).toBeNull();
+  });
+
+  it("breaks even immediately when switching is free", () => {
+    expect(compareRefinance(current, { annualRate: 4.5, termMonths: 120 }).breakEvenMonths).toBe(0);
   });
 });
 

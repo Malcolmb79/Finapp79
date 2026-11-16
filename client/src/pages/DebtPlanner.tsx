@@ -1,4 +1,4 @@
-import { CalendarClock, ImageUp, Landmark, LineChart, Loader2, Pencil, Scale, Sparkles } from "lucide-react";
+import { CalendarClock, CreditCard, ImageUp, Landmark, LineChart, Loader2, Pencil, Repeat, Scale, Sparkles } from "lucide-react";
 import MonthlyPlan from "../components/MonthlyPlan.js";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -8,7 +8,7 @@ import RepaymentRule from "../components/RepaymentRule.js";
 import LoanTermsEditor from "../components/LoanTermsEditor.js";
 import LoanStatusModal from "../components/LoanStatusModal.js";
 import { fileToBase64 } from "../utils/fileBytes.js";
-import { accountTypeLabel, amountDrawn, facilityLabel, isBorrowing, accountTxSums, visibleAccounts, visibleTransactions } from "../utils/accountBalance.js";
+import { accountBalance, accountTypeLabel, amountDrawn, facilityLabel, isBorrowing, accountTxSums, visibleAccounts, visibleTransactions } from "../utils/accountBalance.js";
 import { accountRef } from "../utils/accountRef.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { sumInBase, useFxRates } from "../utils/fx.js";
@@ -16,6 +16,8 @@ import { useAccountScope } from "../contexts/ViewFilterContext.js";
 import DebtAdvisor from "../components/DebtAdvisor.js";
 import DebtCharts from "../components/DebtCharts.js";
 import LoanPayoffModeller from "../components/LoanPayoffModeller.js";
+import RefinanceCheck from "../components/RefinanceCheck.js";
+import CreditHealthCard from "../components/CreditHealthCard.js";
 import StatTile from "../components/dashboard/StatTile.js";
 import { monthsToPayoff } from "../utils/payoff.js";
 
@@ -262,6 +264,43 @@ export default function DebtPlanner() {
         <LoanPayoffModeller
           loans={borrowing.map((a) => ({ account: a, balance: amountDrawn(a, byAccount.get(a.id) ?? 0) }))}
           currency={rates?.base ?? "EUR"}
+        />
+      ),
+    },
+    {
+      // Beside the payoff modeller because they are the same question asked
+      // two ways: pay it down faster, or carry it on better terms.
+      id: "refinance",
+      title: "Is the offer better?",
+      icon: Repeat,
+      accentVar: "--accent-2",
+      defaultWidth: 672,
+      defaultHeight: 540,
+      render: () => (
+        <RefinanceCheck
+          loans={borrowing.map((a) => ({ account: a, balance: amountDrawn(a, byAccount.get(a.id) ?? 0) }))}
+          currency={rates?.base ?? "EUR"}
+        />
+      ),
+    },
+    {
+      /**
+       * Utilisation rather than a score. The score needs the file itself,
+       * which this app cannot see; the arithmetic underneath one is entirely
+       * computable from the balances and limits already here, and is the part
+       * that moves fastest under the holder's own control.
+       */
+      id: "creditHealth",
+      title: "Credit in use",
+      icon: CreditCard,
+      accentVar: "--accent-4",
+      defaultWidth: 672,
+      defaultHeight: 540,
+      render: () => (
+        <CreditHealthCard
+          accounts={accounts}
+          balances={new Map(accounts.map((a) => [a.id, accountBalance(a, byAccount.get(a.id) ?? 0)]))}
+          rates={rates}
         />
       ),
     },

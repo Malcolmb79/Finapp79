@@ -166,6 +166,67 @@ export function comparePayoff(terms: LoanTerms): PayoffComparison {
   };
 }
 
+export interface RefinanceOffer {
+  annualRate: number;
+  termMonths: number;
+  /** Arrangement fees, valuation, legals — whatever it costs to switch. */
+  fees?: number;
+}
+
+export interface RefinanceComparison {
+  current: Amortization;
+  offer: Amortization;
+  /** Positive is a smaller payment each month. */
+  monthlySaving: number;
+  /** Positive means the switch costs less overall. Can be negative on a lower rate. */
+  interestSaved: number;
+  /** Including the fees, which is the figure that decides it. */
+  netSaving: number;
+  /** Months of the smaller payment before the fees are back. Null when there is no saving to recover them from. */
+  breakEvenMonths: number | null;
+  /** True when the payment falls and the total paid rises, which is the trap. */
+  cheaperButCostlier: boolean;
+}
+
+/**
+ * The same debt on the terms offered.
+ *
+ * The trap this exists to expose is that a refinance is sold on the monthly
+ * payment and paid for in total interest, and a longer term lowers the first
+ * while raising the second. Somebody twenty years into a mortgage, offered a
+ * lower rate over a fresh thirty, is being shown a smaller number and handed a
+ * larger bill — and the smaller number is the one on the advert.
+ *
+ * So both figures are returned side by side, the fees are inside the net, and
+ * the case where they disagree gets a flag of its own rather than being left
+ * for the reader to notice.
+ */
+export function compareRefinance(current: LoanTerms, offer: RefinanceOffer): RefinanceComparison {
+  const currentSchedule = amortize({ ...current, extraMonthly: 0 });
+  const offerSchedule = amortize({
+    balance: current.balance,
+    annualRate: offer.annualRate,
+    termMonths: offer.termMonths,
+    startMonth: current.startMonth,
+  });
+
+  const monthlySaving = round(currentSchedule.monthlyPayment - offerSchedule.monthlyPayment);
+  const interestSaved = round(currentSchedule.totalInterest - offerSchedule.totalInterest);
+  const fees = offer.fees ?? 0;
+
+  return {
+    current: currentSchedule,
+    offer: offerSchedule,
+    monthlySaving,
+    interestSaved,
+    netSaving: round(interestSaved - fees),
+    // Nothing to recover the fees from if the payment did not fall, so the
+    // answer is "never" rather than a very large number of months.
+    breakEvenMonths: monthlySaving > 0 ? Math.ceil(fees / monthlySaving) : null,
+    cheaperButCostlier: monthlySaving > 0 && interestSaved < 0,
+  };
+}
+
 /** Whether the payment covers the interest at all — the one case with no schedule. */
 export function neverClears(terms: LoanTerms): boolean {
   return terms.balance > 0 && amortize(terms).months === 0;

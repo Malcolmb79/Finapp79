@@ -264,13 +264,85 @@ account creation — the only UI for `api.createAccount`, which existed in
 the client for a while with nothing calling it), `Budgets`, `Analytics`
 (derived views only, no dedicated backend table), `DebtPlanner` (payoff
 time via `utils/payoff.ts`'s amortization math, computed client-side since
-it's a projection that changes with every payment), `Savings`, `Policies`
+it's a projection that changes with every payment, plus the payoff
+modeller, refinance check and credit utilisation described below),
+`Savings`, `Reports` / `Future` / `Properties` (see "Statements,
+projections and property" below), `Policies`
 (life cover: upload a statement, confirm what was read from it, and choose
 per policy which figure counts towards net worth — see the data model below),
 `BankLink`
 / `BankLinkCallback` (see the Enable Banking flow above), `Login` (Google/
 Facebook buttons; grayed out per `GET /api/auth/providers` if a provider
 isn't configured server-side, rather than offering a dead link).
+
+### Statements, projections and property
+
+Three pages added after the core app, and the split between the first two
+is deliberate rather than cosmetic.
+
+**`Reports`** states the position. Five statements — net worth, income and
+expense, month by month, budget vs actual, and the ratio set — all built
+by `utils/reports.ts`, which resolves every one of them to a single
+shape: columns, sections of rows, and notes. That is what lets one
+renderer (`components/ReportView.tsx`) draw all of them, one exporter
+write all of them to CSV, and a sixth report be a function rather than a
+page. Every money cell carries its raw figure beside its formatted text,
+so the export is something a spreadsheet can add up rather than a picture
+of one. The notes print along with the figures, including on paper: the
+caveats are part of what the statement claims.
+
+Two rules the shape enforces. Every report carries a period in words, and
+the net worth statement is dated rather than windowed, because a balance
+sheet has a date and not a period. And `budgetVsActual` compares only the
+categories that have a limit — measuring every euro of spending against
+the sum of only the budgeted caps reported "395% used" for a household
+whose two budgets were both roughly kept, which is arithmetic that makes a
+false claim.
+
+**`Future`** projects from it, and is a separate page on purpose: a
+projection sitting in a table of facts is a projection that will be quoted
+as a fact. `utils/fire.ts` and `utils/scenario.ts` carry two decisions
+worth not undoing. The pot is *investable* assets — cash, savings and
+investments, never the home, which does not pay for groceries unless it is
+sold. And everything is in today's money against a real return, so the
+target is never inflated to match; mixing a nominal return with an
+un-inflated target is the standard error in these calculators and it
+always errs optimistically. `projectFire` refuses a negative monthly
+saving outright rather than projecting through it: the pot still
+compounds, so the honest-looking alternative returns a retirement date
+decades out while the shortfall funding each month is borrowing the model
+does not track. Saving *nothing* is deliberately allowed — a pot large
+enough to compound into the target on its own is coasting.
+
+**`Properties`** is property held as an investment or lived in, kept out
+of `accounts` for the reason policies are (see the data model below).
+`utils/propertyMetrics.ts` computes NOI *before* the mortgage, which is
+the whole point of the measure — it says what the building earns,
+separately from how the buyer financed it, so two identical houses do not
+report different performance because one owner borrowed more. Every metric
+returns null rather than zero when its input is missing, and the portfolio
+totals count what they left out.
+
+Also on `DebtPlanner`: `utils/amortization.ts` produces the month-by-month
+schedule with and without an extra payment, and `compareRefinance` exists
+to expose the trap that a refinance is sold on the monthly payment and
+paid for in total interest — `cheaperButCostlier` flags the case where a
+longer term moves those two in opposite directions. The final contracted
+payment absorbs the rounding remainder the way a lender's does; without
+that, a 360-month loan reports 361 payments and every "months saved"
+figure beside it is off by one. `utils/creditHealth.ts` does utilisation
+only, on revolving credit only — an instalment loan has no limit to use a
+share of, and including mortgages would make everybody who has bought a
+house look maxed out. It is not a credit score and says so.
+
+**Every screen that builds a net worth figure must add accounts, policies,
+holdings *and* properties.** Each has a `*Contributions` helper of the
+same shape for that reason. The first cut of properties added the per-property
+opt-in without wiring the contribution anywhere, so the property page
+announced €222,000 was in net worth while the sidebar, dashboard, reports
+and projections all disagreed. The five places are `Sidebar`, `Dashboard`
+(headline, trend and the per-currency breakdown), `Reports`, `Future` and
+the page itself.
 
 ## Data model
 
@@ -323,6 +395,24 @@ why, and for the migration that added it retroactively.
   `policy_valuations` keeps one row per confirmed statement, which is what lets
   the net worth trend show a policy from its first statement onward instead of
   projecting today's value back across history it wasn't held for.
+- `properties` — a house, flat or plot, kept out of `accounts` on the same
+  reasoning as `policies`: no transactions, no IBAN, no bank connection, so
+  folding it in would offer a house as a transaction target in every account
+  dropdown, the statement importer, the account filter and the debt planner.
+
+  The mortgage is a plain balance here rather than a link to a loan account,
+  and that is a limitation rather than an oversight — a household already
+  tracking its mortgage as a loan account would otherwise have the same debt
+  counted twice. `net_worth_source` (`none` | `equity` | `value`) resolves
+  it, defaulting to `none` exactly as a policy does. `value` is the answer
+  for that double-counting case, and the screens say which was chosen.
+
+  There is no valuation history the way `policy_valuations` is one, so
+  `propertyContributionsAt` contributes from the purchase date onwards at
+  today's figure and nothing before. Projecting past the purchase would show
+  a household owning a house in years it did not — inventing wealth, which is
+  the worse of the two available errors — while carrying today's value back
+  across the years it *was* held merely flattens the line.
 - Policy premiums reach `GET /api/plan` through `services/policyPremiums.ts`,
   and only the ones that match no transaction are subtracted from the surplus.
   A premium debited from a tracked account is already inside `typicalSpend` —
