@@ -126,4 +126,34 @@ describe("detectRecurring", () => {
     ]);
     expect(found).toHaveLength(1);
   });
+
+  /**
+   * What callers have to get right, recorded here because getting it wrong is
+   * invisible.
+   *
+   * A rhythm cannot be found inside a window shorter than the rhythm. Handed a
+   * month of history a monthly subscription has charged once, and once is not
+   * a pattern — so the detector correctly returns nothing, and a screen that
+   * passed it a date-filtered list showed "nothing charging on a regular
+   * rhythm yet" to somebody paying rent, a loan and a card every month.
+   *
+   * There is no defending against that in here: a short list and a quiet
+   * household look identical from the inside. Callers must pass the full
+   * history, and the Analytics and Dashboard pages now do.
+   */
+  it("finds nothing in a window too short to hold a rhythm, which is the caller's problem", () => {
+    const wholeYear = monthly("URBEO RESIDENT", 3120, 12);
+    expect(detectRecurring(wholeYear)).toHaveLength(1);
+
+    // The same household, seen through a thirty-day range picker.
+    const oneMonth = wholeYear.filter((tx) => tx.booking_date.startsWith("2026-06"));
+    expect(oneMonth).toHaveLength(1);
+    expect(detectRecurring(oneMonth)).toEqual([]);
+
+    // Even ninety days is one charge short of establishing it.
+    const quarter = wholeYear.filter((tx) => tx.booking_date < "2026-03-15");
+    expect(quarter).toHaveLength(3);
+    expect(detectRecurring(quarter)).toHaveLength(1);
+    expect(detectRecurring(quarter.slice(0, 2))).toEqual([]);
+  });
 });

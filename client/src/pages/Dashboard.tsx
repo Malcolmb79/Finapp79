@@ -322,6 +322,16 @@ export default function Dashboard() {
   // transactions restated in one currency. Adding a ZAR amount to a EUR one
   // gives a figure in no currency at all — confident and meaningless.
   const { items: convertedTx, dropped: droppedCurrencies } = inBase(withinRange(transactions, range), rates);
+  /**
+   * The same transactions without the date range, for anything that has to
+   * find a repeating charge before it can say anything.
+   *
+   * The forecast and the upcoming bills are both built entirely out of
+   * detected rhythms. Handed a thirty-day window they detect nothing, and a
+   * projection with no bills in it is not a cautious projection — it is a
+   * line that only ever goes up. Scope still applies; only the window goes.
+   */
+  const { items: fullHistoryTx } = inBase(transactions, rates);
   const missingRates = [...new Set([...unconvertible, ...droppedCurrencies])];
 
   /**
@@ -362,12 +372,12 @@ export default function Dashboard() {
   const incomeCategories = new Set(
     categories.filter((c) => c.counts_as_income && !c.income_is_occasional).map((c) => c.id)
   );
-  const forecast = forecastBalance(convertedTx, spendableTotal, {
+  const forecast = forecastBalance(fullHistoryTx, spendableTotal, {
     from: forecastFrom,
     days: FORECAST_DAYS,
     isIncomeCategory: (id) => id != null && incomeCategories.has(id),
   });
-  const bills = upcomingBills(convertedTx, { from: forecastFrom, until: addDaysIso(forecastFrom, FORECAST_DAYS) });
+  const bills = upcomingBills(fullHistoryTx, { from: forecastFrom, until: addDaysIso(forecastFrom, FORECAST_DAYS) });
 
   const monthDelta = worthTx
     .filter((tx) => tx.booking_date.startsWith(thisMonthKey))

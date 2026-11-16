@@ -45,7 +45,22 @@ export default function Analytics() {
   const rates = useFxRates("EUR");
   // Every figure on this page totals transactions from accounts that may be
   // in different currencies, so all of it works from amounts restated in one.
-  const { items: convertedTx, dropped } = inBase(withinRange(visibleTransactions(allTransactions, accounts, scope), range), rates);
+  const scopedTx = visibleTransactions(allTransactions, accounts, scope);
+  const { items: convertedTx, dropped } = inBase(withinRange(scopedTx, range), rates);
+  /**
+   * The same transactions with the date range lifted off, for the widgets
+   * that look for a rhythm.
+   *
+   * A rhythm cannot be found inside a window shorter than the rhythm. With
+   * the range set to thirty days a monthly subscription has charged once, and
+   * once is not a pattern — so Subscriptions and Price Rises went silently
+   * empty for anybody who had ever touched the range picker, which reads as
+   * "you have no subscriptions" rather than as "ask over a longer period".
+   *
+   * The account scope still applies: looking at one account should show that
+   * account's commitments. It is only the window that has to go.
+   */
+  const { items: fullHistoryTx } = inBase(scopedTx, rates);
   const money = (value: number) => (rates ? formatCurrency(value, rates.base) : value.toFixed(2));
 
   // The months the bars are drawn from: the ones inside the chosen window,
@@ -157,11 +172,11 @@ export default function Analytics() {
 
   // Recurrence needs the full history to find a rhythm — three charges
   // inside one month is not a monthly subscription.
-  const recurring = detectRecurring(convertedTx);
+  const recurring = detectRecurring(fullHistoryTx);
   // Deliberately from the full history rather than the chosen range: a price
   // rise is established by what came before it, and a three-month window can
   // easily hold the new price and none of the old.
-  const priceRises = detectPriceRises(convertedTx);
+  const priceRises = detectPriceRises(fullHistoryTx);
   const recurringAnnual = recurring.reduce((sum, r) => sum + r.annualised, 0);
 
   // The individual charges worth a second look. A category total hides a
