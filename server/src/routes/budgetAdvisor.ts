@@ -43,7 +43,7 @@ interface BudgetRow {
 
 const BASE_CURRENCY = "EUR";
 
-async function loadSpending(userId: string, scope?: string | null) {
+export async function loadSpending(userId: string, scope?: string | null) {
   const rows = (await db
     .prepare(
       `SELECT t.amount, t.booking_date, t.currency, c.name AS category_name

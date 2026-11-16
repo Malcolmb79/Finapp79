@@ -1,5 +1,6 @@
-import { ArrowLeftRight, CopyCheck, Inbox, List, Plus, Tag, Wand2 } from "lucide-react";
+import { ArrowLeftRight, CopyCheck, Inbox, List, PieChart, Plus, Tag, Wand2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import CategoryBreakdown from "../components/CategoryBreakdown.js";
 import CategoryManager from "../components/CategoryManager.js";
 import DuplicateReview from "../components/DuplicateReview.js";
 import TransferReconcile from "../components/TransferReconcile.js";
@@ -22,6 +23,10 @@ const WIDGETS = [
   // with no categories — the one moment this card is at its largest.
   { id: "categories", defaultWidth: 328, defaultHeight: 330 },
   { id: "rules", defaultWidth: 328, defaultHeight: 300 },
+  // Appended rather than slotted in beside the categories card it pairs with:
+  // the stored layout is keyed by id, so the order here only decides where a
+  // card lands for somebody who has never moved one.
+  { id: "breakdown", defaultWidth: 672, defaultHeight: 460 },
   // Usually empty, and short when it is - it grows only when there is
   // something to answer for.
   { id: "duplicates", defaultWidth: 328, defaultHeight: 260 },
@@ -35,6 +40,9 @@ export default function Transactions() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [pending, setPending] = useState<PendingTransaction[]>([]);
+  // Which category the breakdown card is showing. Lives here rather than in
+  // the card because the Categories card is what sets it.
+  const [openCategory, setOpenCategory] = useState<number | null>(null);
 
   // Stable identity so the layout hook doesn't re-seed on every render.
   const defs = useMemo(() => WIDGETS, []);
@@ -75,7 +83,20 @@ export default function Transactions() {
       title: "Categories",
       icon: Tag,
       accentVar: "--accent-2",
-      body: <CategoryManager categories={categories} onCreated={refreshCategories} />,
+      body: <CategoryManager categories={categories} onCreated={refreshCategories} onSelect={setOpenCategory} />,
+    },
+    breakdown: {
+      title: "What a category is made of",
+      icon: PieChart,
+      accentVar: "--accent-4",
+      body: (
+        <CategoryBreakdown
+          transactions={transactions}
+          categories={categories}
+          categoryId={openCategory}
+          onSelect={setOpenCategory}
+        />
+      ),
     },
     rules: {
       title: "Filing rules",

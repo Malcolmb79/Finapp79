@@ -755,3 +755,41 @@ CREATE INDEX IF NOT EXISTS idx_notes_user ON notes (user_id, position);
 -- match each out to each in would be asking twice. See services/transferPairs
 -- for the matching, which is offered as a check rather than required.
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_transfer BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- A subscription somebody has looked at and said is still wanted.
+--
+-- The standing commitments card answers what you pay; it cannot answer what
+-- you have actually decided about. A subscription nobody questions is the
+-- whole failure mode of subscriptions — the charge is small enough that no
+-- month ever forces the issue, and the only thing that would surface it is
+-- noticing you have not thought about it since the year before last. So the
+-- useful fact is not the amount, which the card already has, but the date you
+-- last looked.
+--
+-- Keyed on the merchant key rather than on a transaction: the thing being
+-- reviewed is the arrangement, which outlives any one charge, and next
+-- month's charge is a different row with the same answer. That key is derived
+-- client-side by `merchantKey()` and stored here verbatim, so the two have to
+-- agree — see the note on `label` for what happens when they stop.
+--
+-- `label` is what it was called when it was reviewed, and nothing matches on
+-- it. It is there so a row remains identifiable to a human after the fact:
+-- a merchant key is a stripped, lowercased fragment, and a review whose
+-- transactions have since gone would otherwise be a row saying only
+-- "direct debit to". Such a row matches nothing and shows nowhere, which is
+-- the right outcome — the subscription it was about has stopped.
+CREATE TABLE IF NOT EXISTS subscription_reviews (
+  id TEXT PRIMARY KEY,               -- generated uuid
+  user_id TEXT REFERENCES users(id),
+  merchant_key TEXT NOT NULL,        -- merchantKey() of the recurring payment
+  label TEXT NOT NULL,
+  reviewed_at TEXT,                  -- ISO date it was last confirmed as wanted
+  -- Set when it has been marked as on its way out. Not a deletion: the point
+  -- of the mark is to keep watching, because a cancellation that did not take
+  -- looks exactly like one that did until the next charge arrives.
+  cancelling_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_subscription_reviews_user_merchant
+  ON subscription_reviews (user_id, merchant_key);

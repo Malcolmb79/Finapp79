@@ -16,7 +16,16 @@ import { errorMessage } from "../utils/errorMessage.js";
  * other suggestion in this app. The list is offered with everything ticked,
  * because the common case is wanting most of it.
  */
-export default function CategoryManager({ categories, onCreated }: { categories: Category[]; onCreated: () => void }) {
+export default function CategoryManager({
+  categories,
+  onCreated,
+  onSelect,
+}: {
+  categories: Category[];
+  onCreated: () => void;
+  /** Opens this category in the breakdown card, where one is on the page. */
+  onSelect?: (id: number) => void;
+}) {
   const [name, setName] = useState("");
   const [marking, setMarking] = useState<number | null>(null);
   const [starter, setStarter] = useState<string[]>([]);
@@ -225,9 +234,23 @@ export default function CategoryManager({ categories, onCreated }: { categories:
                 key={category.id}
                 style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.82rem", padding: "0.1rem 0" }}
               >
-                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {category.name}
-                </span>
+                {/* The name is the way into the breakdown where there is one
+                    on the page. A plain span otherwise, rather than something
+                    that looks clickable and does nothing. */}
+                {onSelect ? (
+                  <button
+                    type="button"
+                    onClick={() => onSelect(category.id)}
+                    title={`See what ${category.name} is made of`}
+                    className="category-row__name"
+                  >
+                    {category.name}
+                  </button>
+                ) : (
+                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {category.name}
+                  </span>
+                )}
                 {incomeState(category) !== "none" && (
                   <span
                     style={{

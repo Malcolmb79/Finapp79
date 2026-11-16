@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Outlet, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
+import Coach from "./components/Coach.js";
+import { CoachContextProvider, useCoachContext } from "./contexts/CoachContext.js";
 import RequireAuth from "./components/RequireAuth.js";
 import Sidebar from "./components/layout/Sidebar.js";
 import TopHeader from "./components/layout/TopHeader.js";
@@ -21,6 +23,7 @@ import ResetPassword from "./pages/ResetPassword.js";
 import Household from "./pages/Household.js";
 import Investments from "./pages/Investments.js";
 import Savings from "./pages/Savings.js";
+import Subscriptions from "./pages/Subscriptions.js";
 import Settings from "./pages/Settings.js";
 import Transactions from "./pages/Transactions.js";
 
@@ -54,7 +57,8 @@ function EmailVerifiedBanner() {
   );
 }
 
-function AppShell() {
+function Shell() {
+  const { context: coachContext } = useCoachContext();
   const [navOpen, setNavOpen] = useState(false);
   const location = useLocation();
   const [lastPathname, setLastPathname] = useState(location.pathname);
@@ -79,9 +83,22 @@ function AppShell() {
             <EmailVerifiedBanner />
             <Outlet />
           </div>
+          {/* One mount for every page that offers it, so walking from the debt
+              planner to the savings page carries the conversation rather than
+              starting a new one — the second question is usually about the
+              first page while looking at the second. */}
+          <Coach context={coachContext} />
         </div>
       </div>
     </RequireAuth>
+  );
+}
+
+function AppShell() {
+  return (
+    <CoachContextProvider>
+      <Shell />
+    </CoachContextProvider>
   );
 }
 
@@ -103,6 +120,7 @@ export default function App() {
         <Route path="/future" element={<Future />} />
         <Route path="/debt-planner" element={<DebtPlanner />} />
         <Route path="/savings" element={<Savings />} />
+        <Route path="/subscriptions" element={<Subscriptions />} />
         <Route path="/investments" element={<Investments />} />
         <Route path="/household" element={<Household />} />
         {/* Where an invite email lands. Same page; the token is read off the query. */}

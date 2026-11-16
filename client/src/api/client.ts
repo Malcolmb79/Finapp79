@@ -78,6 +78,27 @@ export interface Transaction {
 }
 
 /** A standing instruction for what a transaction means. */
+/** What has been looked at and when — see server/src/routes/subscriptionReviews.ts. */
+export interface SubscriptionReview {
+  merchant_key: string;
+  label: string;
+  reviewed_at: string | null;
+  cancelling_at: string | null;
+}
+
+/**
+ * Something the coach is putting in front of you, never something it did.
+ * Everything needed to apply it was validated against your own rows server
+ * side — see server/src/routes/coach.ts.
+ */
+export interface CoachProposal {
+  kind: "savings_goal" | "budget_limit";
+  label: string;
+  reason: string;
+  savingsGoal?: { id: number | null; name: string; target_amount: number; target_date: string | null; current: number | null };
+  budgetLimit?: { categoryId: number; category: string; monthly_limit: number; currentLimit: number | null };
+}
+
 export interface TransactionRule {
   id: string;
   match_text: string;
@@ -1042,6 +1063,10 @@ export const api = {
       body: JSON.stringify({ messages }),
     }),
 
+  /** Everything the coach needs to answer is looked up server-side; this just carries the question. */
+  coachChat: (body: { messages: { role: "user" | "assistant"; content: string }[]; page: string; context?: string }) =>
+    request<{ reply: string; proposals: CoachProposal[] }>("/coach/chat", { method: "POST", body: JSON.stringify(body) }),
+
   setBudget: (categoryId: number, monthlyLimit: number, currency?: string) =>
     request<Budget>("/budgets", {
       method: "POST",
@@ -1119,6 +1144,11 @@ export const api = {
   priceHolding: (id: string, unit_price: number, priced_at?: string) =>
     request<Holding>(`/holdings/${id}/price`, { method: "POST", body: JSON.stringify({ unit_price, priced_at }) }),
   deleteHolding: (id: string) => request<void>(`/holdings/${id}`, { method: "DELETE" }),
+
+  listSubscriptionReviews: () => request<SubscriptionReview[]>("/subscription-reviews"),
+  /** Stamps a look, or marks one as on its way out. Omitted fields are left alone. */
+  reviewSubscription: (review: { merchant_key: string; label: string; reviewed?: boolean; cancelling?: boolean }) =>
+    request<SubscriptionReview>("/subscription-reviews", { method: "POST", body: JSON.stringify(review) }),
 
   listRules: () => request<TransactionRule[]>("/rules"),
   createRule: (rule: {

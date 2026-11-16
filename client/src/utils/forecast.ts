@@ -19,7 +19,7 @@ import { detectRecurring, merchantKey, type Cadence, type RecurringPayment } fro
 
 const DAY = 86_400_000;
 
-const CADENCE_DAYS: Record<Cadence, number> = {
+export const CADENCE_DAYS: Record<Cadence, number> = {
   weekly: 7,
   monthly: 30.4,
   quarterly: 91,

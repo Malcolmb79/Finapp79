@@ -758,6 +758,110 @@ Accounts page: an Enable Banking authorisation lapses after roughly 90 days,
 and an account that silently stops updating looks exactly like an account with
 nothing happening on it.
 
+### The coach
+
+`routes/coach.ts` + `components/Coach.tsx`. A chat offered on the four pages
+where money decisions actually get made — Dashboard, Debt Planner, Savings,
+Buy to Let — and nowhere else, because a chat window over a page it knows
+nothing about is what makes an assistant feel bolted on.
+
+Same division of labour as the two advisers that came before it: the
+arithmetic is computed here from the real rows, and the model decides which of
+it matters. The difference is scope. A budget adviser answers one question
+about one thing, so its figures can be composed up front; this one is asked
+whatever is on somebody's mind, so the figures are **tools it fetches**
+(`position`, `spending`, `debts`, `savings_goals`) rather than a summary.
+
+Three rules, and none of them is negotiable:
+
+- **Nothing is estimated.** Every figure comes back from a tool reading the
+  database, and the system prompt says to answer "I don't know" rather than
+  produce a plausible number. A coach that works out a payoff date in its head
+  is a coach producing a confident figure nobody can check, and it will
+  sometimes be wrong in the direction that costs money. Verified: asked for a
+  grocery limit against uncategorised data, it answered *"any number I set
+  would be invented"* rather than inventing one.
+- **Nothing is written.** A settled figure becomes a proposal with a button.
+  `propose_budget_limit` and `propose_savings_goal` both resolve the name
+  against the user's own rows server-side and refuse what doesn't match,
+  naming the real categories so the next attempt can be right rather than
+  another guess. The client applies through the ordinary API the pages use.
+- **It is not a regulated adviser**, says so once in the panel rather than as a
+  disclaimer on every answer, and refers anything turning on tax, employment
+  or circumstances it cannot see.
+
+Mounted once in the shell rather than per page. A conversation that resets
+when you walk from the debt planner to the savings page is a conversation you
+stop having — the second question is usually about the first page while
+looking at the second.
+
+`CoachContext` is the one exception to "it looks everything up itself", and
+exists for one page: a **buy-to-let deal is nowhere in the database as an
+appraisal**. It is assumptions worked through in the browser, kept out of
+`properties` on purpose so that things nobody has bought stay out of net
+worth — so without this the coach would be the only thing on that screen
+unable to see the deal being discussed. It is passed as *the user's screen*,
+and the system prompt labels it as such: a figure read off the page is not a
+figure that was looked up, and the two must never be presented as equally
+checked.
+
+### Subscriptions, and the thing a commitments card cannot tell you
+
+The `Subscriptions` page is not a second commitments card. The card answers
+what you pay; no amount of staring at it answers which of them you have
+actually decided about — and that is how a subscription fails. £9.99 is small
+enough that no month ever forces the issue, so it survives on nobody having
+thought about it.
+
+So `subscription_reviews` stores **a date, not a verdict**. "Confirmed in March
+2025" is exactly as true and as useful eighteen months later; "keep" quietly
+becomes a decision nobody remembers making. Keyed on the merchant key, because
+the thing being reviewed is the arrangement and next month's charge is a
+different row with the same answer.
+
+`utils/subscriptionReview.ts` orders the page **by neglect, not by cost**. The
+dearest subscription may be the one you are most certain about, and sorting by
+price means the £6 thing you forgot you had never reaches the screen. A
+confirmation is good for `REVIEW_GOOD_FOR_DAYS` (a year — the cycle a price
+rise, a contract end or a trial-turned-bill actually moves on; shorter would
+stale the whole list together and train you to clear it without reading).
+
+One state jumps the queue: **marked as cancelling and still charging**. It is
+the only thing on the page known to be wrong *now* rather than merely
+unconfirmed, and it exists because a cancellation that failed looks exactly
+like one that worked until the next charge arrives. That is also why marking
+one as cancelling does not remove it.
+
+`nextCharge()` returns null for a dormant subscription rather than stepping
+forward from a year-old charge to produce "due next Tuesday" — the same
+invention `stillLive` exists to stop in the balance projection.
+
+### What a category is made of
+
+A category total says how much and stops exactly where the useful question
+starts. €612 of groceries is either four big shops or forty small ones, either
+steady or up a third since August, and the total reads identically in all four
+cases. `utils/categoryBreakdown.ts` splits one category three ways — by month,
+by who was paid, and by the size of a typical payment — because those are the
+three shapes the spending comes in and each is invisible inside the others.
+
+Three decisions worth not undoing:
+
+- **Payees group the way the subscription detector groups them**
+  (`merchantKey`). Store numbers differ on every receipt, so without it the
+  payee list is forty rows of the same shop, which is the exact failure the
+  breakdown exists to avoid.
+- **A refund is never netted off.** Money back under a category is reported
+  separately, because netting it against the month's shopping reports a
+  cheaper month than happened and hides both facts.
+- **The monthly average divides by the months with spending in them**, not by
+  the length of the window. A category used twice a year averaged over twelve
+  months reports a figure true of no month it ever happened in.
+
+It obeys the period in the header rather than carrying a picker of its own,
+and prints that period, for the reason every report carries one: a total
+without a period is not a fact. The Categories card's names are the way in.
+
 ## Deployment (Vercel)
 
 One Vercel project serves both halves from this repo:

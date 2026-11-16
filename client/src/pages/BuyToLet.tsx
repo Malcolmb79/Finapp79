@@ -1,5 +1,6 @@
 import { AlertTriangle, ChevronDown, ChevronRight, Copy, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCoachContext } from "../contexts/CoachContext.js";
 import { api, type BtlDeal } from "../api/client.js";
 import { errorMessage } from "../utils/errorMessage.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
@@ -201,6 +202,41 @@ export default function BuyToLet() {
 
   const money = (value: number, currency = "EUR") => formatCurrency(value, currency);
   const appraised = useMemo(() => deals.map((deal) => ({ deal, result: appraiseDeal(toInput(deal)) })), [deals]);
+
+  /**
+   * Hands the appraised deals to the coach.
+   *
+   * The only page that does this, and only because a deal is nowhere in the
+   * database as an appraisal — it is a set of assumptions worked through in
+   * the browser, kept out of `properties` on purpose so that things nobody
+   * has bought stay out of net worth. Everything else the coach needs it
+   * looks up itself from the real rows; see contexts/CoachContext.tsx for why
+   * that distinction is kept rather than blurred.
+   */
+  const { setContext } = useCoachContext();
+  useEffect(() => {
+    if (appraised.length === 0) {
+      setContext(undefined);
+      return;
+    }
+    const lines = appraised.map(({ deal, result }) =>
+      [
+        `Deal "${deal.name}": price ${deal.purchase_price}, rent ${deal.rent_per_unit} per unit across ${deal.units},`,
+        `${deal.ltv}% LTV at ${deal.mortgage_rate}% over ${deal.term_years}y${deal.interest_only ? ", interest only" : ""}.`,
+        `Cash needed ${result.cashRequired}. Cash flow ${result.monthlyCashFlow}/mo before tax,`,
+        `${result.monthlyAfterTax}/mo after. Gross yield ${result.grossYield ?? "n/a"},`,
+        `net ${result.netYield ?? "n/a"}, cash-on-cash ${result.cashOnCash ?? "n/a"}.`,
+        `Stamp duty ${result.stamp.total}. Lender ICR cover ${result.icr.cover ?? "n/a"}`,
+        `(${result.icr.passes ? "passes" : "fails"}).`,
+        `Held personally: ${result.personal.total} tax a year. Through a company: ${result.company.total}.`,
+        result.warnings.length > 0 ? `Warnings: ${result.warnings.join("; ")}` : "",
+      ]
+        .filter(Boolean)
+        .join(" ")
+    );
+    setContext(lines.join("\n"));
+    return () => setContext(undefined);
+  }, [appraised, setContext]);
 
   async function add(from?: BtlDeal) {
     setError(null);
