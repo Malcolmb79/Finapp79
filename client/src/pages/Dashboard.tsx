@@ -9,6 +9,7 @@ import QuickAdd from "../components/dashboard/QuickAdd.js";
 import Subscriptions from "../components/dashboard/Subscriptions.js";
 import { recurringRepayments, subscriptions } from "../utils/recurring.js";
 import { unclaimedRepayments } from "../utils/loanRepayments.js";
+import { classifyCommitments } from "../utils/commitments.js";
 import { dailySpend, incomeBySource, summaryFigures } from "../utils/dashboardSummary.js";
 import { excludeTransfers, transferCategoryIds } from "../utils/transfers.js";
 import CashFlowCard, { type MonthFlow } from "../components/dashboard/CashFlowCard.js";
@@ -666,6 +667,10 @@ export default function Dashboard() {
   // A loan whose balance nothing is moving, beside a payment carrying that
   // loan's own name. Offered under the row, never applied unasked.
   const unclaimed = unclaimedRepayments(dashboardSubscriptions, allAccounts, rules);
+  // Which of them are insurance rather than subscriptions. Read from a policy
+  // held or a category filed under — never from a list of insurers, which is
+  // the merchant list `recurring.ts` deliberately does without.
+  const commitments = classifyCommitments(dashboardSubscriptions, { policies: allPolicies, categories });
 
   // Below the breakpoint the canvas stacks. Reading order follows the
   // arrangement on a wide screen — top to bottom, then left to right — so the
@@ -1032,6 +1037,7 @@ export default function Dashboard() {
           currency={rates?.base ?? "EUR"}
           repayments={subscriptionRepayments}
           unclaimed={unclaimed}
+          commitments={commitments}
           onAttribute={async (hit) => {
             await api.createRule({
               match_text: hit.matchText,

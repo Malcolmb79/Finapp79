@@ -2,6 +2,7 @@ import { ChevronLeft, Link2, Loader2 } from "lucide-react";
 import { useState } from "react";
 import type { RecurringPayment } from "../../utils/recurring.js";
 import type { UnclaimedRepayment } from "../../utils/loanRepayments.js";
+import type { Commitment } from "../../utils/commitments.js";
 import { formatCurrency } from "../../utils/formatCurrency.js";
 import { useMeasuredWidth } from "../../utils/useMeasuredWidth.js";
 
@@ -110,6 +111,7 @@ export default function Subscriptions({
   currency,
   repayments = [],
   unclaimed = [],
+  commitments = [],
   onAttribute,
 }: {
   payments: RecurringPayment[];
@@ -118,6 +120,13 @@ export default function Subscriptions({
   repayments?: RecurringPayment[];
   /** Loans nothing is repaying, beside a payment that looks like the repayment. */
   unclaimed?: UnclaimedRepayment[];
+  /**
+   * What each payment actually is. Insurance is spending like any other and
+   * stays in every figure here — it only stops being called a subscription,
+   * under a heading whose whole promise is "here is what you could stop
+   * paying for".
+   */
+  commitments?: Commitment[];
   onAttribute?: (hit: UnclaimedRepayment) => Promise<void>;
 }) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -178,7 +187,22 @@ export default function Subscriptions({
         .reduce((sum, c) => sum + c.amount, 0),
     }));
 
-  const monthlyTotal = payments.reduce((sum, p) => sum + p.monthly, 0);
+  /**
+   * The split, and which side of it the headline figure speaks for.
+   *
+   * The big number answers "what am I signed up to that I could stop", so it
+   * counts subscriptions and not insurance — a premium quoted inside that
+   * total is an invitation to cancel cover to save money, which is the one
+   * conclusion this card must not lead anybody to. The premiums are still
+   * here, still charted, still added up: under their own heading, where the
+   * figure means something different.
+   */
+  const insuranceKeys = new Set(commitments.filter((c) => c.kind === "insurance").map((c) => c.payment.key));
+  const insuranceReason = new Map(commitments.filter((c) => c.because).map((c) => [c.payment.key, c.because as string]));
+  const subs = payments.filter((p) => !insuranceKeys.has(p.key));
+  const insured = payments.filter((p) => insuranceKeys.has(p.key));
+  const sum = (list: RecurringPayment[]) => list.reduce((total, p) => total + p.monthly, 0);
+  const monthlyTotal = sum(subs);
 
   if (selected) {
     const history = [...selected.charges].sort((a, b) => b.date.localeCompare(a.date));
@@ -223,22 +247,33 @@ export default function Subscriptions({
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
-        <span className="stat-tile__value" style={{ fontSize: "1.5rem" }}>
-          {money(monthlyTotal)}
-        </span>
-        <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-          a month across {payments.length} {payments.length === 1 ? "subscription" : "subscriptions"} ·{" "}
-          {money(monthlyTotal * 12)} a year
-        </span>
-      </div>
+      {/* Zero subscriptions is a sentence, not a €0.00. Everything on a
+          rhythm being insurance or a repayment is a real and perfectly
+          ordinary answer, and printing it as a nil total reads as the
+          detector having failed. */}
+      {subs.length === 0 ? (
+        <p style={{ fontSize: "0.85rem", margin: "0 0 0.5rem" }}>
+          Nothing here is a subscription — everything charging on a rhythm is insurance or a loan repayment, and neither is
+          something to stop paying.
+        </p>
+      ) : (
+        <div style={{ display: "flex", alignItems: "baseline", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+          <span className="stat-tile__value" style={{ fontSize: "1.5rem" }}>
+            {money(monthlyTotal)}
+          </span>
+          <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+            a month across {subs.length} {subs.length === 1 ? "subscription" : "subscriptions"} · {money(monthlyTotal * 12)} a
+            year
+          </span>
+        </div>
+      )}
 
       <Bars data={chargesFor(payments)} currency={currency} />
 
       {excluded}
 
       <div style={{ marginTop: "0.7rem" }}>
-        {payments.map((p) => {
+        {subs.map((p) => {
           const hit = suggestionFor(p.key);
           return (
             <div key={p.key} style={{ borderTop: "1px solid var(--gridline)" }}>
@@ -292,6 +327,54 @@ export default function Subscriptions({
         })}
         {failed && <div style={{ color: "var(--critical)", fontSize: "0.72rem", paddingTop: "0.3rem" }}>{failed}</div>}
       </div>
+
+      {/* Insurance, under its own heading and its own total.
+          Not hidden and not subtracted: the money is spent, unlike a loan
+          repayment, so it belongs in every spending figure this app prints.
+          What it is not is something you could stop paying for and be fine —
+          cancelling Netflix costs you Netflix, cancelling cover costs you the
+          cover. Each row says what it was read from, so a wrong reading can
+          be seen and argued with rather than silently moving a figure. */}
+      {insured.length > 0 && (
+        <div style={{ marginTop: "0.8rem" }}>
+          <div className="subs-section">
+            <span>Insurance — not a subscription, and not something to cancel to save money</span>
+            <strong>{money(sum(insured))}/mo</strong>
+          </div>
+          {insured.map((p) => (
+            <button
+              key={p.key}
+              onClick={() => setSelectedKey(p.key)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "0.6rem",
+                width: "100%",
+                background: "transparent",
+                border: "none",
+                borderTop: "1px solid var(--gridline)",
+                padding: "0.45rem 0",
+                cursor: "pointer",
+                font: "inherit",
+                textAlign: "left",
+              }}
+            >
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.85rem" }}>
+                {p.label}
+                <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>
+                  {" · "}
+                  {insuranceReason.get(p.key) ?? CADENCE_LABEL[p.cadence]}
+                </span>
+              </span>
+              <span style={{ whiteSpace: "nowrap", fontSize: "0.85rem" }}>
+                <strong>{money(p.monthly)}</strong>
+                <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>/mo</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

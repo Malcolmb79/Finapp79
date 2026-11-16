@@ -608,6 +608,29 @@ that isn't spending, once as a commitment that could be dropped.
   balance starts moving. Hiding the row alone would leave the loan frozen,
   which is the worse of the two faults.
 
+**Insurance is the other thing in that list that isn't a subscription, and it
+is a different correction.** A loan repayment leaves because it isn't spending
+at all. A premium *is* spending — the money is gone and no balance went down —
+so it stays in every total and only stops being called a subscription.
+`commitments.ts` does that, and the card gives it its own heading and its own
+figure. What the headline figure must not do is quote €95.90 of cover inside a
+total whose whole promise is "here is what you could stop paying for":
+cancelling Netflix costs you Netflix, cancelling cover costs you the cover.
+
+Nothing in that file reads a merchant, and nothing in it ever should.
+`recurring.ts` finds the gym and the accountant as readily as Netflix exactly
+because it knows no merchants, and a list of insurers would only ever
+recognise the ones somebody thought of. The two routes are both the owner's own
+words read back: **a policy they hold** whose name or insurer appears on a
+payment of about the right size (two independent places agreeing, as in
+`loanRepayments.ts`), or **a category they filed it under**, which is the only
+thing that covers car and home cover — neither of which is in `policies` at
+all. `distinctiveWords.ts` is shared with the loan matcher so the two cannot
+drift, and strikes out the words naming the *kind* of thing: every policy is a
+"life cover plan" of some sort, and matching on one of those would read any
+payment mentioning life as a premium. Two policies fitting one payment is
+refused rather than guessed at, same as everywhere else.
+
 ### The balance projection, and what it will not project
 
 `utils/forecast.ts` draws the line from today's spendable total and what

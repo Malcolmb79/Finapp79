@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Account, TransactionRule } from "../api/client.js";
-import { distinctiveWords, unclaimedRepayments } from "./loanRepayments.js";
+import { unclaimedRepayments } from "./loanRepayments.js";
+import { distinctiveWords } from "./distinctiveWords.js";
 import { recurringRepayments, subscriptions } from "./recurring.js";
 
 const account = (over: Partial<Account> = {}): Account =>

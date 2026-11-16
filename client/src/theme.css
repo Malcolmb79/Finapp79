@@ -2383,3 +2383,16 @@ th {
   opacity: 0.6;
   cursor: default;
 }
+
+/* A heading for a kind of commitment that is not a subscription, carrying its
+   own total — so the figure above it is never read as covering this too. */
+.subs-section {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  padding-bottom: 0.15rem;
+}

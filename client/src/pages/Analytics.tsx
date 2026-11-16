@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import CashFlowCard, { type MonthFlow } from "../components/dashboard/CashFlowCard.js";
 import MagnitudeBarList from "../components/dashboard/MagnitudeBarList.js";
 import StatTile from "../components/dashboard/StatTile.js";
-import { api, type Account, type Category, type Transaction, type TransactionRule } from "../api/client.js";
+import { api, type Account, type Category, type Policy, type Transaction, type TransactionRule } from "../api/client.js";
 import { spendingTransactions, visibleTransactions } from "../utils/accountBalance.js";
 import { useAccountScope, useDateRange } from "../contexts/ViewFilterContext.js";
 import { dateRangeLabel, rangeMonthCount, withinRange } from "../utils/dateRange.js";
@@ -18,6 +18,7 @@ import { cleanDescription } from "../utils/cleanDescription.js";
 import { detectPriceRises } from "../utils/priceRises.js";
 import { recurringRepayments, subscriptions } from "../utils/recurring.js";
 import { unclaimedRepayments } from "../utils/loanRepayments.js";
+import { classifyCommitments } from "../utils/commitments.js";
 import { excludeTransfers, transferCategoryIds } from "../utils/transfers.js";
 
 const TREND_MONTHS = 12;
@@ -39,11 +40,15 @@ export default function Analytics() {
   // Which loans already have their repayments named, so the subscriptions
   // card can offer to name the ones that don't.
   const [rules, setRules] = useState<TransactionRule[]>([]);
+  // Loaded to tell an insurance premium from a subscription: a policy the
+  // owner holds is the strongest evidence the app has for what a payment is.
+  const [policies, setPolicies] = useState<Policy[]>([]);
   function refresh() {
     api.listTransactions().then(setTransactions);
     api.listCategories().then(setCategories);
     api.listAccounts().then(setAccounts);
     api.listRules().then(setRules).catch(() => {});
+    api.listPolicies().then(setPolicies).catch(() => {});
   }
   useEffect(refresh, []);
 
@@ -201,6 +206,9 @@ export default function Analytics() {
   const recurring = subscriptions(recurringHistory);
   const recurringRepaid = recurringRepayments(recurringHistory);
   const unclaimed = unclaimedRepayments(recurring, accounts, rules);
+  // Which of them are insurance rather than subscriptions — from a policy held
+  // or a category filed under, never from a list of insurers.
+  const commitments = classifyCommitments(recurring, { policies, categories });
   // Deliberately from the full history rather than the chosen range: a price
   // rise is established by what came before it, and a three-month window can
   // easily hold the new price and none of the old.
@@ -322,6 +330,7 @@ export default function Analytics() {
           currency={rates?.base ?? "EUR"}
           repayments={recurringRepaid}
           unclaimed={unclaimed}
+          commitments={commitments}
           onAttribute={async (hit) => {
             await api.createRule({
               match_text: hit.matchText,

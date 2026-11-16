@@ -1,5 +1,6 @@
 import type { Account, TransactionRule } from "../api/client.js";
 import { isLiability } from "./accountBalance.js";
+import { distinctiveWords } from "./distinctiveWords.js";
 import type { RecurringPayment } from "./recurring.js";
 
 /**
@@ -33,60 +34,6 @@ export interface UnclaimedRepayment {
   matchText: string;
   /** The account the payment leaves, when every charge agrees on one. */
   fromAccountId: string | null;
-}
-
-/**
- * Words that name the kind of thing rather than the thing.
- *
- * Every account of this type carries some of them, so matching on one would
- * attach "Personal loan" to the first payment with the word "personal" in it —
- * which, on a lender's direct debit, is most of them.
- */
-const GENERIC = new Set([
-  "loan",
-  "loans",
-  "card",
-  "cards",
-  "credit",
-  "debit",
-  "debt",
-  "personal",
-  "finance",
-  "financial",
-  "services",
-  "bank",
-  "banking",
-  "account",
-  "current",
-  "savings",
-  "mortgage",
-  "overdraft",
-  "payment",
-  "payments",
-  "repayment",
-  "repayments",
-  "direct",
-  "monthly",
-  "limited",
-  "holdings",
-  "group",
-  "main",
-  "joint",
-  "mine",
-]);
-
-/**
- * The parts of an account's name distinctive enough to recognise it by.
- *
- * Four letters is the floor because a shorter run appears inside longer words
- * by accident — "AIB" is three letters and sits inside nothing, but "Visa"
- * would find "visage" and a two-letter token finds everything.
- */
-export function distinctiveWords(name: string): string[] {
-  return name
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((word) => word.length >= 4 && !GENERIC.has(word));
 }
 
 function textOf(payment: RecurringPayment): string {

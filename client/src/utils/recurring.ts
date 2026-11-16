@@ -31,6 +31,14 @@ export interface RecurringPayment {
   monthly: number;
   /** The charges themselves, oldest first, so the history can be shown. */
   charges: { date: string; amount: number; accountId: string | null }[];
+  /**
+   * Every category the charges are filed under, newest first.
+   *
+   * What the owner has already said this payment is, which is the only
+   * evidence in the app for the difference between a subscription and an
+   * insurance premium — see `commitments.ts`.
+   */
+  categoryIds: (number | null)[];
 }
 
 interface Chargeable {
@@ -149,6 +157,7 @@ export function detectRecurring(
       // insurance and a monthly streaming bill can be added together.
       monthly: (typical * match.perYear) / 12,
       charges: ordered.map((tx) => ({ date: tx.booking_date, amount: Math.abs(tx.amount), accountId: tx.account_id ?? null })),
+      categoryIds: [...ordered].reverse().map((tx) => tx.category_id ?? null),
     });
   }
 
