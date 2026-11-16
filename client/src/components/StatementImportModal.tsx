@@ -193,7 +193,12 @@ export default function StatementImportModal({
       const skip = preview.sample.map((_, index) => isSkipped(index));
       // Only ever sent for rows the file left blank; the server ignores one
       // against a row that already has a name.
-      const names = preview.sample.map((_, index) => rowNames[index]?.trim() || null);
+      // Falls back to the name read off the charges summary, which is what
+      // the filled-in box is showing — an owner who left it alone meant to
+      // accept it, and one who cleared it meant the opposite.
+      const names = preview.sample.map(
+        (_, index) => (rowNames[index] ?? preview.summaryNames[index]?.label ?? "").trim() || null
+      );
       const result = await api.importStatement(
         accountId,
         contentBase64,
@@ -212,6 +217,10 @@ export default function StatementImportModal({
   }
 
   const columnOptions = preview?.columns ?? [];
+  // The rows that will really arrive without a name. The raw count includes
+  // the ones the charges summary accounted for, and a warning that counted
+  // those would contradict the filled-in boxes directly beneath it.
+  const stillUnnamed = preview ? preview.unnamed.count - preview.unnamed.named : 0;
   const splitColumns = mapping ? mapping.amountColumn == null : false;
 
 
@@ -466,7 +475,18 @@ export default function StatementImportModal({
                 over a date, by which point which statement did it is
                 anybody's guess. So it is raised here, while the file that
                 caused it is still open and the column is one click away. */}
-            {preview.unnamed.count > 0 && (
+            {/* Said once, where the rows it refers to can be seen. Not a
+                warning: nothing is wrong, the statement named them somewhere
+                else and the boxes below are filled in with what it said. */}
+            {preview.unnamed.named > 0 && (
+              <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", margin: "0.5rem 0" }}>
+                <strong>{preview.unnamed.named}</strong> row{preview.unnamed.named === 1 ? "" : "s"} the statement doesn&rsquo;t
+                describe {preview.unnamed.named === 1 ? "has been named" : "have been named"} from its own charges summary —
+                each one says below which line it came from. Change or clear them if that&rsquo;s wrong.
+              </p>
+            )}
+
+            {stillUnnamed > 0 && (
               <div
                 role="alert"
                 style={{
@@ -480,26 +500,26 @@ export default function StatementImportModal({
                   // Louder when it is the whole statement: a handful of
                   // unnamed rows is normal (bank charges, interest), where
                   // every row unnamed is the column being wrong.
-                  border: `1px solid ${preview.unnamed.count === preview.parsed ? "var(--critical)" : "var(--border)"}`,
+                  border: `1px solid ${stillUnnamed === preview.parsed ? "var(--critical)" : "var(--border)"}`,
                   background:
-                    preview.unnamed.count === preview.parsed
+                    stillUnnamed === preview.parsed
                       ? "color-mix(in srgb, var(--critical) 12%, transparent)"
                       : "var(--surface-2)",
                 }}
               >
                 <AlertTriangle
                   size={15}
-                  color={preview.unnamed.count === preview.parsed ? "var(--critical)" : "var(--text-muted)"}
+                  color={stillUnnamed === preview.parsed ? "var(--critical)" : "var(--text-muted)"}
                 />
                 <span style={{ flex: 1, minWidth: 220, fontSize: "0.85rem" }}>
-                  {preview.unnamed.count === preview.parsed ? (
+                  {stillUnnamed === preview.parsed ? (
                     <>
                       None of these <strong>{preview.parsed}</strong> transactions has a description — they will import as
                       &ldquo;Transaction&rdquo; and a date.
                     </>
                   ) : (
                     <>
-                      <strong>{preview.unnamed.count}</strong> of {preview.parsed} have no description, and will import as
+                      <strong>{stillUnnamed}</strong> of {preview.parsed} have no description, and will import as
                       &ldquo;Transaction&rdquo; and a date.
                     </>
                   )}{" "}
@@ -609,7 +629,7 @@ export default function StatementImportModal({
                               anyway, so the box costs nothing to ignore. */}
                           {preview.lines[i] ? (
                             <input
-                              value={rowNames[i] ?? ""}
+                              value={rowNames[i] ?? preview.summaryNames[i]?.label ?? ""}
                               onChange={(e) => setRowNames((current) => ({ ...current, [i]: e.target.value }))}
                               placeholder="Name this one"
                               aria-label={`Name the ${row.date} transaction, which the statement doesn't name`}
@@ -646,7 +666,19 @@ export default function StatementImportModal({
                             really is a date and an amount, which is worth
                             knowing too, because then no column will help and
                             the name has to be typed. */}
-                        {preview.lines[i] && (
+                        {/* Where the summary accounts for the row, the
+                            arithmetic is shown instead of the raw cells. It
+                            is the more useful of the two — the cells say the
+                            line is empty, which is already visible from the
+                            box — and showing the reasoning is what makes a
+                            filled-in box something the owner can check rather
+                            than something that appeared. */}
+                        {preview.lines[i] && preview.summaryNames[i] && (
+                          <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
+                            {preview.summaryNames[i]!.evidence}
+                          </div>
+                        )}
+                        {preview.lines[i] && !preview.summaryNames[i] && (
                           <div
                             style={{
                               fontSize: "0.7rem",

@@ -4,6 +4,7 @@ import { db, withTransaction } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { resolveBank } from "../services/bankLogo.js";
 import { categoriseImport } from "../services/importCategorise.js";
+import { chargeLines, nameUnnamedRows } from "../services/statementCharges.js";
 import { checkStatement, pairDuplicates, type ExistingTransaction } from "../services/statementMatch.js";
 import { extractPdfRows, looksLikePdf } from "../services/pdfStatement.js";
 import {
@@ -279,6 +280,7 @@ importStatementRouter.post("/preview", async (req, res) => {
   const mapping = body.mapping ?? (await inferMapping(table, preamble));
   const entries = applyMappingIndexed(table, mapping);
   const rows = entries.map((entry) => entry.parsed);
+  const summaryNames = nameUnnamedRows(rows, chargeLines(grid, mapping.decimalSeparator));
 
   // A statement that parses locally and returns nothing in production has no
   // other way of being diagnosed: the file can't be reproduced from an empty
@@ -342,6 +344,10 @@ importStatementRouter.post("/preview", async (req, res) => {
     unnamed: {
       count: rows.filter(isUnnamed).length,
       betterColumn: betterDescriptionColumn(table, mapping, rows.filter(isUnnamed).length),
+      // How many of those the charges summary accounted for. The warning has
+      // to be about the rows that will really arrive without a name, or it
+      // contradicts the filled-in boxes directly beneath it.
+      named: summaryNames.filter(Boolean).length,
     },
     // The file's own line, for the rows nothing could name — and only those,
     // aligned with `sample` by index the way `duplicates` is. "Why has this
@@ -353,6 +359,14 @@ importStatementRouter.post("/preview", async (req, res) => {
     lines: entries
       .slice(0, PREVIEW_ROWS)
       .map((entry) => (isUnnamed(entry.parsed) ? entry.line.map((c) => c.trim()) : null)),
+    // A name for an unnamed row read off the statement's own charges
+    // summary, aligned with `sample` the same way. The bank does say what
+    // these rows are — it says it further up the page and in aggregate — so
+    // the label and the total both come from the file, the arithmetic that
+    // justifies them is carried alongside to be shown, and the dialog fills
+    // the box rather than writing anything, so it can be corrected or
+    // cleared before it becomes a transaction.
+    summaryNames: summaryNames.slice(0, PREVIEW_ROWS),
     // Offered rather than applied: the user sees which bank was matched, with
     // its logo, and decides. A wrong logo is worse than no logo.
     detectedBank: await resolveBank(mapping.bankName, mapping.bankCountry),

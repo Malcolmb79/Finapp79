@@ -314,13 +314,25 @@ export interface StatementPreview {
    * and every amount correct, and the rows arriving as "Transaction" over a
    * date — so it has to be raised here rather than discovered later.
    */
-  unnamed: { count: number; betterColumn: number | null };
+  unnamed: {
+    count: number;
+    betterColumn: number | null;
+    /** How many of those the statement's own charges summary accounted for. */
+    named: number;
+  };
   /**
    * Aligned with `sample` by index: the file's own line for a row nothing
    * could name, null for every row that has a name. "Why has this come
    * through blank?" has no answer that isn't the line itself.
    */
   lines: (string[] | null)[];
+  /**
+   * Aligned with `sample`: a name for an unnamed row read off the statement's
+   * own charges summary, with the arithmetic that justifies it. The bank does
+   * say what those rows are — further up the page, and in aggregate — so the
+   * label and the total both come from the file rather than being guessed.
+   */
+  summaryNames: ({ label: string; evidence: string } | null)[];
   // The bank matched from the statement against Enable Banking's directory,
   // offered so the account can carry its real logo.
   detectedBank: { name: string; logo: string | null; country: string } | null;

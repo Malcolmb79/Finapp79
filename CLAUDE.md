@@ -274,6 +274,25 @@ query, or one user's data leaks into another's response.
     the content hash is still taken from the file's own description, so
     naming a row does not change its identity and next month's overlapping
     statement still dedupes against it.
+  - `services/statementCharges.ts` fills that box where the statement does
+    say what the row was, somewhere else and in aggregate. FNB prints
+    `Service Fees 241.62 Dr` / `Other Fees 69.00 Dr` in a summary above the
+    transactions, and 2.00 + 114.62 + 125.00 is 241.62 exactly while the
+    remaining unnamed row is 69.00 exactly. `chargeLines()` reads only lines
+    naming a fee or charge — a statement is full of `<words> <number>` lines
+    and any of them could coincidentally match, so the restriction is what
+    stops a coincidence being read as an explanation; aggregates ("Total bank
+    charges") and zero totals are skipped too. `nameUnnamedRows()` claims a
+    charge only when **exactly one** combination of the still-unclaimed rows
+    adds up to it, and claims each row at most once: 2.00 + 3.00 and 5.00
+    both make 5.00, and picking one would be inventing the answer.
+
+    The label and the figure are both quoted from the document (`printed`
+    keeps the amount exactly as written, so the evidence stays findable on
+    the page), the arithmetic is shown under each row, and the dialog fills
+    the box rather than writing anything — so it can be corrected or cleared
+    before it becomes a transaction. Same grounded footing as
+    `loanContract.ts` and `policyDocument.ts`.
   - `GET /api/accounts/:id/imports` counts `unnamed` per import, for the
     same reason `futureDated` is there: a perfect-looking import needs
     something that identifies it after the fact. The detail card pairs with
