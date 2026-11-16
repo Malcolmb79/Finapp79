@@ -2655,3 +2655,45 @@ th {
   min-width: 0;
   font-size: 0.83rem;
 }
+
+/* The one control that decides what the Subscriptions page lists. Styled as a
+   tag rather than a button because that is what it is — a label on the
+   category, not an action on it. */
+.category-row__tag {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.category-row__tag:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.category-row__tag--on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Set in the sentence that names what is on the page, so removing a tag is
+   done where its effect is being described. */
+.sub-untag {
+  font-size: 0.68rem;
+  margin-left: 0.25rem;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.sub-untag:hover:not(:disabled) {
+  color: var(--critical);
+}

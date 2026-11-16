@@ -801,3 +801,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_subscription_reviews_user_merchant
 -- mean two different shapes of the same table depending on when it was made.
 -- Only ever held a value set by the feature being removed.
 ALTER TABLE subscription_reviews DROP COLUMN IF EXISTS cancelling_at;
+
+-- Whether money filed here is a subscription.
+--
+-- Declared, like every other thing this app knows about a category, and for
+-- the reason the last three attempts at this failed: a subscription is not a
+-- shape in the data. The detector that finds payments coming back on a rhythm
+-- for a consistent amount finds a loan instalment, a life premium, a phone
+-- bill and the bins, because all of those are exactly that shape — and no
+-- refinement of it will ever separate "something I signed up to and could
+-- stop" from "something I owe every month", because the difference is not in
+-- the transactions. It is in what the household means by them.
+--
+-- So the subscriptions page lists what is tagged here and nothing else. The
+-- cadence, the annual cost and the price rises are still worked out from the
+-- charges — that is description, which the data can support. Membership is a
+-- decision, which it cannot.
+--
+-- A flag on the category rather than on each transaction: filing is already
+-- how this app is told what a payment is, and tagging Netflix every month
+-- would be asking the same question twelve times a year.
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_subscription BOOLEAN NOT NULL DEFAULT FALSE;

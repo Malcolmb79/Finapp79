@@ -805,13 +805,49 @@ and the system prompt labels it as such: a figure read off the page is not a
 figure that was looked up, and the two must never be presented as equally
 checked.
 
-### Subscriptions, and the thing a commitments card cannot tell you
+### Subscriptions: a tag, not a shape
 
-The `Subscriptions` page is not a second commitments card. The card answers
-what you pay; no amount of staring at it answers which of them you have
-actually decided about — and that is how a subscription fails. £9.99 is small
-enough that no month ever forces the issue, so it survives on nobody having
-thought about it.
+**What is on the Subscriptions page is `categories.is_subscription` and
+nothing else.** This is the fourth answer to the question and the first
+correct one, and the three wrong ones are the argument for it. The detector
+finds payments that come back on a rhythm for a consistent amount; it offered
+a personal loan, then a life premium, then broadband and a phone bill — not
+because it was badly tuned, but because all of those *are* that shape. A
+standing commitment and a subscription are the same thing in the transactions.
+The difference is what the household means by them, and the only place this
+app holds meaning about a payment is the category it was filed under.
+
+So `utils/taggedSubscriptions.ts` reads the tag for **membership** and the
+charges for **description** — how often, what a year costs, when the next one
+is due. Keeping those apart is what makes the page honest, and it shows up in
+the case the detector could never handle: a subscription tagged last week and
+charged once is still a subscription. It appears, with "one charge so far"
+where the cadence would be and `null` for the annual cost, rather than being
+withheld until it has earned a place in a pattern or given an annual figure
+that is twelve times a guess. The header says so too — "€392.01 a year from
+the 2 with an established rhythm" — because a total that silently covers some
+of the rows is worse than one that names which.
+
+Grouping is still `merchantKey`, so one provider's references do not become
+twelve subscriptions, and so the key a review is recorded against is stable.
+Inflows are skipped: a refund filed under the same category is not a
+subscription being paid.
+
+Nothing is tagged by default, and the empty page **asks rather than guesses**
+— it lists the categories to be ticked even when one is literally called
+"Subscriptions". Auto-tagging on the name would be the same mistake as the
+detector, one layer further back. The tag is set from the Categories card on
+Transactions (a separate control from the income cycle, since it answers what
+kind of *spending* this is rather than what kind of *money*, and the two have
+no combination to resolve), or from the page's own setup state, and removed
+from the sentence that names what is on screen.
+
+### What the page is for, once it knows what is on it
+
+The card answers what you pay; no amount of staring at it answers which of
+them you have actually decided about — and that is how a subscription fails.
+€9.99 is small enough that no month ever forces the issue, so it survives on
+nobody having thought about it.
 
 So `subscription_reviews` stores **a date, not a verdict**. "Confirmed in March
 2025" is exactly as true and as useful eighteen months later; "keep" quietly
@@ -835,7 +871,10 @@ keep honest.
 
 `nextCharge()` returns null for a dormant subscription rather than stepping
 forward from a year-old charge to produce "due next Tuesday" — the same
-invention `stillLive` exists to stop in the balance projection.
+invention `stillLive` exists to stop in the balance projection. It is null
+where the cadence is unknown too, and `dormant` is never claimed there: a
+subscription with no established rhythm has nothing to be overdue against,
+and calling a newly tagged one dormant would be exactly backwards.
 
 ### What a category is made of
 

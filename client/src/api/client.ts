@@ -393,6 +393,15 @@ export interface Category {
   /** Money filed here is regular income the balance projection can count on. */
   counts_as_income?: boolean;
   /**
+   * Money filed here is a subscription.
+   *
+   * The only thing that decides what the Subscriptions page lists. A loan
+   * instalment, a life premium and a phone bill all come back monthly for a
+   * consistent amount, so no reading of the transactions tells them apart —
+   * only the filing can.
+   */
+  is_subscription?: boolean;
+  /**
    * Income that arrives on no schedule - a refund, a bonus, something sold.
    *
    * Counted in every total like any other income, and deliberately left out of
@@ -1023,7 +1032,10 @@ export const api = {
 
   impliedRate: (accountId: string) => request<ImpliedRate>(`/accounts/${accountId}/implied-rate`),
 
-  updateCategory: (id: number, patch: { counts_as_income?: boolean; income_is_occasional?: boolean; is_transfer?: boolean }) =>
+  updateCategory: (
+    id: number,
+    patch: { counts_as_income?: boolean; income_is_occasional?: boolean; is_transfer?: boolean; is_subscription?: boolean }
+  ) =>
     request<Category>(`/categories/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
 
   createCategory: (name: string, parentId?: number | null) =>

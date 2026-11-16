@@ -136,6 +136,34 @@ export default function CategoryManager({
     }
   }
 
+  /**
+   * Whether this category holds subscriptions.
+   *
+   * A separate control from the income cycle above, because it answers a
+   * different question. That one asks what kind of *money* this is — income,
+   * occasional income, or a movement between your own accounts. This asks
+   * what kind of *spending* it is, and the two do not interact: there is no
+   * combination of them to resolve.
+   *
+   * It is the only thing that decides what the Subscriptions page lists. The
+   * detector that used to decide found a personal loan, a life policy and a
+   * phone bill, because all three charge monthly for a consistent amount —
+   * which is what a standing commitment is, and is not what a subscription
+   * is. Only the filing holds that difference.
+   */
+  async function toggleSubscription(category: Category) {
+    setMarking(category.id);
+    setStatus(null);
+    try {
+      await api.updateCategory(category.id, { is_subscription: !category.is_subscription });
+      onCreated();
+    } catch (err) {
+      setStatus(errorMessage(err, "Couldn't change that category."));
+    } finally {
+      setMarking(null);
+    }
+  }
+
   return (
     <div style={{ marginBottom: "1rem" }}>
       <form onSubmit={handleSubmit} style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
@@ -273,6 +301,24 @@ export default function CategoryManager({
                         ? "occasional income"
                         : "regular income"}
                   </span>
+                )}
+                {/* Offered only on spending categories. A salary or a
+                    transfer holding subscriptions is not a state worth
+                    being able to create. */}
+                {incomeState(category) === "none" && (
+                  <button
+                    type="button"
+                    onClick={() => toggleSubscription(category)}
+                    disabled={marking === category.id}
+                    title={
+                      category.is_subscription
+                        ? `Stop listing what is filed under ${category.name} on the Subscriptions page`
+                        : `List what is filed under ${category.name} on the Subscriptions page. Nothing else decides what counts as a subscription`
+                    }
+                    className={category.is_subscription ? "category-row__tag category-row__tag--on" : "category-row__tag"}
+                  >
+                    {category.is_subscription ? "subscriptions ✓" : "subscriptions"}
+                  </button>
                 )}
                 <button
                   type="button"

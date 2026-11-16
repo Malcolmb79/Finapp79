@@ -155,24 +155,50 @@ categoriesRouter.patch("/:id", async (req, res) => {
     return;
   }
 
+  /**
+   * Handled on its own rather than through `categoryFlags`.
+   *
+   * That function exists to settle combinations that cannot mean anything —
+   * occasional income on something that is not income, income on a transfer.
+   * Being a subscription category is a different axis entirely: it says what
+   * kind of spending this is, not whether the money is spending at all, so it
+   * has no interaction to resolve and folding it in would only invent one.
+   */
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const hasSubscription = "is_subscription" in body;
+  if (hasSubscription && typeof body.is_subscription !== "boolean") {
+    res.status(400).json({ error: "is_subscription must be true or false" });
+    return;
+  }
+
   const flags = categoryFlags(
     {
       counts_as_income: !!existing.counts_as_income,
       income_is_occasional: !!existing.income_is_occasional,
       is_transfer: !!existing.is_transfer,
     },
-    req.body ?? {}
+    body
   );
-  if (flags === null) {
-    res.status(400).json({ error: "counts_as_income, income_is_occasional or is_transfer must be true or false" });
+  if (flags === null && !hasSubscription) {
+    res
+      .status(400)
+      .json({ error: "counts_as_income, income_is_occasional, is_transfer or is_subscription must be true or false" });
     return;
   }
 
-  await db
-    .prepare(
-      "UPDATE categories SET counts_as_income = ?, income_is_occasional = ?, is_transfer = ? WHERE id = ? AND user_id = ?"
-    )
-    .run(flags.counts_as_income, flags.income_is_occasional, flags.is_transfer, req.params.id, req.user!.id);
+  if (flags !== null) {
+    await db
+      .prepare(
+        "UPDATE categories SET counts_as_income = ?, income_is_occasional = ?, is_transfer = ? WHERE id = ? AND user_id = ?"
+      )
+      .run(flags.counts_as_income, flags.income_is_occasional, flags.is_transfer, req.params.id, req.user!.id);
+  }
+
+  if (hasSubscription) {
+    await db
+      .prepare("UPDATE categories SET is_subscription = ? WHERE id = ? AND user_id = ?")
+      .run(body.is_subscription as boolean, req.params.id, req.user!.id);
+  }
 
   res.json(await db.prepare("SELECT * FROM categories WHERE id = ?").get(req.params.id));
 });

@@ -1,8 +1,8 @@
 import type { SubscriptionReview } from "../api/client.js";
-import type { Commitment } from "./commitments.js";
 import { CADENCE_DAYS, stillLive } from "./forecast.js";
-import type { Cadence } from "./recurring.js";
 import type { PriceRise } from "./priceRises.js";
+import type { Cadence } from "./recurring.js";
+import type { TaggedSubscription } from "./taggedSubscriptions.js";
 
 /**
  * Which subscriptions are worth looking at, and in what order.
@@ -17,6 +17,9 @@ import type { PriceRise } from "./priceRises.js";
  * subscription on the list may be the one you are most certain about, and
  * putting it first means the £6 thing you forgot you had never reaches the
  * screen.
+ *
+ * What is on the list at all is decided before this file runs, by the tag —
+ * see `taggedSubscriptions.ts`.
  */
 
 /**
@@ -35,22 +38,24 @@ export type ReviewFlag =
   | "dormant"
   /** The price went up and the rise is still in force. */
   | "rose"
+  /** Tagged, but not charged often enough yet to say how often it comes. */
+  | "new"
   /** Never confirmed by anybody. */
   | "never-checked"
   /** Confirmed, but long enough ago that it says nothing now. */
   | "stale";
 
 export interface ReviewItem {
-  commitment: Commitment;
+  subscription: TaggedSubscription;
   review: SubscriptionReview | null;
   /** Days since it was last confirmed; null when it never has been. */
   checkedDaysAgo: number | null;
-  /** When the next charge is due, if it is still running. */
+  /** When the next charge is due, if the rhythm is known and still running. */
   nextDue: string | null;
   rise: PriceRise | null;
   flags: ReviewFlag[];
-  /** What it costs a year at this cadence. */
-  annual: number;
+  /** What it costs a year, or null where the rhythm is not established yet. */
+  annual: number | null;
 }
 
 const DAY = 86_400_000;
@@ -65,10 +70,13 @@ function daysSince(iso: string, asOf: string): number {
  * Deliberately derived from the last charge plus one cycle rather than from a
  * schedule nobody entered. And deliberately null for a dormant one: stepping
  * forward from a year-old charge to produce "due next Tuesday" is the same
- * invention `stillLive` exists to stop in the balance projection.
+ * invention `stillLive` exists to stop in the balance projection. Null too
+ * where the cadence is unknown, since a date needs a rhythm to come from.
  */
-export function nextCharge(item: { cadence: Cadence; lastCharged: string }, asOf: string): string | null {
-  if (!stillLive(item, asOf)) return null;
+export function nextCharge(item: { cadence: Cadence | null; lastCharged: string }, asOf: string): string | null {
+  if (!item.cadence) return null;
+  if (!stillLive({ cadence: item.cadence, lastCharged: item.lastCharged }, asOf)) return null;
+
   let due = Date.parse(item.lastCharged) + CADENCE_DAYS[item.cadence] * DAY;
   const now = Date.parse(asOf);
   // Already past: step on until it is ahead, which handles a charge that
@@ -78,7 +86,7 @@ export function nextCharge(item: { cadence: Cadence; lastCharged: string }, asOf
 }
 
 export function reviewItems(
-  commitments: Commitment[],
+  subscriptions: TaggedSubscription[],
   reviews: SubscriptionReview[],
   rises: PriceRise[],
   today: string
@@ -86,27 +94,32 @@ export function reviewItems(
   const byKey = new Map(reviews.map((review) => [review.merchant_key, review]));
   const riseByKey = new Map(rises.map((rise) => [rise.key, rise]));
 
-  const items = commitments.map((commitment) => {
-    const { payment } = commitment;
-    const review = byKey.get(payment.key) ?? null;
+  const items = subscriptions.map((subscription) => {
+    const review = byKey.get(subscription.key) ?? null;
     const checkedDaysAgo = review?.reviewed_at ? daysSince(review.reviewed_at, today) : null;
-    const live = stillLive({ cadence: payment.cadence, lastCharged: payment.lastCharged }, today);
-    const rise = riseByKey.get(payment.key) ?? null;
+    const rise = riseByKey.get(subscription.key) ?? null;
+    const live = subscription.cadence
+      ? stillLive({ cadence: subscription.cadence, lastCharged: subscription.lastCharged }, today)
+      : true;
 
     const flags: ReviewFlag[] = [];
-    if (!live) flags.push("dormant");
+    // Only ever said where a rhythm is known. Without one there is nothing to
+    // be overdue against, and calling a newly tagged subscription dormant
+    // because it has only charged once would be exactly backwards.
+    if (subscription.cadence && !live) flags.push("dormant");
+    if (!subscription.cadence) flags.push("new");
     if (rise) flags.push("rose");
     if (checkedDaysAgo == null) flags.push("never-checked");
     else if (checkedDaysAgo >= REVIEW_GOOD_FOR_DAYS) flags.push("stale");
 
     return {
-      commitment,
+      subscription,
       review,
       checkedDaysAgo,
-      nextDue: nextCharge({ cadence: payment.cadence, lastCharged: payment.lastCharged }, today),
+      nextDue: nextCharge(subscription, today),
       rise,
       flags,
-      annual: payment.annualised,
+      annual: subscription.annual,
     };
   });
 
@@ -129,7 +142,7 @@ function byNeglect(a: ReviewItem, b: ReviewItem): number {
   // go on.
   const checked = (item: ReviewItem) => item.checkedDaysAgo ?? Number.POSITIVE_INFINITY;
   if (checked(a) !== checked(b) && Number.isFinite(checked(a) + checked(b))) return checked(b) - checked(a);
-  return b.annual - a.annual;
+  return (b.annual ?? -1) - (a.annual ?? -1);
 }
 
 /** How long ago it was looked at, in the words somebody would use. */
