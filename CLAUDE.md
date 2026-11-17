@@ -273,6 +273,46 @@ query, or one user's data leaks into another's response.
     is a test asserting that, and the preview prints how many rows reconciled,
     because the alternative on offer beside it is a "flip all" button and the
     user has to be able to tell a reading from a guess.
+- **A date printed once per day, and the rows underneath it.** A Barclays
+  current account prints the date on the first transaction of each day and
+  leaves the column empty for the rest. Requiring a date on every row kept the
+  first and dropped the others — fourteen rows out of forty, and the survivors
+  were simply the earliest on each date. Nothing looked wrong: every row that
+  arrived was correct, and the dialog gave a confident count of what it had.
+
+  So a dateless row takes the date above it, which is what the layout means
+  rather than a guess about the data. Three things keep that from inventing
+  transactions: nothing is carried above the first dated row, so the
+  letterhead stays out; a continuation line ("EUR 70.10 On 14 Oct at VISA")
+  takes the date and is dropped anyway for having no amount; and a **heading**
+  takes nothing, because a card statement's "Transactions, interest and
+  charges" is a dateless row carrying the section's own total, and handing it
+  a date turns a subtotal into a transaction. The test for a heading is the
+  one `sectionSigns` already uses — no date, and its text at the start of the
+  line rather than in the description column — which also catches the legal
+  small print a statement breaks its pages with.
+- **Two column-detection rules the same file broke**, each of which produced a
+  confident import that was quietly missing money:
+  - *A header name over a column holding nothing.* A PDF's columns are text at
+    x-positions and a heading does not always sit over its own figures: "Money
+    out" and "Money in" land two and three cells left of the amounts beneath
+    them. Following those names mapped both to empty columns, which parses
+    nothing — and nothing is what the model's own mapping then beat, so the
+    file imported with every credit missing. A hinted amount, debit or credit
+    column is now ignored unless it actually holds numbers, which is the rule
+    the description column has had all along.
+  - *A balance that crossed zero.* "Contains a negative" is a good test for a
+    signed amount column and a bad one for a running balance, which is
+    negative exactly as often as the account is overdrawn — one day at −£2.78
+    had the balance column chosen as the amount. Mutual exclusivity is now
+    asked **first**: two columns never filled on the same row are an out/in
+    pair, which is structural, across every row, where a stray negative is
+    incidental. A signed column also has to have a positive in it, since a
+    loan's balance is marked `DR` throughout.
+
+  The proof is the same as the loan's: the 38 rows total £4,521.27 in and
+  £4,650.73 out, which are the statement's own printed totals, and £156.94 +
+  4,521.27 − 4,650.73 is the £27.48 it closes on.
 - **A sample that showed the model no table.** `inferMapping` sampled from the
   first row carrying a date; on this file that was the stray page-two row, so
   twelve rows of letterhead went to the model and it reported the statement's

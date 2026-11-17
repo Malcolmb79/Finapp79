@@ -469,34 +469,74 @@ function heuristicColumns(rows: string[][], preamble: string[][] = []): Statemen
   let debitColumn: number | null = null;
   let creditColumn: number | null = null;
 
-  if (hinted.debitColumn !== undefined || hinted.creditColumn !== undefined) {
-    debitColumn = hinted.debitColumn ?? null;
-    creditColumn = hinted.creditColumn ?? null;
-  } else if (hinted.amountColumn !== undefined) {
-    amountColumn = hinted.amountColumn;
+  /**
+   * A header name is only worth following while the column it names actually
+   * holds numbers.
+   *
+   * The same rule the description column already lives under, and it is
+   * needed here for the same reason. A PDF's columns are text at
+   * x-positions, and a heading does not always sit over its own figures: on
+   * a Barclays current account "Money out" and "Money in" land two and three
+   * cells to the left of the amounts beneath them. Honouring those names maps
+   * both to columns that are empty on every row, which parses nothing at all
+   * — and nothing at all is what the model's mapping then beat, so the file
+   * imported with every credit missing and the loss invisible.
+   */
+  const holdsNumbers = (column: number | undefined) =>
+    column !== undefined && numericColumns.includes(column) ? column : undefined;
+  const debitHint = holdsNumbers(hinted.debitColumn);
+  const creditHint = holdsNumbers(hinted.creditColumn);
+  const amountHint = holdsNumbers(hinted.amountColumn);
+
+  if (debitHint !== undefined || creditHint !== undefined) {
+    debitColumn = debitHint ?? null;
+    creditColumn = creditHint ?? null;
+  } else if (amountHint !== undefined) {
+    amountColumn = amountHint;
   } else if (numericColumns.length === 1) {
     amountColumn = numericColumns[0];
   } else if (numericColumns.length > 1) {
-    // A column containing negatives is a single signed amount column; two
-    // columns that are never populated on the same row are money-out and
-    // money-in. Anything else falls back to the first numeric column, which
-    // the user can correct in the confirmation step.
-    const signed = numericColumns.find((i) => columnCells(i).some((c) => (normaliseAmount(c, decimalSeparator) ?? 0) < 0));
-    if (signed !== undefined) {
-      amountColumn = signed;
+    /**
+     * Two columns never filled on the same row are money-out and money-in,
+     * and that is asked **first**.
+     *
+     * It used to be asked last, after "does any column contain a negative?" —
+     * and a negative is a far weaker signal than it looks. A running balance
+     * is negative exactly as often as the account is overdrawn, so one day at
+     * −£2.78 had a Barclays current account's balance column chosen as its
+     * amount: every transaction imported as the balance that followed it, and
+     * only the nine rows that printed a balance arrived at all.
+     *
+     * Mutual exclusivity is structural — it is what an out/in pair *is*,
+     * across every row of the file. A stray negative is incidental. The
+     * stronger evidence goes first.
+     */
+    const [first, second] = numericColumns;
+    const mutuallyExclusive = body.every((row) => {
+      const a = (row[first] ?? "").trim();
+      const b = (row[second] ?? "").trim();
+      return a === "" || b === "";
+    });
+
+    if (mutuallyExclusive) {
+      debitColumn = first;
+      creditColumn = second;
     } else {
-      const [first, second] = numericColumns;
-      const mutuallyExclusive = body.every((row) => {
-        const a = (row[first] ?? "").trim();
-        const b = (row[second] ?? "").trim();
-        return a === "" || b === "";
+      /**
+       * Otherwise a single signed amount column — but not a column that is
+       * negative *throughout*. A loan's balance is marked `DR` on every row,
+       * which reads as negative on every row; a column with no positive in it
+       * is a column of one direction, which is a balance or a money-out
+       * column, not a signed amount.
+       */
+      const signed = numericColumns.find((i) => {
+        const values = columnCells(i).map((c) => normaliseAmount(c, decimalSeparator) ?? 0);
+        const negatives = values.filter((v) => v < 0).length;
+        return negatives > 0 && negatives < values.length;
       });
-      if (mutuallyExclusive) {
-        debitColumn = first;
-        creditColumn = second;
-      } else {
-        amountColumn = first;
-      }
+      // Falls back to the first numeric column, which the user can correct in
+      // the confirmation step.
+      amountColumn = signed ?? first;
     }
   }
 
@@ -1057,8 +1097,37 @@ export function applyMappingIndexed(
   // headings must not be allowed to overrule it.
   const signs = mapping.signFromMarker || fromBalance ? null : sectionSigns(body, mapping.dateColumn);
 
+  /**
+   * A statement prints the date once and then lists that day's transactions
+   * under it.
+   *
+   * Requiring a date on every row dropped all but the first transaction of
+   * each day — on a Barclays current account, fourteen rows out of forty, and
+   * the ones that survived were simply the earliest on each date. Nothing
+   * looked wrong: every row that arrived was correct, the dialog offered a
+   * confident count, and what was missing was missing silently.
+   *
+   * So a row with no date of its own takes the date above it, which is what
+   * the layout means. It is not a guess about the data — it is reading the
+   * table the way the table is written. A continuation line ("EUR 70.10 On 14
+   * Oct at VISA Exchange Rate 1.18") gets the date too and is still dropped,
+   * because it carries no amount; and nothing is carried before the first
+   * dated row, so the letterhead above the table stays out.
+   *
+   * Except to a heading. A card statement's section headings — "Transactions,
+   * interest and charges" — are dateless rows carrying the section's own
+   * total, and a date handed to one turns a subtotal into a transaction. The
+   * test for a heading already exists and is the same one `sectionSigns`
+   * reads: no date, and its text at the start of the line rather than in the
+   * description column. It also catches the legal small print a statement
+   * breaks its pages with.
+   */
+  let carried: string | null = null;
+
   for (const [index, row] of body.entries()) {
-    const date = normaliseDate(cell(row, mapping.dateColumn), mapping.dateFormat, mapping.defaultYear);
+    const stated = normaliseDate(cell(row, mapping.dateColumn), mapping.dateFormat, mapping.defaultYear);
+    if (stated) carried = stated;
+    const date = stated ?? (headingText(row, mapping.dateColumn) == null ? carried : null);
     if (!date) continue;
     if (statesABalance?.[index] != null) continue;
 
