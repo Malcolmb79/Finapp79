@@ -1,6 +1,6 @@
-import { Loader2, Sparkles } from "lucide-react";
+import { Loader2, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api, type Category } from "../api/client.js";
+import { api, type Category, type CategoryUsage } from "../api/client.js";
 import { errorMessage } from "../utils/errorMessage.js";
 
 /**
@@ -28,6 +28,7 @@ export default function CategoryManager({
 }) {
   const [name, setName] = useState("");
   const [marking, setMarking] = useState<number | null>(null);
+  const [removing, setRemoving] = useState<{ id: number; usage: CategoryUsage } | null>(null);
   const [starter, setStarter] = useState<string[]>([]);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [showStarter, setShowStarter] = useState(false);
@@ -159,6 +160,64 @@ export default function CategoryManager({
       onCreated();
     } catch (err) {
       setStatus(errorMessage(err, "Couldn't change that category."));
+    } finally {
+      setMarking(null);
+    }
+  }
+
+  /**
+   * What is attached, in the fewest words that still say it.
+   *
+   * Only the kinds that are actually there, because a list of six zeroes
+   * reads as a warning about nothing and trains somebody to click past the
+   * one that matters. An empty category says "nothing filed here", which is
+   * the answer that makes deleting it obviously safe.
+   */
+  function usageNote(usage: CategoryUsage): string {
+    const parts = [
+      [usage.transactions, "transaction"],
+      [usage.splits, "split"],
+      [usage.budgets, "budget"],
+      [usage.rules, "rule"],
+      [usage.children, "sub-category"],
+    ]
+      .filter(([n]) => (n as number) > 0)
+      .map(([n, word]) => `${n} ${word}${(n as number) === 1 ? "" : "s"}`);
+
+    if (parts.length === 0) return "nothing filed here";
+    const last = parts.pop()!;
+    return parts.length === 0 ? last : `${parts.join(", ")} and ${last}`;
+  }
+
+  /**
+   * Asks what is filed here before offering to remove it.
+   *
+   * A category is the only thing in this app that says what a payment *was*,
+   * and what is filed under one is months of somebody's decisions — so the
+   * confirmation names them. "23 transactions and a budget" is a question
+   * somebody can answer; "are you sure?" is not.
+   */
+  async function startRemove(category: Category) {
+    setMarking(category.id);
+    setStatus(null);
+    try {
+      setRemoving({ id: category.id, usage: await api.categoryUsage(category.id) });
+    } catch (err) {
+      setStatus(errorMessage(err, "Couldn't check what's filed under that category."));
+    } finally {
+      setMarking(null);
+    }
+  }
+
+  async function confirmRemove(category: Category) {
+    setMarking(category.id);
+    setStatus(null);
+    try {
+      await api.deleteCategory(category.id, true);
+      setRemoving(null);
+      onCreated();
+    } catch (err) {
+      setStatus(errorMessage(err, "Couldn't delete that category."));
     } finally {
       setMarking(null);
     }
@@ -329,6 +388,31 @@ export default function CategoryManager({
                 >
                   {marking === category.id ? <Loader2 size={11} className="spin" /> : NEXT[incomeState(category)].label}
                 </button>
+                {/* The confirmation names what is filed here rather than
+                    asking "are you sure?", which is a question nobody has the
+                    information to answer. */}
+                {removing?.id === category.id ? (
+                  <button
+                    type="button"
+                    onClick={() => void confirmRemove(category)}
+                    disabled={marking === category.id}
+                    title={usageNote(removing.usage)}
+                    style={{ fontSize: "0.7rem", padding: "0.15rem 0.4rem", color: "var(--critical)", whiteSpace: "nowrap" }}
+                  >
+                    {marking === category.id ? <Loader2 size={11} className="spin" /> : `Delete — ${usageNote(removing.usage)}`}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void startRemove(category)}
+                    disabled={marking === category.id}
+                    aria-label={`Delete ${category.name}`}
+                    title={`Delete ${category.name}`}
+                    style={{ padding: "0.2rem", display: "flex" }}
+                  >
+                    <Trash2 size={12} color="var(--text-muted)" />
+                  </button>
+                )}
               </div>
             ))}
           </div>

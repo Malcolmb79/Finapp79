@@ -309,3 +309,74 @@ describe("pairNote", () => {
     expect(pairNote(findTransferPairs(rows)[0], money)).toContain("the same day");
   });
 });
+
+describe("a split transaction with a transfer leg", () => {
+  const transferIds = new Set([9]);
+  const split = (over: Partial<Transaction>, splits: { category_id: number | null; amount: number }[]) =>
+    ({ ...tx(over), splits }) as Transaction;
+
+  /**
+   * One payment can be partly a move to savings and partly a purchase: €500
+   * out of the current account, €400 of it put by and €100 of it groceries.
+   * The old rule had two answers and both were wrong — drop the row and lose
+   * €100 of real spending, or keep it and count €400 of the household's own
+   * money as money spent. It kept it, because the row's own category was not
+   * a transfer.
+   */
+  it("keeps the part that was spent and drops the part that moved", () => {
+    const rows = [
+      split({ amount: -500, category_id: null }, [
+        { category_id: 9, amount: -400 },
+        { category_id: 3, amount: -100 },
+      ]),
+    ];
+    const [kept] = excludeTransfers(rows, transferIds);
+    expect(kept.amount).toBeCloseTo(-100, 10);
+    expect(kept.splits).toEqual([{ category_id: 3, amount: -100 }]);
+  });
+
+  it("drops a row whose every leg is a transfer", () => {
+    const rows = [
+      split({ amount: -500, category_id: null }, [
+        { category_id: 9, amount: -300 },
+        { category_id: 9, amount: -200 },
+      ]),
+    ];
+    expect(excludeTransfers(rows, transferIds)).toEqual([]);
+  });
+
+  it("leaves a split row with no transfer leg exactly as it was", () => {
+    const rows = [
+      split({ amount: -500, category_id: null }, [
+        { category_id: 2, amount: -300 },
+        { category_id: 3, amount: -200 },
+      ]),
+    ];
+    expect(excludeTransfers(rows, transferIds)).toEqual(rows);
+  });
+
+  /**
+   * Scaled by the share rather than summed from the legs. `inBase` converts
+   * a row's `amount` and leaves its splits in the account's own currency, so
+   * adding the kept legs together would hand back a figure in the wrong
+   * currency — confidently, which is the dangerous way to be wrong.
+   */
+  it("scales a converted amount rather than re-adding the legs", () => {
+    // £500 shown as €600 after conversion; the legs are still in sterling.
+    const rows = [
+      split({ amount: -600, currency: "EUR", category_id: null }, [
+        { category_id: 9, amount: -400 },
+        { category_id: 3, amount: -100 },
+      ]),
+    ];
+    const [kept] = excludeTransfers(rows, transferIds);
+    expect(kept.amount).toBeCloseTo(-120, 10); // a fifth of €600, not £100
+  });
+
+  // The ordinary row is untouched, which is what every figure in the app
+  // already depends on.
+  it("still takes a whole row out by its own category", () => {
+    const rows = [tx({ amount: -2000, category_id: 9 }), tx({ amount: -40, category_id: 3 })];
+    expect(excludeTransfers(rows, transferIds).map((r) => r.amount)).toEqual([-40]);
+  });
+});

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db } from "../db/client.js";
+import { db, withTransaction } from "../db/client.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 
 export const categoriesRouter = Router();
@@ -201,4 +201,99 @@ categoriesRouter.patch("/:id", async (req, res) => {
   }
 
   res.json(await db.prepare("SELECT * FROM categories WHERE id = ?").get(req.params.id));
+});
+
+/**
+ * What a category is attached to.
+ *
+ * Deleting one is not a small act: a category is the only thing in this app
+ * that says what a payment *was*, and the rows filed under it are months of
+ * somebody's decisions. So the delete is in two parts — this says what would
+ * happen, and the delete itself has to be asked for knowing it.
+ */
+async function categoryUsage(userId: string, id: string) {
+  const count = async (sql: string) => {
+    const row = (await db.prepare(sql).get(id, userId)) as unknown as { n: number | string };
+    return Number(row?.n ?? 0);
+  };
+
+  return {
+    transactions: await count("SELECT COUNT(*) AS n FROM transactions WHERE category_id = ? AND user_id = ?"),
+    splits: await count("SELECT COUNT(*) AS n FROM transaction_splits WHERE category_id = ? AND user_id = ?"),
+    budgets: await count("SELECT COUNT(*) AS n FROM budgets WHERE category_id = ? AND user_id = ?"),
+    allocations: await count("SELECT COUNT(*) AS n FROM budget_allocations WHERE category_id = ? AND user_id = ?"),
+    rules: await count("SELECT COUNT(*) AS n FROM transaction_rules WHERE category_id = ? AND user_id = ?"),
+    children: await count("SELECT COUNT(*) AS n FROM categories WHERE parent_id = ? AND user_id = ?"),
+  };
+}
+
+categoriesRouter.get("/:id/usage", async (req, res) => {
+  const existing = await db.prepare("SELECT id FROM categories WHERE id = ? AND user_id = ?").get(req.params.id, req.user!.id);
+  if (!existing) {
+    res.status(404).json({ error: "category not found" });
+    return;
+  }
+  res.json(await categoryUsage(req.user!.id, req.params.id));
+});
+
+/**
+ * Removing a category, and saying first what that costs.
+ *
+ * Without `?confirm=1` this refuses and reports what is attached, so the
+ * screen can ask the real question — "23 transactions and a budget" — rather
+ * than "are you sure?", which is a question nobody has the information to
+ * answer.
+ *
+ * What happens to each kind of attachment is decided by what it means without
+ * the category, not by what is easiest:
+ *
+ *   **Transactions, splits and rules are unfiled**, never deleted. The
+ *   payment happened; only the name for it is going. An unfiled row shows up
+ *   in the review queue and in `Uncategorised`, which is the honest state —
+ *   it is exactly where a row sits before anybody has said what it was.
+ *
+ *   **Budgets and their allocations are deleted**, because a cap on a
+ *   category that no longer exists is a cap on nothing. They are counted in
+ *   the refusal above so this is never a surprise.
+ *
+ *   **Children are re-parented**, to the parent the deleted category had.
+ *   Deleting "Food" should not take "Groceries" with it.
+ *
+ * All of it in one transaction: a half-deleted category leaves rows pointing
+ * at an id that is gone, and every screen that joins on it then drops them.
+ */
+categoriesRouter.delete("/:id", async (req, res) => {
+  const existing = (await db
+    .prepare("SELECT id, parent_id FROM categories WHERE id = ? AND user_id = ?")
+    .get(req.params.id, req.user!.id)) as unknown as { id: number; parent_id: number | null } | undefined;
+  if (!existing) {
+    res.status(404).json({ error: "category not found" });
+    return;
+  }
+
+  const usage = await categoryUsage(req.user!.id, req.params.id);
+  const attached = Object.values(usage).reduce((sum, n) => sum + n, 0);
+  if (attached > 0 && req.query.confirm !== "1") {
+    res.status(409).json({ error: "category is in use", usage });
+    return;
+  }
+
+  await withTransaction(async (tx) => {
+    const id = req.params.id;
+    const userId = req.user!.id;
+    await tx.prepare("UPDATE transactions SET category_id = NULL WHERE category_id = ? AND user_id = ?").run(id, userId);
+    await tx.prepare("UPDATE transaction_splits SET category_id = NULL WHERE category_id = ? AND user_id = ?").run(id, userId);
+    await tx.prepare("UPDATE transaction_rules SET category_id = NULL WHERE category_id = ? AND user_id = ?").run(id, userId);
+    // A cached suggestion pointing at a category that is gone would hand the
+    // same dead id back to the next import that matched the merchant.
+    await tx.prepare("DELETE FROM ai_category_cache WHERE category_id = ? AND user_id = ?").run(id, userId);
+    await tx.prepare("DELETE FROM budget_allocations WHERE category_id = ? AND user_id = ?").run(id, userId);
+    await tx.prepare("DELETE FROM budgets WHERE category_id = ? AND user_id = ?").run(id, userId);
+    await tx
+      .prepare("UPDATE categories SET parent_id = ? WHERE parent_id = ? AND user_id = ?")
+      .run(existing.parent_id, id, userId);
+    await tx.prepare("DELETE FROM categories WHERE id = ? AND user_id = ?").run(id, userId);
+  });
+
+  res.json({ deleted: true, usage });
 });

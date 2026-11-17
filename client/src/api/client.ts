@@ -291,6 +291,23 @@ export interface Account {
   created_at?: string;
 }
 
+/**
+ * What is filed under a category, counted before it is removed.
+ *
+ * Transactions, splits and rules are unfiled rather than deleted — the
+ * payment happened, only the name for it is going. Budgets and allocations
+ * are deleted, since a cap on a category that no longer exists is a cap on
+ * nothing. Children are re-parented. See server/src/routes/categories.ts.
+ */
+export interface CategoryUsage {
+  transactions: number;
+  splits: number;
+  budgets: number;
+  allocations: number;
+  rules: number;
+  children: number;
+}
+
 // How a statement file's columns map onto this app's transaction shape. The
 // server infers it, the user confirms or corrects it, and it comes back on
 // the import request so what gets written is what they approved.
@@ -1053,6 +1070,17 @@ export const api = {
   ) =>
     request<Category>(`/categories/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
 
+  /** What a category is attached to, so a delete can say what it costs. */
+  categoryUsage: (id: number) =>
+    request<CategoryUsage>(`/categories/${id}/usage`),
+  /**
+   * Removes a category. Refuses with a 409 carrying the usage above while
+   * anything is attached, until `confirm` says it was asked for knowing that.
+   */
+  deleteCategory: (id: number, confirm = false) =>
+    request<{ deleted: true; usage: CategoryUsage }>(`/categories/${id}${confirm ? "?confirm=1" : ""}`, {
+      method: "DELETE",
+    }),
   createCategory: (name: string, parentId?: number | null) =>
     request<Category>("/categories", { method: "POST", body: JSON.stringify({ name, parent_id: parentId ?? null }) }),
 

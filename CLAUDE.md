@@ -578,6 +578,20 @@ why, and for the migration that added it retroactively.
 - `transactions.source` is one of `enablebanking` | `manual` | `csv` and
   determines both the `id` derivation strategy and whether the row is
   user-deletable (see above).
+- Deleting a category (`DELETE /api/categories/:id`) happens in two parts,
+  because a category is the only thing in this app that says what a payment
+  *was* and what is filed under one is months of somebody's decisions. Without
+  `?confirm=1` it refuses and reports what is attached, so the screen can ask
+  the real question — "2 transactions, a budget and a sub-category" — rather
+  than "are you sure?", which nobody has the information to answer. What then
+  happens to each attachment follows from what it means without the category:
+  **transactions, splits and rules are unfiled**, never deleted, because the
+  payment happened and only the name for it is going; **budgets and
+  allocations are deleted**, since a cap on a category that no longer exists
+  is a cap on nothing; **children are re-parented** to the deleted category's
+  own parent, so removing "Food" does not take "Groceries" with it. All in one
+  `withTransaction`, since a half-deleted category leaves rows pointing at an
+  id that is gone and every screen that joins on it then drops them.
 - `categories.name` and `budgets.category_id` are unique **per user**
   (`idx_categories_user_name`, `idx_budgets_user_category`), not globally
   — two different users can both have a "Groceries" category.
@@ -643,6 +657,19 @@ why, and for the migration that added it retroactively.
   `plan.ts` and `budgetAdvisor.ts`. It is the same split the app already made
   for a loan repayment, generalised — and the same "every screen or none"
   rule the net worth figures live under.
+
+  **A split row is excluded by the leg, not whole.** One payment can be partly
+  a move to savings and partly a purchase — €500 out, €400 put by and €100 of
+  groceries — and reading only the row's own category left two answers and
+  both were wrong: drop it and lose €100 of real spending, or keep it and
+  count €400 of the household's own money as money spent. It kept it. Now the
+  transfer legs go and the rest stays, with the row's amount scaled by the
+  share the remaining legs represent — **scaled, not re-added**, because
+  `inBase` converts a row's `amount` and leaves its splits in the account's
+  own currency, so summing the kept legs hands back a figure in the wrong
+  currency. A ratio is the same in every currency. (`plan.ts` and
+  `budgetAdvisor.ts` are still split-blind in the same way they always were;
+  that is one change, not this one.)
 
   `findTransferPairs` matches an outflow to an inflow on a *different*
   account, within a few days and within 2% on amount, each row used once. It

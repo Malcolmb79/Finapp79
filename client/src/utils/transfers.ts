@@ -36,12 +36,13 @@ export function transferCategoryIds(categories: Category[]): Set<number> {
 }
 
 /**
- * Whether this row is a movement between the household's own accounts.
+ * Whether this one category is a movement between the household's own
+ * accounts.
  *
- * Reads the transaction's own category only. A split transaction with one leg
- * in a transfer category is not handled — a payment that is partly a transfer
- * and partly a purchase is a real thing and a rare one, and guessing at it
- * here would be worse than leaving it visible.
+ * Reads a single `category_id`, which is deliberately all it does — it is
+ * asked about a whole transaction and about one leg of a split one, and those
+ * are the same question at different scales. Which legs to ask about is
+ * `excludeTransfers`' business.
  */
 export function isTransfer(
   transaction: { category_id: number | null },
@@ -58,12 +59,65 @@ export function isTransfer(
  * to come through here or it will disagree with the ones that do — the same
  * rule the net worth figures already live under, learned the same way.
  */
-export function excludeTransfers<T extends { category_id: number | null }>(
-  transactions: T[],
-  transferIds: Set<number>
-): T[] {
+interface Splittable {
+  category_id: number | null;
+  amount?: number;
+  splits?: { category_id: number | null; amount: number }[] | null;
+}
+
+export function excludeTransfers<T extends Splittable>(transactions: T[], transferIds: Set<number>): T[] {
   if (transferIds.size === 0) return transactions;
-  return transactions.filter((transaction) => !isTransfer(transaction, transferIds));
+
+  const kept: T[] = [];
+  for (const transaction of transactions) {
+    const splits = transaction.splits;
+
+    /**
+     * An ordinary row is in or out whole, which is what this has always done.
+     */
+    if (!splits || splits.length === 0) {
+      if (!isTransfer(transaction, transferIds)) kept.push(transaction);
+      continue;
+    }
+
+    /**
+     * A split row is in or out *by the leg*.
+     *
+     * One payment can be partly a move to savings and partly a purchase —
+     * €500 out of the current account, €400 of it put by and €100 of it
+     * groceries — and the old rule had only two answers for it: drop the
+     * whole thing, losing €100 of real spending, or keep it, counting €400 of
+     * the household's own money as money spent. It took the second, because
+     * the row's own category was not a transfer.
+     */
+    const moved = splits.filter((split) => isTransfer(split, transferIds));
+    if (moved.length === 0) {
+      kept.push(transaction);
+      continue;
+    }
+
+    const rest = splits.filter((split) => !isTransfer(split, transferIds));
+    if (rest.length === 0) continue;
+
+    /**
+     * Scaled by the share the legs represent, not summed from them.
+     *
+     * The split amounts are in the account's own currency and the
+     * transaction's `amount` may already have been converted into the base
+     * one — `inBase` converts the row and leaves the legs alone. Adding the
+     * kept legs together would hand back a figure in the wrong currency,
+     * confidently. A ratio is the same in every currency.
+     */
+    const total = splits.reduce((sum, split) => sum + split.amount, 0);
+    const share = total === 0 ? 0 : rest.reduce((sum, split) => sum + split.amount, 0) / total;
+    kept.push({
+      ...transaction,
+      ...(transaction.amount === undefined ? {} : { amount: transaction.amount * share }),
+      splits: rest,
+    });
+  }
+
+  return kept;
 }
 
 /* ------------------------------------------------------------- matching */
