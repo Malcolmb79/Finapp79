@@ -3,6 +3,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Account, type AccountImport, type AccountType, type LoanTerms, type Transaction } from "../api/client.js";
 import AccountAvatar from "../components/AccountAvatar.js";
+import RowMenu from "../components/RowMenu.js";
 import LoanContractModal from "../components/LoanContractModal.js";
 import StatementImportModal from "../components/StatementImportModal.js";
 import {
@@ -658,14 +659,15 @@ export default function Accounts() {
                       like it had not worked. The row itself stays, because a
                       hidden account that disappeared could never be found
                       again to unhide. */}
+                  {/* The one action somebody comes to this page to perform
+                      stays on the row; everything else goes behind the menu.
+                      An agreement is read once, a clear and a remove are done
+                      rarely, and an import history is consulted when
+                      something looks wrong — none of them earn a permanent
+                      button, and as icons they were an eraser, a clock, an
+                      eye and a bin, which are a guess apiece. In the menu
+                      each one has its name. */}
                   {!a.hidden && (
-                    <>
-                    {/* Two uploads that read the same file completely
-                        differently, so they are labelled rather than left as
-                        neighbouring icons — picking the wrong one silently gives
-                        you the wrong reader. Both are offered on every account:
-                        a credit card has an agreement too, and an account whose
-                        type hasn't been set yet still has one. */}
                     <button
                       onClick={() => startUpload(a)}
                       title="Import transactions from a statement"
@@ -675,91 +677,30 @@ export default function Accounts() {
                       <Upload size={13} color="var(--text-muted)" />
                       Statement
                     </button>
-                    <button
-                      onClick={() => startContractUpload(a)}
-                      disabled={readingContract === a.id}
-                      title="Read the terms from a loan or credit agreement"
-                      aria-label={`Upload the agreement for ${a.name}`}
-                      style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.75rem", whiteSpace: "nowrap" }}
-                    >
-                      {readingContract === a.id ? (
-                        <Loader2 size={13} className="spin" />
-                      ) : (
-                        <FileText size={13} color="var(--text-muted)" />
-                      )}
-                      {readingContract === a.id ? "Reading…" : "Agreement"}
-                    </button>
-                    {clearingId === a.id ? (
-                      <div style={{ display: "flex", gap: "0.3rem", alignItems: "center", flexWrap: "wrap" }}>
-                        <span style={{ fontSize: "0.78rem", color: "var(--critical)", whiteSpace: "nowrap" }}>Clear:</span>
-                        <button onClick={() => handleClear(a, "csv")} disabled={clearing} style={{ fontSize: "0.78rem" }}>
-                          Imported only
-                        </button>
-                        <button
-                          onClick={() => handleClear(a)}
-                          disabled={clearing}
-                          style={{ fontSize: "0.78rem", color: "var(--critical)" }}
-                        >
-                          Everything
-                        </button>
-                        <button onClick={() => setClearingId(null)} disabled={clearing} aria-label="Cancel clear" title="Cancel">
-                          <X size={14} />
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setClearingId(a.id)}
-                        title="Clear transactions (keeps the account)"
-                        aria-label={`Clear transactions for ${a.name}`}
-                      >
-                        <Eraser size={14} color="var(--text-muted)" />
-                      </button>
-                    )}
-                    {a.source === "enablebanking" && (
-                      <>
-                        <button onClick={() => handleSync(a.id)} disabled={syncingId === a.id} title="Sync transactions" aria-label="Sync">
-                          <RefreshCw size={14} className={syncingId === a.id ? "spin" : undefined} />
-                        </button>
-                        {/* The ordinary sync starts from the newest transaction
-                            held, which keeps it quick and is what gets a stuck
-                            account moving — but it never fills a gap behind
-                            that point, and a run of failed syncs leaves exactly
-                            such a gap. This re-asks for everything the bank
-                            still offers, which for most is about 90 days. */}
-                        <button
-                          onClick={() => handleSync(a.id, true)}
-                          disabled={syncingId === a.id}
-                          title="Re-fetch everything the bank still has, to fill a gap"
-                          aria-label={`Fetch full history for ${a.name}`}
-                          style={{ fontSize: "0.75rem", whiteSpace: "nowrap" }}
-                        >
-                          Full history
-                        </button>
-                      </>
-                    )}
-                    <button
-                      onClick={() => showImports(a)}
-                      title="See and undo individual statement imports"
-                      aria-label={`Import history for ${a.name}`}
-                      aria-expanded={importsFor === a.id}
-                    >
-                      <History size={14} color="var(--text-muted)" />
-                    </button>
-                    </>
                   )}
-                  {/* Sits beside Remove because it is the gentler version of
-                      it: an account you don't want in your totals stops
-                      counting, keeps its history, and can come back. This page
-                      never hides its own rows, or a hidden account could never
-                      be found again to unhide. */}
-                  <button
-                    onClick={() => toggleHidden(a)}
-                    title={a.hidden ? "Count this account in totals again" : "Keep this account out of all totals"}
-                    aria-label={a.hidden ? `Show ${a.name} in totals` : `Hide ${a.name} from totals`}
-                  >
-                    {a.hidden ? <EyeOff size={14} color="var(--critical)" /> : <Eye size={14} color="var(--text-muted)" />}
-                  </button>
-                  {removingId === a.id ? (
+                  {/* The two confirmations stay on the row rather than inside
+                      the menu. The menu closes on the tap that chose the
+                      action, so it cannot also hold the "are you sure" — and
+                      a destructive question belongs beside the thing it is
+                      about, not floating over the rows below it. */}
+                  {clearingId === a.id ? (
+                    <div style={{ display: "flex", gap: "0.3rem", alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "0.78rem", color: "var(--critical)", whiteSpace: "nowrap" }}>Clear:</span>
+                      <button onClick={() => handleClear(a, "csv")} disabled={clearing} style={{ fontSize: "0.78rem" }}>
+                        Imported only
+                      </button>
+                      <button
+                        onClick={() => handleClear(a)}
+                        disabled={clearing}
+                        style={{ fontSize: "0.78rem", color: "var(--critical)" }}
+                      >
+                        Everything
+                      </button>
+                      <button onClick={() => setClearingId(null)} disabled={clearing} aria-label="Cancel clear" title="Cancel">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ) : removingId === a.id ? (
                     <div style={{ display: "flex", gap: "0.3rem", alignItems: "center" }}>
                       <span style={{ fontSize: "0.78rem", color: "var(--critical)", whiteSpace: "nowrap" }}>Remove?</span>
                       <button
@@ -782,9 +723,101 @@ export default function Accounts() {
                       </button>
                     </div>
                   ) : (
-                    <button onClick={() => setRemovingId(a.id)} aria-label="Remove account" title="Remove account">
-                      <Trash2 size={14} color="var(--text-muted)" />
-                    </button>
+                    <RowMenu
+                      label={`More actions for ${a.name}`}
+                      items={[
+                        /* An account kept out of the totals keeps only the two
+                           that apply to it: put it back, or remove it.
+                           Everything else is for an account somebody is
+                           actually using, and offering the full set on a row
+                           that has been switched off made hiding feel like it
+                           had not worked. */
+                        ...(a.hidden
+                          ? []
+                          : [
+                              /* Two uploads that read the same file completely
+                                 differently, which is why this one is named
+                                 rather than sitting next to Statement as an
+                                 icon: picking the wrong one silently gives you
+                                 the wrong reader. Offered on every account — a
+                                 credit card has an agreement too. */
+                              {
+                                key: "agreement",
+                                label: readingContract === a.id ? "Reading agreement…" : "Read agreement",
+                                icon:
+                                  readingContract === a.id ? (
+                                    <Loader2 size={14} className="spin" />
+                                  ) : (
+                                    <FileText size={14} color="var(--text-muted)" />
+                                  ),
+                                disabled: readingContract === a.id,
+                                onSelect: () => startContractUpload(a),
+                              },
+                              ...(a.source === "enablebanking"
+                                ? [
+                                    {
+                                      key: "sync",
+                                      label: "Sync now",
+                                      icon: (
+                                        <RefreshCw
+                                          size={14}
+                                          className={syncingId === a.id ? "spin" : undefined}
+                                          color="var(--text-muted)"
+                                        />
+                                      ),
+                                      disabled: syncingId === a.id,
+                                      onSelect: () => handleSync(a.id),
+                                    },
+                                    /* The ordinary sync starts from the newest
+                                       transaction held, which keeps it quick and
+                                       is what gets a stuck account moving — but
+                                       it never fills a gap behind that point,
+                                       and a run of failed syncs leaves exactly
+                                       such a gap. This re-asks for everything
+                                       the bank still offers, about 90 days. */
+                                    {
+                                      key: "full-history",
+                                      label: "Fetch full history",
+                                      icon: <RefreshCw size={14} color="var(--text-muted)" />,
+                                      disabled: syncingId === a.id,
+                                      onSelect: () => handleSync(a.id, true),
+                                    },
+                                  ]
+                                : []),
+                              {
+                                key: "imports",
+                                label: "Import history",
+                                icon: <History size={14} color="var(--text-muted)" />,
+                                onSelect: () => showImports(a),
+                              },
+                              {
+                                key: "clear",
+                                label: "Clear transactions",
+                                icon: <Eraser size={14} color="var(--critical)" />,
+                                danger: true,
+                                onSelect: () => setClearingId(a.id),
+                              },
+                            ]),
+                        /* Sits beside Remove because it is the gentler version
+                           of it: an account you don't want in your totals stops
+                           counting, keeps its history, and can come back. This
+                           page never hides its own rows, or a hidden account
+                           could never be found again to unhide. */
+                        {
+                          key: "hide",
+                          label: a.hidden ? "Count in totals again" : "Hide from totals",
+                          icon: a.hidden ? <EyeOff size={14} color="var(--critical)" /> : <Eye size={14} color="var(--text-muted)" />,
+                          onSelect: () => toggleHidden(a),
+                        },
+                        {
+                          key: "remove",
+                          label: "Remove account",
+                          icon: <Trash2 size={14} color="var(--critical)" />,
+                          danger: true,
+                          onSelect: () => setRemovingId(a.id),
+                        },
+                      ]}
+                    />
                   )}
                   </div>
                   <div className="account-row__figures">

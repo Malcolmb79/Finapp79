@@ -834,6 +834,16 @@ th {
   overflow-y: auto;
 }
 
+/* A row's own menu opens from its button's left edge and downwards, and is
+   narrow enough to clear the right-hand side of a phone from anywhere a row
+   can put the button. */
+.row-menu {
+  left: 0;
+  right: auto;
+  width: 13rem;
+  max-width: calc(100vw - 2rem);
+}
+
 .add-widget-menu__item {
   width: 100%;
   display: flex;
