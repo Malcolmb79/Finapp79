@@ -131,6 +131,59 @@ describe("cashFlow", () => {
     expect(flow.destinations.length).toBeLessThanOrEqual(10);
   });
 
+  /**
+   * The band is correct and, on its own, unusable: it says money arrived and
+   * that nothing calls it income, which is the exact moment the reader asks
+   * *what money*. Unanswered, that reads as a fault in the chart rather than
+   * as a question about the data.
+   */
+  describe("what Other money in is made of", () => {
+    it("counts the unfiled credits and names the payees behind them", () => {
+      const flow = cashFlow(
+        [tx(3000, 3, "Payroll"), tx(900, null, "ACME LTD"), tx(150, null, "Revolut top up"), tx(40, null, "ACME LTD 4471")],
+        category
+      );
+      expect(flow.otherIn?.amount).toBe(1090);
+      expect(flow.otherIn?.unfiled.count).toBe(3);
+      // Grouped the way the subscription detector groups payees and listed
+      // largest first, so one shop's receipt numbers do not become two names
+      // in a sentence meant to be read at a glance.
+      expect(flow.otherIn?.unfiled.payees).toEqual(["Acme Ltd", "Revolut top up"]);
+    });
+
+    /**
+     * `merchantKey` strips digits, so a credit carrying a payment reference
+     * is its own merchant — "Inward Swift R026J26" and "Inward Swift R026K7P"
+     * do not group, by the same rule that stops the forecast reading one-off
+     * credits as a salary. The count is still right, which is what the
+     * sentence leans on; only the list of names is longer.
+     */
+    it("does not pretend two references are one payer", () => {
+      const flow = cashFlow([tx(900, null, "INWARD SWIFT R026J26"), tx(40, null, "INWARD SWIFT R026K7P")], category);
+      expect(flow.otherIn?.unfiled.count).toBe(2);
+      expect(flow.otherIn?.unfiled.payees).toHaveLength(2);
+    });
+
+    // Three names is a sentence; ten is a list nobody reads, and the card
+    // says "and others" rather than printing them.
+    it("names no more than three payees", () => {
+      const many = Array.from({ length: 6 }, (_, i) => tx(100 - i, null, `Payer ${String.fromCharCode(97 + i)}`));
+      expect(cashFlow(many, category).otherIn?.unfiled.payees).toHaveLength(3);
+    });
+
+    // Named individually rather than totalled: a reader can go and check
+    // "Transport took back more than it spent".
+    it("names each category that took back more than it spent", () => {
+      const flow = cashFlow([tx(1000, 3), tx(-100, 5), tx(300, 5)], category);
+      expect(flow.otherIn?.overRefunded).toEqual([{ label: "Transport", amount: 200 }]);
+      expect(flow.otherIn?.unfiled.count).toBe(0);
+    });
+
+    it("is null when every credit was declared income", () => {
+      expect(cashFlow([tx(3000, 3), tx(-100, 5)], category).otherIn).toBeNull();
+    });
+  });
+
   it("copes with a period that had nothing in it", () => {
     const flow = cashFlow([], category);
     expect(flow).toMatchObject({ sources: [], destinations: [], totalIn: 0, totalOut: 0, surplus: 0 });

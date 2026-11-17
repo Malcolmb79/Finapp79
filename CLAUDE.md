@@ -828,6 +828,17 @@ about what a salary is.
   relationship rather than a relationship, so setting one unknown credit
   against unrelated unknown spending would invent the connection. It goes left
   under the same `Other money in`, which claims nothing.
+- **And then the band has to say what is in it.** A label whose whole content
+  is what the money *isn't* is the exact point at which somebody asks what
+  money — and unanswered, a band reads as a fault in the chart rather than as
+  a question about the data. So `cashFlow` returns `otherIn`, and the card
+  prints it: how much is unfiled, across how many payments, the payees behind
+  the largest of them, and each category that took back more than it spent,
+  named individually because "Transport took back more than it spent" is a
+  statement somebody can go and check. The unfiled half ends in the one place
+  that can act on it, the Transactions page. Every band carries its amount for
+  the same reason — a shape whose entire meaning is proportion, with no figure
+  anywhere on it, can only be compared by eye.
 - `incomeBySource` filters on the flag and returns nothing when no category
   carries it. The card distinguishes that from a quiet month in words, because
   a setup state reported as "nothing came in" is a lie about a month with a

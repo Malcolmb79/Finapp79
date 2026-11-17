@@ -1,3 +1,6 @@
+import { cleanDescription } from "./cleanDescription.js";
+import { merchantKey } from "./recurring.js";
+
 /**
  * Where a period's money came from and where it went, as one flow.
  *
@@ -19,6 +22,24 @@ export interface FlowEntry {
   amount: number;
 }
 
+/**
+ * What is inside the `Other money in` band.
+ *
+ * The band is correct and, on its own, useless: it says money arrived and
+ * that nothing calls it income, which is exactly the point at which the
+ * reader asks *what money*. A band nobody can take apart is a band that reads
+ * as a mistake in the chart, so it carries its own contents — the same reason
+ * the report `notes`, the commitments card and the property totals all name
+ * what they left out.
+ */
+export interface OtherIn {
+  amount: number;
+  /** Credits nobody has filed, with the payees behind the largest of them. */
+  unfiled: { amount: number; count: number; payees: string[] };
+  /** Categories that took back more than they ever spent in this period. */
+  overRefunded: { label: string; amount: number }[];
+}
+
 export interface CashFlow {
   /** Where the money came from, largest first. */
   sources: FlowEntry[];
@@ -28,7 +49,12 @@ export interface CashFlow {
   totalOut: number;
   /** In minus out. Negative means the period was funded from savings. */
   surplus: number;
+  /** What made up the `Other money in` band, or null when there was none. */
+  otherIn: OtherIn | null;
 }
+
+/** How many payees the explanation names before it stops listing. */
+const NAMED_PAYEES = 3;
 
 /** Anything thinner than this is grouped — a one-pixel band tells nobody anything. */
 const MIN_SHARE = 0.02;
@@ -118,6 +144,12 @@ export function cashFlow(transactions: Flowable[], category: (id: number | null)
   const spent = new Map<string, { label: string; debits: number; credits: number }>();
   let totalIn = 0;
   let other = 0;
+  // Kept alongside the running total so the band can say what it is made of.
+  // Without this it is a figure with a label that explains only what it is
+  // not, which is the point at which somebody asks why it is there at all.
+  const unfiled = { amount: 0, count: 0 };
+  const unfiledPayees = new Map<string, { label: string; amount: number }>();
+  const overRefunded: { label: string; amount: number }[] = [];
 
   const bucket = (name: string) => {
     const key = `out:${name.toLowerCase()}`;
@@ -155,6 +187,18 @@ export function cashFlow(transactions: Flowable[], category: (id: number | null)
       // unknown against another would be inventing the connection. It goes
       // on the left under a name that claims nothing.
       other += tx.amount;
+      unfiled.amount += tx.amount;
+      unfiled.count += 1;
+      // Grouped the way the subscription detector groups payees, so one
+      // employer's references do not become six separate names in a sentence
+      // meant to be read at a glance.
+      const key = merchantKey(tx);
+      const label = cleanDescription(tx.description) || tx.counterparty || "";
+      if (key && label) {
+        const seen = unfiledPayees.get(key) ?? { label, amount: 0 };
+        seen.amount += tx.amount;
+        unfiledPayees.set(key, seen);
+      }
       continue;
     }
 
@@ -168,13 +212,32 @@ export function cashFlow(transactions: Flowable[], category: (id: number | null)
     // Took back more than it ever spent. The excess is real money that
     // arrived, so it has to show somewhere or the picture stops adding up —
     // just never under the category's own name on the income side.
-    else if (net < -0.005) other += -net;
+    else if (net < -0.005) {
+      other += -net;
+      overRefunded.push({ label: entry.label, amount: -net });
+    }
   }
 
   if (other > 0.005) {
     totalIn += other;
     incoming.set("in:__other", { key: "in:__other", label: OTHER_IN_LABEL, amount: other });
   }
+
+  const otherIn: OtherIn | null =
+    other > 0.005
+      ? {
+          amount: other,
+          unfiled: {
+            amount: unfiled.amount,
+            count: unfiled.count,
+            payees: [...unfiledPayees.values()]
+              .sort((a, b) => b.amount - a.amount)
+              .slice(0, NAMED_PAYEES)
+              .map((p) => p.label),
+          },
+          overRefunded: overRefunded.sort((a, b) => b.amount - a.amount),
+        }
+      : null;
 
   const totalOut = outgoing.reduce((sum, entry) => sum + entry.amount, 0);
   const destinations = condense(outgoing, totalIn || totalOut);
@@ -193,5 +256,6 @@ export function cashFlow(transactions: Flowable[], category: (id: number | null)
     totalIn,
     totalOut,
     surplus,
+    otherIn,
   };
 }

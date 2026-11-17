@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { cashFlow, type CashFlow, type FlowEntry } from "../../utils/cashFlowSankey.js";
+import { cashFlow, type CashFlow, type FlowEntry, type OtherIn } from "../../utils/cashFlowSankey.js";
 import { formatCurrency } from "../../utils/formatCurrency.js";
 
 /**
@@ -140,6 +140,20 @@ export default function CashFlowSankey({
             <text x={COLUMN - 16} y={source.y + source.height / 2} textAnchor="end" dominantBaseline="middle" fontSize="11" fill="var(--text-primary)">
               {source.entry.label}
             </text>
+            {/* The figure, not only the name. A band whose size is its whole
+                meaning and which carries no number is one you can only compare
+                by eye — and the band this card gets asked about is the one
+                nobody can put a figure on. */}
+            <text
+              x={COLUMN - 16}
+              y={source.y + source.height / 2 + 12}
+              textAnchor="end"
+              dominantBaseline="middle"
+              fontSize="10"
+              fill="var(--text-muted)"
+            >
+              {money(source.entry.amount)}
+            </text>
           </g>
         ))}
 
@@ -162,9 +176,60 @@ export default function CashFlowSankey({
             >
               {destination.entry.label}
             </text>
+            <text
+              x={WIDTH - COLUMN + 16}
+              y={destination.y + destination.height / 2 + 12}
+              dominantBaseline="middle"
+              fontSize="10"
+              fill="var(--text-muted)"
+            >
+              {money(destination.entry.amount)}
+            </text>
           </g>
         ))}
       </svg>
+
+      {flow.otherIn && <OtherInNote otherIn={flow.otherIn} money={money} />}
     </div>
+  );
+}
+
+/**
+ * What the `Other money in` band is made of.
+ *
+ * The band is right and, by itself, unusable: it says money arrived and that
+ * nothing calls it income, which is the exact moment the reader asks *what
+ * money*. Left unanswered that reads as a fault in the chart rather than as a
+ * question about the data — so the card answers it where it is asked, and
+ * says what to do about the half that has an action.
+ */
+function OtherInNote({ otherIn, money }: { otherIn: OtherIn; money: (value: number) => string }) {
+  const { unfiled, overRefunded } = otherIn;
+  const parts: string[] = [];
+
+  if (unfiled.count > 0) {
+    const named = unfiled.payees.length > 0 ? ` — ${unfiled.payees.join(", ")}` : "";
+    const more = unfiled.count > unfiled.payees.length && unfiled.payees.length > 0 ? " and others" : "";
+    parts.push(
+      `${money(unfiled.amount)} across ${unfiled.count} payment${unfiled.count === 1 ? "" : "s"} nothing has been filed under${named}${more}`
+    );
+  }
+
+  // Named individually rather than totalled: "Transport took back more than it
+  // spent" is a statement somebody can go and check, where "€56 of refunds" is
+  // one they can only accept.
+  for (const over of overRefunded) {
+    parts.push(`${money(over.amount)} back from ${over.label} beyond what it spent in this period`);
+  }
+
+  if (parts.length === 0) return null;
+
+  return (
+    <p className="trend-head__detail" style={{ marginTop: "0.5rem" }}>
+      <strong>Other money in</strong> is {money(otherIn.amount)}: {parts.join("; ")}.{" "}
+      {unfiled.count > 0
+        ? "File those on the Transactions page and each one moves to the category it belongs to — or to the income side, if that is what it is."
+        : "Nothing here is counted as income, because nothing has said it was earned."}
+    </p>
   );
 }
