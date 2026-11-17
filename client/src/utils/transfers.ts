@@ -1,4 +1,5 @@
-import type { Category, Transaction } from "../api/client.js";
+import type { Category, FxRates, Transaction } from "../api/client.js";
+import { toBase } from "./fx.js";
 
 /**
  * Money moving between your own accounts, which is neither income nor
@@ -73,12 +74,28 @@ export const PAIR_WINDOW_DAYS = 4;
 /**
  * How far apart the two amounts may be, as a fraction.
  *
- * Not zero: a transfer between currencies, or one that attracts a fee,
- * arrives slightly smaller than it left. Small, though — at 5% a €500 payment
- * would match anything from €475 to €525, which on a busy account is most
- * things.
+ * Not zero: a transfer that attracts a fee arrives slightly smaller than it
+ * left. Small, though — at 5% a €500 payment would match anything from €475
+ * to €525, which on a busy account is most things.
  */
 export const PAIR_TOLERANCE = 0.02;
+
+/**
+ * The same, for a transfer that changed currency on the way.
+ *
+ * Wider on purpose, and it is not a looser standard — it is the same standard
+ * applied to a figure that has more in it. A cross-currency transfer pays the
+ * bank's spread, which is a per cent or two on its own and more at a retail
+ * bank; the two legs post on different days, so the rate itself has moved;
+ * and the rate this app converts with is today's, not the one the transfer
+ * actually got. At 2% a real £1,400 to €1,605 move does not match, and the
+ * pair never gets offered at all.
+ *
+ * Affordable because the match is only ever a suggestion: every pair is
+ * confirmed one at a time, the gap is printed beside it, and nothing moves
+ * until somebody says so.
+ */
+export const PAIR_FX_TOLERANCE = 0.06;
 
 export interface TransferPair {
   /** Stable, so a dismissal can be remembered against it. */
@@ -89,6 +106,13 @@ export interface TransferPair {
   daysApart: number;
   /** The difference between the two amounts, which a fee or an FX rate explains. */
   gap: number;
+  /**
+   * The currency `gap` is expressed in — the base, where the two legs were
+   * converted to compare them, and the legs' own otherwise.
+   */
+  gapCurrency: string;
+  /** The two legs are in different currencies, so the gap includes the spread. */
+  crossCurrency: boolean;
   /** Already filed under a transfer category — so the pair is a confirmation, not news. */
   alreadyMarked: boolean;
 }
@@ -111,7 +135,11 @@ function daysBetween(from: string, to: string): number {
  * with you; only the owner knows which. So this produces candidates and the
  * screen asks.
  */
-export function findTransferPairs(transactions: Transaction[], transferIds: Set<number> = new Set()): TransferPair[] {
+export function findTransferPairs(
+  transactions: Transaction[],
+  transferIds: Set<number> = new Set(),
+  rates: FxRates | null = null
+): TransferPair[] {
   const outs = transactions.filter((t) => t.amount < 0).sort((a, b) => a.booking_date.localeCompare(b.booking_date));
   const ins = transactions.filter((t) => t.amount > 0);
   const takenIn = new Set<string>();
@@ -120,8 +148,9 @@ export function findTransferPairs(transactions: Transaction[], transferIds: Set<
   for (const out of outs) {
     const amount = Math.abs(out.amount);
     if (amount === 0) continue;
+    const outInBase = toBase(amount, out.currency, rates);
 
-    let best: { tx: Transaction; days: number; gap: number } | null = null;
+    let best: { tx: Transaction; days: number; gap: number; cross: boolean } | null = null;
     for (const candidate of ins) {
       if (takenIn.has(candidate.id)) continue;
       // The same account is not a transfer. A refund, a reversal and a
@@ -131,14 +160,47 @@ export function findTransferPairs(transactions: Transaction[], transferIds: Set<
       const days = daysBetween(out.booking_date, candidate.booking_date);
       if (days > PAIR_WINDOW_DAYS) continue;
 
-      const gap = Math.abs(candidate.amount - amount);
-      if (gap / amount > PAIR_TOLERANCE) continue;
+      const cross = candidate.currency !== out.currency;
+
+      /**
+       * The two legs are compared by **what they were worth**, not by the
+       * number printed on them.
+       *
+       * Comparing the bare figures is wrong in both directions at once on a
+       * household holding euro, sterling and rand. It never matches the
+       * transfer that actually happened — £1,400 leaving and €1,605 arriving
+       * is 15% apart as a number and the same money as a fact — and it will
+       * cheerfully match £1,400 out to €1,400 in, which is two different
+       * sums that merely print alike.
+       *
+       * With no rates, a cross-currency pair is refused outright rather than
+       * guessed at. The one comparison available is the bare figures, and on
+       * those the only pairs it can find are the false ones.
+       */
+      let gap: number;
+      let scale: number;
+      if (!cross) {
+        gap = Math.abs(candidate.amount - amount);
+        scale = amount;
+      } else {
+        const inInBase = toBase(candidate.amount, candidate.currency, rates);
+        if (outInBase == null || inInBase == null) continue;
+        gap = Math.abs(inInBase - outInBase);
+        scale = outInBase;
+      }
+
+      if (scale === 0) continue;
+      if (gap / scale > (cross ? PAIR_FX_TOLERANCE : PAIR_TOLERANCE)) continue;
 
       // Closest in amount first, then closest in time — a fee-sized
-      // difference is more telling than a day.
-      if (!best || gap < best.gap || (gap === best.gap && days < best.days)) {
-        best = { tx: candidate, days, gap };
-      }
+      // difference is more telling than a day. A same-currency match beats a
+      // cross-currency one outright: its gap means a fee, where the other's
+      // is mostly a spread nobody can check from here.
+      const better =
+        !best ||
+        (best.cross && !cross) ||
+        (best.cross === cross && (gap < best.gap || (gap === best.gap && days < best.days)));
+      if (better) best = { tx: candidate, days, gap, cross };
     }
 
     if (!best) continue;
@@ -149,6 +211,8 @@ export function findTransferPairs(transactions: Transaction[], transferIds: Set<
       in: best.tx,
       daysApart: Math.round(best.days),
       gap: Math.round(best.gap * 100) / 100,
+      gapCurrency: best.cross ? (rates?.base ?? out.currency) : out.currency,
+      crossCurrency: best.cross,
       alreadyMarked: isTransfer(out, transferIds) && isTransfer(best.tx, transferIds),
     });
   }
@@ -157,10 +221,30 @@ export function findTransferPairs(transactions: Transaction[], transferIds: Set<
 }
 
 /** What a pair is worth saying in one line. */
-export function pairNote(pair: TransferPair, money: (value: number) => string): string {
+export function pairNote(
+  pair: TransferPair,
+  money: (value: number, currency: string) => string
+): string {
   const when = pair.daysApart === 0 ? "the same day" : `${pair.daysApart} day${pair.daysApart === 1 ? "" : "s"} later`;
-  if (pair.gap === 0) return `${money(Math.abs(pair.out.amount))} out, the same in ${when}.`;
+  const left = money(Math.abs(pair.out.amount), pair.out.currency);
+  const arrived = money(pair.in.amount, pair.in.currency);
+
+  /**
+   * A cross-currency pair says so, and says what it was compared on.
+   *
+   * "£1,400 out, €1,605 in" looks like two unrelated payments until the
+   * sentence says the two were converted and came to within a few euro of
+   * each other. The gap is the bank's spread and a day's rate movement, and
+   * naming it is what lets somebody reject the pair where it is too large to
+   * be either.
+   */
+  if (pair.crossCurrency) {
+    const apart = pair.gap === 0 ? "the same" : `${money(pair.gap, pair.gapCurrency)} apart`;
+    return `${left} out, ${arrived} in ${when} — ${apart} once converted, which a bank's exchange spread would explain.`;
+  }
+
+  if (pair.gap === 0) return `${left} out, the same in ${when}.`;
   // Named rather than hidden: a gap is usually a fee or an exchange rate, and
   // occasionally it is the sign that these are two different payments.
-  return `${money(Math.abs(pair.out.amount))} out, ${money(pair.in.amount)} in ${when} — ${money(pair.gap)} apart, which a fee or an exchange rate would explain.`;
+  return `${left} out, ${arrived} in ${when} — ${money(pair.gap, pair.gapCurrency)} apart, which a fee or an exchange rate would explain.`;
 }

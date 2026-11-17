@@ -95,7 +95,7 @@ const COLUMN_GAP = 5;
  * whitespace heuristic handled too, so it is the primary path rather than a
  * special case.
  */
-async function extractPositionedRows(document: Awaited<ReturnType<typeof getDocumentProxy>>): Promise<string[][]> {
+export async function extractPositionedRows(document: Awaited<ReturnType<typeof getDocumentProxy>>): Promise<string[][]> {
   const pages: { y: number; items: PositionedItem[] }[][] = [];
 
   for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
@@ -134,14 +134,17 @@ async function extractPositionedRows(document: Awaited<ReturnType<typeof getDocu
   // for each page gave them different indices per page — the amount column
   // being the third on one page and the fourth on the next, which reads
   // downstream as amounts scattered across columns and no usable mapping.
-  const anchors = columnAnchors(pages.flat());
+  // Which edge the amounts line up on, measured once for the whole document
+  // for the same reason the columns are: a statement keeps one layout.
+  const edge = moneyEdgeOf(pages.flat());
+  const anchors = columnAnchors(pages.flat(), edge);
 
   const rows: string[][] = [];
   for (const lines of pages) {
     for (const line of lines) {
       const cells: string[] = new Array(anchors.length).fill("");
       for (const item of line.items.sort((a, b) => a.x - b.x)) {
-        const column = columnFor(item, anchors);
+        const column = columnFor(item, anchors, edge);
         // A single space between runs inside a cell: the extractor drops the
         // spacing, so "TESCO" and "STORES" would otherwise fuse.
         cells[column] += (cells[column] && !cells[column].endsWith(" ") ? " " : "") + item.str;
@@ -235,16 +238,17 @@ export function splitIntoBands(items: PositionedItem[]): PositionedItem[][] {
   // typeset column has its own headings, text and amounts at several. Without
   // this check the wide gap before an amount column reads as a gutter, and
   // splitting there would cut every row of a perfectly good table in half.
-  if (alignmentEdges(leftBand) < 2 || alignmentEdges(rightBand) < 2) return [items];
+  const edge = moneyEdgeOf([{ items }]);
+  if (alignmentEdges(leftBand, edge) < 2 || alignmentEdges(rightBand, edge) < 2) return [items];
 
   return [leftBand, rightBand];
 }
 
 /** How many distinct edges the text in a band lines up on. */
-function alignmentEdges(band: PositionedItem[]): number {
+function alignmentEdges(band: PositionedItem[], edge: MoneyEdge): number {
   const edges: number[] = [];
   for (const item of band) {
-    const anchor = anchorOf(item);
+    const anchor = anchorOf(item, edge);
     if (!edges.some((e) => Math.abs(e - anchor) <= COLUMN_GAP)) edges.push(anchor);
   }
   return edges.length;
@@ -257,24 +261,57 @@ const MIN_LINES_PER_COLUMN = 3;
 const MONEY = /^[-+(]?[£$€]?[\d,]+\.\d{2}\)?$/;
 
 /**
- * The edge a run of text is lined up on.
+ * Which edge of an amount holds still down a column.
  *
- * Money columns are right-aligned, so the left edge of an amount moves with
- * the number's width — "1,159.83" starts further left than "2.99" in the same
- * column. Clustering left edges therefore breaks one column into several and
- * scatters amounts across them. Text is left-aligned and has the opposite
- * property, so each kind is clustered on the edge that actually holds still.
+ * Most statements right-align their money, so the left edge moves with the
+ * number's width — "1,159.83" starts further left than "2.99" in the same
+ * column — and clustering left edges breaks one column into several.
+ *
+ * Revolut left-aligns it instead: €23.63 and €100.50 both start at x=335.1
+ * and end at 360.4 and 365.0. Assuming right alignment there does the very
+ * thing the assumption exists to prevent — one Money out column arrived as
+ * two, one Money in column as two more, and the mapping then read the
+ * transactions off a column holding a third of them.
+ *
+ * So it is measured rather than assumed: cluster the document's amounts by
+ * each edge and keep whichever produces fewer columns, which is whichever
+ * edge the statement actually lines them up on.
  */
-function anchorOf(item: PositionedItem): number {
-  return MONEY.test(item.str.trim()) ? item.x + item.width : item.x;
+type MoneyEdge = "left" | "right";
+
+function edgeOf(item: PositionedItem, edge: MoneyEdge): number {
+  return edge === "right" ? item.x + item.width : item.x;
 }
 
-function columnAnchors(lines: { items: PositionedItem[] }[]): number[] {
+function clusterCount(values: number[]): number {
+  const anchors: number[] = [];
+  for (const value of values) {
+    if (!anchors.some((a) => Math.abs(a - value) <= COLUMN_GAP)) anchors.push(value);
+  }
+  return anchors.length;
+}
+
+function moneyEdgeOf(lines: { items: PositionedItem[] }[]): MoneyEdge {
+  const amounts = lines.flatMap((line) => line.items.filter((item) => MONEY.test(item.str.trim())));
+  if (amounts.length < MIN_LINES_PER_COLUMN) return "right";
+  const byLeft = clusterCount(amounts.map((item) => item.x));
+  const byRight = clusterCount(amounts.map((item) => item.x + item.width));
+  // Right wins a tie: it is the usual convention, and the one every statement
+  // read correctly before this was measured at all.
+  return byLeft < byRight ? "left" : "right";
+}
+
+/** The edge a run of text is lined up on. Text is left-aligned; money depends. */
+function anchorOf(item: PositionedItem, edge: MoneyEdge): number {
+  return MONEY.test(item.str.trim()) ? edgeOf(item, edge) : item.x;
+}
+
+function columnAnchors(lines: { items: PositionedItem[] }[], edge: MoneyEdge): number[] {
   const clusters: { anchor: number; count: number }[] = [];
 
   for (const line of lines) {
     for (const item of line.items) {
-      const anchor = anchorOf(item);
+      const anchor = anchorOf(item, edge);
       const cluster = clusters.find((c) => Math.abs(c.anchor - anchor) <= COLUMN_GAP);
       if (cluster) cluster.count++;
       else clusters.push({ anchor, count: 1 });
@@ -287,8 +324,8 @@ function columnAnchors(lines: { items: PositionedItem[] }[]): number[] {
 }
 
 /** The column an item belongs to: the one whose anchor its own is nearest. */
-function columnFor(item: PositionedItem, anchors: number[]): number {
-  const anchor = anchorOf(item);
+function columnFor(item: PositionedItem, anchors: number[], edge: MoneyEdge): number {
+  const anchor = anchorOf(item, edge);
   let best = 0;
   let bestDistance = Infinity;
   for (let i = 0; i < anchors.length; i++) {
@@ -309,9 +346,73 @@ function columnFor(item: PositionedItem, anchors: number[]): number {
  * £2,555.05" — the grid is nominally several columns wide and carries no
  * structure at all, which downstream reads as a table with no amount column.
  */
+/** An amount anywhere inside a cell, rather than a cell that is only an amount. */
+const MONEY_WITHIN = /[£$€]?\d[\d,]*\.\d{2}/;
+/** A word, as opposed to a `DR` or `Cr` marker sitting beside a figure. */
+const A_WORD = /[A-Za-z]{3,}/;
+/**
+ * A cell that *is* a date, which is how a transaction's own row is told from
+ * the lines beneath it.
+ *
+ * Anchored, and read off the row's first filled cell. "Luxembourg EUR 70.10
+ * On 14 Oct at VISA" contains a date and is a continuation line; counting it
+ * as a dated row condemned a grid that had separated perfectly well.
+ */
+const DATE_CELL = /^(\d{1,2}[ /-][A-Za-z]{3,}\.?( \d{2,4})?|\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{2,4})$/;
+
+function startsWithADate(row: string[]): boolean {
+  const first = row.map((cell) => cell.trim()).find((cell) => cell !== "");
+  return first !== undefined && DATE_CELL.test(first);
+}
+/** Above this share of glued rows, the columns did not separate. */
+const GLUED_SHARE = 0.2;
+
+/**
+ * Whether a cell holds a description *and* an amount.
+ *
+ * Which is to say: whether the split failed. "Tesco €23.63 €" is one cell on
+ * a Revolut statement whose real columns are Description, Money out and
+ * Balance — the text and the figure belong to different ones, and a splitter
+ * that hands them over together has lost the only thing the grid was for.
+ * "23261.61 DR" is not this: a two-letter marker beside a figure is a
+ * convention, not prose.
+ */
+function gluesProseToMoney(cell: string): boolean {
+  const text = cell.trim();
+  return MONEY_WITHIN.test(text) && A_WORD.test(text);
+}
+
+/**
+ * Whether a grid actually separated its columns.
+ *
+ * Two ways it can fail, and the first test only caught one of them.
+ *
+ * It can collapse every line into one cell — "Start balance £2,555.05" —
+ * which downstream reads as a table with no amount column. An amount
+ * somewhere other than the first column rules that out.
+ *
+ * Or it can split in the wrong places, which looks exactly like success: a
+ * Revolut statement came out as `["26 Aug 2026", "Tesco €23.63 €",
+ * "1,376.37", ""]`, three columns wide with an amount outside the first, and
+ * passed. The amount in column two is the *running balance*; the transaction
+ * is inside the description. Every row imported at the balance that followed
+ * it, €1,400 then €1,376.37 then €1,275.87, which is a plausible-looking
+ * ledger of entirely invented figures.
+ *
+ * So a cell holding prose and money together is the tell — but only on a row
+ * that carries a date, which is to say a transaction's own row. The lines
+ * beneath one are full of prose and money quite legitimately ("Luxembourg EUR
+ * 70.10 On 14 Oct at VISA Exchange Rate 1.18"), and counting those condemned
+ * a grid that had separated perfectly well.
+ */
 export function looksTabular(rows: string[][]): boolean {
   const withAmountsBeyondFirst = rows.filter((row) => row.slice(1).some((cell) => MONEY.test(cell.trim())));
-  return withAmountsBeyondFirst.length >= 5;
+  if (withAmountsBeyondFirst.length < 5) return false;
+
+  const dated = rows.filter(startsWithADate);
+  if (dated.length === 0) return true;
+  const glued = dated.filter((row) => row.some(gluesProseToMoney)).length;
+  return glued <= dated.length * GLUED_SHARE;
 }
 
 export async function extractPdfRows(bytes: Uint8Array): Promise<string[][]> {

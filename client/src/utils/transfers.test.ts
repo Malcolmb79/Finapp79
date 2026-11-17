@@ -1,16 +1,22 @@
 import { describe, expect, it } from "vitest";
-import type { Category, Transaction } from "../api/client.js";
+import type { Category, FxRates, Transaction } from "../api/client.js";
 import {
   excludeTransfers,
   findTransferPairs,
   isTransfer,
   pairNote,
+  PAIR_FX_TOLERANCE,
   PAIR_TOLERANCE,
   PAIR_WINDOW_DAYS,
   transferCategoryIds,
 } from "./transfers.js";
 
-const money = (value: number) => `€${value.toFixed(2)}`;
+const SYMBOLS: Record<string, string> = { EUR: "€", GBP: "£", ZAR: "R" };
+const money = (value: number, currency = "EUR") => `${SYMBOLS[currency] ?? currency}${value.toFixed(2)}`;
+
+// Quoted per unit of base, the way the API returns them: one euro buys 0.87
+// pounds and 19.5 rand.
+const RATES = { base: "EUR", rates: { EUR: 1, GBP: 0.87, ZAR: 19.5 } } as unknown as FxRates;
 
 const category = (id: number, name: string, is_transfer = false): Category =>
   ({ id, name, parent_id: null, is_transfer }) as Category;
@@ -132,6 +138,114 @@ describe("findTransferPairs", () => {
       tx({ amount: 1000 * (1 - PAIR_TOLERANCE * 2), account_id: "b", booking_date: "2026-11-11" }),
     ];
     expect(findTransferPairs(rows)).toEqual([]);
+  });
+
+  /**
+   * A household holding euro, sterling and rand moves money between those
+   * accounts, and comparing the bare figures is wrong in both directions at
+   * once: it never matches the transfer that happened, and it cheerfully
+   * matches two sums that merely print alike.
+   */
+  describe("across currencies", () => {
+    // £1,400 is €1,609 at 0.87. The bank's spread takes a slice, so €1,580
+    // lands — 1.8% apart once converted, and the same money.
+    it("matches two legs by what they were worth", () => {
+      const out = tx({ amount: -1400, currency: "GBP", account_id: "barclays", booking_date: "2026-11-10" });
+      const into = tx({ amount: 1580, currency: "EUR", account_id: "aib", booking_date: "2026-11-11" });
+      const [pair] = findTransferPairs([out, into], new Set(), RATES);
+      expect(pair).toBeDefined();
+      expect(pair.crossCurrency).toBe(true);
+      expect(pair.gapCurrency).toBe("EUR");
+      expect(pair.gap).toBeCloseTo(1400 / 0.87 - 1580, 1);
+    });
+
+    /**
+     * The other half of the same mistake. £1,400 out and €1,400 in are two
+     * different sums, and a matcher reading the numbers alone calls them a
+     * perfect match — the one pair it is most confident about is the wrong
+     * one.
+     */
+    it("refuses two legs that only print alike", () => {
+      const rows = [
+        tx({ amount: -1400, currency: "GBP", account_id: "barclays", booking_date: "2026-11-10" }),
+        tx({ amount: 1400, currency: "EUR", account_id: "aib", booking_date: "2026-11-11" }),
+      ];
+      expect(findTransferPairs(rows, new Set(), RATES)).toEqual([]);
+    });
+
+    // Rand to sterling, neither of them the base the rates are quoted in.
+    it("matches two legs when neither is the base currency", () => {
+      const out = tx({ amount: -43000, currency: "ZAR", account_id: "fnb", booking_date: "2026-11-10" });
+      const into = tx({ amount: 1900, currency: "GBP", account_id: "barclays", booking_date: "2026-11-12" });
+      const [pair] = findTransferPairs([out, into], new Set(), RATES);
+      expect(pair).toBeDefined();
+      expect(pair.daysApart).toBe(2);
+    });
+
+    /**
+     * Without rates there is nothing to compare but the bare figures, and on
+     * those the only cross-currency pairs findable are the false ones. So it
+     * refuses rather than guesses — and same-currency matching is untouched,
+     * which is what every statement imported before any rate was fetched
+     * depends on.
+     */
+    it("refuses a cross-currency pair when no rates are available", () => {
+      const rows = [
+        tx({ amount: -1400, currency: "GBP", account_id: "barclays", booking_date: "2026-11-10" }),
+        tx({ amount: 1400, currency: "EUR", account_id: "aib", booking_date: "2026-11-11" }),
+      ];
+      expect(findTransferPairs(rows)).toEqual([]);
+    });
+
+    it("still matches a same-currency pair with no rates", () => {
+      const rows = [
+        tx({ amount: -1400, currency: "GBP", account_id: "barclays", booking_date: "2026-11-10" }),
+        tx({ amount: 1400, currency: "GBP", account_id: "hsbc", booking_date: "2026-11-11" }),
+      ];
+      expect(findTransferPairs(rows)).toHaveLength(1);
+    });
+
+    // A spread is a per cent or two; a fifth of the money is a different
+    // payment that happens to be roughly the right size.
+    it("refuses a gap too big for a spread", () => {
+      const rows = [
+        tx({ amount: -1400, currency: "GBP", account_id: "barclays", booking_date: "2026-11-10" }),
+        tx({
+          amount: (1400 / 0.87) * (1 - PAIR_FX_TOLERANCE * 2),
+          currency: "EUR",
+          account_id: "aib",
+          booking_date: "2026-11-11",
+        }),
+      ];
+      expect(findTransferPairs(rows, new Set(), RATES)).toEqual([]);
+    });
+
+    /**
+     * A same-currency match beats a cross-currency one outright. Its gap
+     * means a fee, which is checkable; the other's is mostly a spread nobody
+     * can verify from here.
+     */
+    it("prefers a same-currency partner", () => {
+      const out = tx({ amount: -1400, currency: "GBP", account_id: "barclays", booking_date: "2026-11-10" });
+      const sterling = tx({ amount: 1390, currency: "GBP", account_id: "hsbc", booking_date: "2026-11-12" });
+      const euro = tx({ amount: 1609, currency: "EUR", account_id: "aib", booking_date: "2026-11-10" });
+      const pairs = findTransferPairs([out, euro, sterling], new Set(), RATES);
+      expect(pairs).toHaveLength(1);
+      expect(pairs[0].in.id).toBe(sterling.id);
+    });
+
+    // "£1,400 out, €1,580 in" reads as two unrelated payments until the
+    // sentence says the two were converted and came to within €29.
+    it("says it converted them, and by how much they differ", () => {
+      const out = tx({ amount: -1400, currency: "GBP", account_id: "barclays", booking_date: "2026-11-10" });
+      const into = tx({ amount: 1580, currency: "EUR", account_id: "aib", booking_date: "2026-11-11" });
+      const [pair] = findTransferPairs([out, into], new Set(), RATES);
+      const note = pairNote(pair, money);
+      expect(note).toContain("£1400.00 out");
+      expect(note).toContain("€1580.00 in");
+      expect(note).toContain("once converted");
+      expect(note).toContain("exchange spread");
+    });
   });
 
   /**

@@ -842,6 +842,30 @@ function markerSign(raw: string): number {
  * is the worst available outcome: it is the largest row, and it lands with the
  * sign that makes the month look twice as bad as it was.
  */
+/**
+ * A section of rows that are not transactions at all.
+ *
+ * A Revolut statement ends with a second table headed "Reverted from 25
+ * August 2026 to 17 November 2026" — authorisations that were released, money
+ * that never moved. Its own balance summary excludes them, which is the proof
+ * rather than the claim: €5,207.38 out, and the three reverted €1.00 rows are
+ * not in it.
+ *
+ * Importing them is wrong twice over. They are money that did not leave, and
+ * most will arrive on a later statement as the real thing, on a different
+ * date and so with a different content hash — a duplicate that nothing can
+ * recognise as one.
+ *
+ * Read from the document's own words, exactly as the direction headings below
+ * are, and only where the section sits at the end of the file: pending,
+ * reverted and declined appendices are printed after the statement proper,
+ * and a word matched halfway up a document is more likely to be prose.
+ */
+const VOID_HEADING = /\b(reverted|declined|cancelled|canceled|failed|pending|not yet (completed|settled))\b/i;
+
+/** How late in the file a void heading has to appear to be believed. */
+const VOID_TAIL_SHARE = 0.75;
+
 const CREDIT_HEADING = /payments? (towards|to|received)|payments? and refunds|refunds?\b|credits?\b/i;
 const DEBIT_HEADING =
   /transactions?, interest|interest and charges|how you'?ve used|purchases|cash advances|fees and charges|new transactions/i;
@@ -863,6 +887,18 @@ function headingText(row: string[], dateColumn: number | null): string | null {
  * this is used: one alone means a document that merely happens to contain the
  * words, and inheriting a sign from it would be worse than inheriting nothing.
  */
+/**
+ * Where the statement proper stops and an appendix of non-transactions
+ * begins. Returns the row count when there is no such section.
+ */
+export function voidSectionFrom(rows: string[][], dateColumn: number | null): number {
+  for (let i = Math.floor(rows.length * VOID_TAIL_SHARE); i < rows.length; i++) {
+    const heading = headingText(rows[i], dateColumn);
+    if (heading && VOID_HEADING.test(heading)) return i;
+  }
+  return rows.length;
+}
+
 export function sectionSigns(rows: string[][], dateColumn: number | null): (1 | -1)[] | null {
   const signs: (1 | -1)[] = new Array(rows.length).fill(-1);
   let current: 1 | -1 | null = null;
@@ -1123,12 +1159,33 @@ export function applyMappingIndexed(
    * breaks its pages with.
    */
   let carried: string | null = null;
+  // Everything from here on is an appendix of money that never moved.
+  const voidFrom = voidSectionFrom(body, mapping.dateColumn);
 
   for (const [index, row] of body.entries()) {
+    if (index >= voidFrom) break;
     const stated = normaliseDate(cell(row, mapping.dateColumn), mapping.dateFormat, mapping.defaultYear);
     if (stated) carried = stated;
+
+    /**
+     * A row that borrows its date has to name itself.
+     *
+     * Not having a date is what a continuation line *is*, and most of them
+     * carry no amount either, so they fall out on their own. Some do carry
+     * one: a Revolut transfer prints "58.78 ZAR" under it, in the money-out
+     * column, being the other currency the €3.19 was sent in. With the date
+     * carried down and nothing else asked of it, that line arrived as a
+     * second €58.78 payment nobody made.
+     *
+     * A transaction on a statement names itself; a detail of the one above it
+     * does not. So a borrowed date is only good enough with a description to
+     * go with it — and a row with its own date is untouched, which is what
+     * `strayName` and the FNB fee postings with an empty description column
+     * depend on.
+     */
     const date = stated ?? (headingText(row, mapping.dateColumn) == null ? carried : null);
     if (!date) continue;
+    if (!stated && cell(row, mapping.descriptionColumn).trim() === "") continue;
     if (statesABalance?.[index] != null) continue;
 
     let amount: number | null = null;

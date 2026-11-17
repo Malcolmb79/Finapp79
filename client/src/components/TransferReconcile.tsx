@@ -4,6 +4,8 @@ import { api, type Account, type Category, type Transaction } from "../api/clien
 import { errorMessage } from "../utils/errorMessage.js";
 import { formatCurrency } from "../utils/formatCurrency.js";
 import { findTransferPairs, pairNote, transferCategoryIds } from "../utils/transfers.js";
+import { useFxRates } from "../utils/fx.js";
+import { useAccountScope } from "../contexts/ViewFilterContext.js";
 
 /**
  * Payments out matched to the payments in that look like the same money.
@@ -36,7 +38,15 @@ export default function TransferReconcile({
 
   const transferIds = useMemo(() => transferCategoryIds(categories), [categories]);
   const transferCategory = categories.find((c) => c.is_transfer) ?? null;
-  const pairs = useMemo(() => findTransferPairs(transactions, transferIds), [transactions, transferIds]);
+  // Rates so the two legs are compared by what they were worth rather than
+  // by the number printed on them: a household holding euro, sterling and
+  // rand transfers between currencies, and those pairs never matched.
+  const rates = useFxRates("EUR");
+  const { scope } = useAccountScope();
+  const pairs = useMemo(
+    () => findTransferPairs(transactions, transferIds, rates),
+    [transactions, transferIds, rates]
+  );
 
   // Already filed as transfers, so there is nothing to ask about them — but
   // worth counting, because "we found none" and "they are all already done"
@@ -73,6 +83,23 @@ export default function TransferReconcile({
       <p className="empty-state">
         No category is marked as a transfer yet. Mark one above — &ldquo;Transfers&rdquo; is the usual name — and matched
         pairs will show up here for you to confirm.
+      </p>
+    );
+  }
+
+  /**
+   * A transfer needs two accounts, and the header's filter leaves one.
+   *
+   * With a scope set, every request is narrowed to that account before it
+   * reaches here, so the matcher is structurally incapable of finding a pair
+   * — and would then report that nothing looks like a transfer, which is a
+   * confident answer to a question it was not able to ask.
+   */
+  if (scope) {
+    return (
+      <p className="empty-state">
+        Showing one account. A transfer has a leg on each of two, so clear the account filter in the header to look for
+        pairs.
       </p>
     );
   }
@@ -123,7 +150,7 @@ export default function TransferReconcile({
               </div>
             </div>
 
-            <p className="transfer-pair__note">{pairNote(pair, (v) => money(v, pair.out.currency))}</p>
+            <p className="transfer-pair__note">{pairNote(pair, money)}</p>
 
             <button
               onClick={() => markPair(pair.key, pair.out, pair.in)}

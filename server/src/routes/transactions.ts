@@ -193,7 +193,9 @@ transactionsRouter.post("/", async (req, res) => {
     return;
   }
 
-  const account = await db.prepare("SELECT 1 FROM accounts WHERE id = ? AND user_id = ?").get(account_id, req.user!.id);
+  const account = await db
+    .prepare("SELECT currency FROM accounts WHERE id = ? AND user_id = ?")
+    .get<{ currency: string }>(account_id, req.user!.id);
   if (!account) {
     res.status(404).json({ error: "account not found" });
     return;
@@ -212,7 +214,20 @@ transactionsRouter.post("/", async (req, res) => {
       category_id ?? null,
       booking_date,
       amount,
-      currency ?? "USD",
+      /**
+       * The account's own currency, not a fixed default.
+       *
+       * It was `"USD"`, which is not where this household banks and is not
+       * what the account says: a payment added by hand to a euro account was
+       * stored as dollars, and then converted as dollars by every figure that
+       * converts — a net worth, a cash flow and a transfer match all reading
+       * one number and meaning another. The import route has always taken the
+       * account's currency; this is the same rule for a row typed in.
+       *
+       * Still overridable, because a card payment abroad is genuinely booked
+       * in another currency and the caller may know that.
+       */
+      currency ?? account.currency,
       description ?? null,
       counterparty ?? null
     );
