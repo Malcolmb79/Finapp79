@@ -640,6 +640,15 @@ export default function Accounts() {
                       </div>
                     )}
                   </div>
+                  {/* The controls, in a box of their own.
+                      They used to be direct children of the row, which on a
+                      phone is a row of seven buttons sharing 343px with the
+                      account's name and its balance — so the name block was
+                      squeezed to literally zero pixels wide and the figures
+                      ran off the side of the screen. Boxed, they can take a
+                      line of their own below the name, which is what the
+                      stylesheet does under 640px. */}
+                  <div className="account-row__actions">
                   {/* An account kept out of the totals keeps only the two
                       controls that apply to it: put it back, or remove it.
                       Everything else here - import a statement, read an
@@ -777,6 +786,8 @@ export default function Accounts() {
                       <Trash2 size={14} color="var(--text-muted)" />
                     </button>
                   )}
+                  </div>
+                  <div className="account-row__figures">
                   {editingBalanceId === a.id ? (
                     // Wraps because four fields don't fit a phone in one line,
                     // and a row that overflows puts Save off-screen.
@@ -975,6 +986,7 @@ export default function Accounts() {
                       )}
                     </div>
                   )}
+                  </div>
                 </div>
                 {importsFor === a.id && (
                   // Below the row rather than in a modal: it is a list of that

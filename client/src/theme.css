@@ -1118,6 +1118,116 @@ th {
   white-space: nowrap;
 }
 
+/* The controls and the figures, each in a box of their own.
+
+   They were direct children of the row, which works on a desktop and falls
+   apart on a phone: seven buttons, a name and a balance sharing 343px left the
+   name block zero pixels wide and pushed the figures off the side of the
+   screen. Boxing them is what lets the two drop onto their own lines below. */
+.account-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.account-row__figures {
+  text-align: right;
+  margin-left: auto;
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  /* The header fits a phone, rather than running 18px off the side of it.
+     That overflow was on every page of the app, not just this one: the whole
+     document scrolled sideways and the avatar sat half off the screen, and a
+     page that slides under your thumb reads as broken however good the rest
+     of it is.
+
+     It takes a second line rather than being squeezed onto one. Six controls
+     do not fit 343px, and the two that would have to give are the two that
+     say what you are looking at — which account, and over what period. A
+     period picker reading "Last 30…" is the kind of fix that trades a visible
+     fault for an invisible one. */
+  .top-header {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+  }
+
+  /* A page title and the control beside it do not share 343px when the
+     control is a date range. Wrapping gives it the width to say which period
+     is selected, rather than reading "Last" and leaving the reader to open it
+     to find out what the figures beneath are covering. */
+  .page-header {
+    flex-wrap: wrap;
+    row-gap: 0.6rem;
+  }
+
+  /* The account filter takes the second line, full width, because its options
+     are account names and they are the longest text in the header. */
+  .search-input {
+    order: 3;
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  .top-header__actions {
+    margin-left: auto;
+    gap: 0.5rem;
+  }
+
+  /* The symbol still says which way the switch goes, and the word is what the
+     first line can least afford. The label stays for a screen reader. */
+  .theme-toggle__label {
+    display: none;
+  }
+
+  .account-row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    row-gap: 0.45rem;
+    column-gap: 0.5rem;
+    padding: 0.75rem 0;
+  }
+
+  /* Name and balance share the first line, the controls take the second.
+     Ordered rather than reordered in the markup, because the reading order on
+     a wide screen — who, then what you can do, then how much — is the right
+     one there and the tab order should not change with the window. */
+  /* Capped rather than fixed, so the balance sits beside the name on every
+     row and takes no more width than it needs. Left to its content it fitted
+     on some rows and wrapped below the name on others, which reads as a
+     layout fault rather than as a long figure; pinned at a fixed width it
+     always fitted but left the name a hundred pixels on every row, including
+     the ones with nothing to the right of them. */
+  .account-row__figures {
+    order: 2;
+    flex: 0 1 auto;
+    max-width: 9rem;
+  }
+
+  .account-row__actions {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+
+  /* Narrow enough that the avatar, the name and the balance all fit on the
+     first line at their bases — which is what decides whether they share it —
+     and free to grow into whatever the balance leaves. */
+  .account-row__info {
+    flex: 1 1 5rem;
+  }
+
+  /* A balance with "incl. £4,500.00 overdraft" under it is the widest thing
+     on the row; held to its column, it wraps instead of deciding the row's
+     width. */
+  .account-row__figures > * {
+    max-width: 100%;
+    margin-left: auto;
+  }
+}
+
 /* Budget rows */
 
 .budget-alert {
@@ -1533,6 +1643,11 @@ th {
 .reports-page__list {
   display: grid;
   gap: 1.25rem;
+  /* A grid item's default `min-width: auto` lets it grow past its track to
+     fit its content — so a wide statement made the card wider than the page
+     instead of scrolling inside it, and `overflow-x` on the table never got
+     the chance to do anything. */
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .report {
@@ -1574,6 +1689,15 @@ th {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
+}
+
+/* A four-column statement is wider than a phone, and narrowing it is the
+   wrong trade: a figure wrapped onto two lines or cut short is a figure
+   somebody will misread. It scrolls inside its own frame instead of dragging
+   the page sideways with it. Printing is unaffected — paper is wide. */
+.report__scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .report__table th,

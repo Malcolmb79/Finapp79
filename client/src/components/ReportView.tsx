@@ -49,6 +49,13 @@ export default function ReportView({ report }: { report: Report }) {
         </div>
       </header>
 
+      {/* A statement with four columns of money does not fit a phone, and it
+          must not be narrowed to make it: a figure wrapped onto two lines or
+          cut short is a figure somebody will misread. So the table scrolls
+          inside its own frame rather than dragging the whole page sideways —
+          which was the one page in the app still doing that, and a report is
+          exactly where a reader is doing arithmetic across the screen. */}
+      <div className="report__scroll">
       <table className="report__table">
         <thead>
           <tr>
@@ -98,6 +105,7 @@ export default function ReportView({ report }: { report: Report }) {
           </tbody>
         ))}
       </table>
+      </div>
 
       {/* Printed along with the figures, deliberately. The caveats are part of
           what the statement claims, and a page that drops them on paper is a

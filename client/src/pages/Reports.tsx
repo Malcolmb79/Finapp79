@@ -300,9 +300,16 @@ export default function Reports() {
             Statements you can file, print or hand to somebody · figures in {BASE}
           </p>
         </div>
-        <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.85rem" }}>
+        {/* min-width: 0 so the period names — "1 Oct 2026 to 31 Oct 2026" —
+            size the dropdown's list rather than the control, which on a phone
+            was seven pixels wider than the screen. */}
+        <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.85rem", minWidth: 0, maxWidth: "100%" }}>
           <span className="report__period-label">Period</span>
-          <select value={periodIndex} onChange={(e) => setPeriodIndex(Number(e.target.value))}>
+          <select
+            value={periodIndex}
+            onChange={(e) => setPeriodIndex(Number(e.target.value))}
+            style={{ minWidth: 0, maxWidth: "100%" }}
+          >
             {periods.map((option, index) => (
               <option key={option.label} value={index}>
                 {option.label}
