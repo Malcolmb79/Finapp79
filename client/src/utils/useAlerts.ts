@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type Account, type Budget, type Transaction } from "../api/client.js";
 import { isLiability, accountBalance, accountTxSums, visibleAccounts, visibleTransactions } from "./accountBalance.js";
-import { deriveAlerts, type Alert } from "./alerts.js";
+import { deriveAlerts, undismissed, type Alert, type AlertDismissal } from "./alerts.js";
 import { forecastBalance, addDaysIso, today, upcomingBills } from "./forecast.js";
 import { formatCurrency } from "./formatCurrency.js";
 import { inBase, sumInBase, useFxRates } from "./fx.js";
@@ -23,16 +23,24 @@ import { inBase, sumInBase, useFxRates } from "./fx.js";
 /** Matches the dashboard's horizon, so the two never disagree about a date. */
 const FORECAST_DAYS = 60;
 
-export function useAlerts(refreshKey: unknown): Alert[] {
+export function useAlerts(refreshKey: unknown): {
+  alerts: Alert[];
+  all: Alert[];
+  dismiss: (alerts: Alert[]) => Promise<void>;
+  unread: () => Promise<void>;
+} {
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [dismissals, setDismissals] = useState<AlertDismissal[]>([]);
+  const [readKey, setReadKey] = useState(0);
   const rates = useFxRates("EUR");
 
   useEffect(() => {
     let cancelled = false;
 
-    Promise.all([api.listAccounts(), api.listTransactions(), api.listBudgets()])
-      .then(([allAccounts, allTransactions, budgets]: [Account[], Transaction[], Budget[]]) => {
+    Promise.all([api.listAccounts(), api.listTransactions(), api.listBudgets(), api.listAlertDismissals()])
+      .then(([allAccounts, allTransactions, budgets, read]: [Account[], Transaction[], Budget[], AlertDismissal[]]) => {
         if (cancelled) return;
+        setDismissals(read);
 
         const accounts = visibleAccounts(allAccounts);
         const transactions = visibleTransactions(allTransactions, allAccounts);
@@ -52,7 +60,23 @@ export function useAlerts(refreshKey: unknown): Alert[] {
         const bills = upcomingBills(converted, { from, until: addDaysIso(from, FORECAST_DAYS) });
 
         const money = (value: number) => (rates ? formatCurrency(value, rates.base) : value.toFixed(2));
-        setAlerts(deriveAlerts({ budgets, accounts, forecast, bills, money }, from));
+        const derived = deriveAlerts({ budgets, accounts, forecast, bills, money }, from);
+        setAlerts(derived);
+
+        /**
+         * Forget what was read about an alert that no longer exists.
+         *
+         * A condition that resolves and comes back next month is news again,
+         * not something already marked read — and without this the table
+         * keeps a row for every alert the household has ever had. Fired only
+         * when there is actually something to forget, so the ordinary case is
+         * three requests as before.
+         */
+        const live = new Set(derived.map((alert) => alert.id));
+        if (read.some((d) => !live.has(d.alert_id))) {
+          api.pruneAlertDismissals([...live]).catch(() => {});
+          setDismissals(read.filter((d) => live.has(d.alert_id)));
+        }
       })
       // An alert list that cannot be built is simply empty. Failing loudly in
       // the header would put an error where the app's own warnings go, which
@@ -64,7 +88,41 @@ export function useAlerts(refreshKey: unknown): Alert[] {
     return () => {
       cancelled = true;
     };
-  }, [rates, refreshKey]);
+  }, [rates, refreshKey, readKey]);
 
-  return alerts;
+  /**
+   * Marks them read, and hides them straight away.
+   *
+   * The local state moves before the request settles because the gesture is
+   * "clear this" and a badge that waits for a round trip reads as a button
+   * that did not work. `readKey` then re-runs the fetch, so what is on screen
+   * ends up being what the server holds either way.
+   */
+  const dismiss = async (toRead: Alert[]) => {
+    if (toRead.length === 0) return;
+    setDismissals((current) => [
+      ...current.filter((d) => !toRead.some((a) => a.id === d.alert_id)),
+      ...toRead.map((a) => ({ alert_id: a.id, severity: a.severity })),
+    ]);
+    try {
+      await api.dismissAlerts(toRead.map((a) => ({ alert_id: a.id, severity: a.severity })));
+    } finally {
+      setReadKey((n) => n + 1);
+    }
+  };
+
+  /** Puts everything back, for when something was cleared too quickly. */
+  const unread = async () => {
+    setDismissals([]);
+    try {
+      await api.pruneAlertDismissals([]);
+    } finally {
+      setReadKey((n) => n + 1);
+    }
+  };
+
+  // `all` is everything derived, read or not — the panel offers a way to see
+  // what it is holding back, since an alert that vanished with no trace of
+  // where it went is its own kind of wrong.
+  return { alerts: undismissed(alerts, dismissals), all: alerts, dismiss, unread };
 }

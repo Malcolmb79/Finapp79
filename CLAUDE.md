@@ -837,6 +837,37 @@ delegating its import half to `statementDue` rather than keeping a second
 definition. Worded per kind there, because "no import in 168 days" is a plain
 lie on an account imported to this morning whose statements stopped in June.
 
+### Reading an alert that is derived rather than stored
+
+The bell's alerts are computed from the data, never written down — a budget
+that is over is over whether or not a row says so. That is the right design
+and it had one consequence nobody had dealt with: there was nothing to mark as
+read, so every alert sat in the bell for as long as its condition lasted. A
+badge that never goes down is a badge nobody reads, which costs the one alert
+that mattered.
+
+`alert_dismissals` is the note that somebody has seen *this* alert *in this
+state*, and the state is the whole of the design:
+
+- **The severity is stored with it**, because it is what makes an alert news a
+  second time. `deriveAlerts`' ids name a *thing* — `budget:7` — not a state,
+  so dismissing by id alone means a budget read at 91% spent never speaks
+  again when it goes over, and the alert worth having is the one buried.
+  `undismissed()` brings a warning back when it turns critical and never for
+  anything less: an alert that merely goes on being true has been read, and
+  saying it twice is what teaches somebody to ignore the bell.
+- **A dismissal is pruned the moment its alert stops being derived.** A
+  condition that resolves and returns next month is news again rather than
+  something already marked read, and the table never accumulates rows for
+  alerts that no longer exist. The client does it as it reads, since it is the
+  only side that knows what is currently live.
+- **It is on the server, not in `localStorage`**, unlike the widget layout.
+  The complaint was a badge that would not go down; clearing it on a phone has
+  to clear it on the desktop too.
+- **Nothing disappears without trace.** With everything read the panel says so
+  and offers them straight back, because an alert that vanished and left no
+  sign of where it went is its own kind of wrong.
+
 ### Scheduled syncing
 
 `vercel.json`'s `crons` entry calls `GET /api/cron/sync` once a day, and

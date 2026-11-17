@@ -822,3 +822,25 @@ ALTER TABLE subscription_reviews DROP COLUMN IF EXISTS cancelling_at;
 -- how this app is told what a payment is, and tagging Netflix every month
 -- would be asking the same question twelve times a year.
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_subscription BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- What somebody has read in the bell, and what was true when they read it.
+--
+-- The alerts are derived from the data rather than stored, which is right:
+-- a budget that is over is over whether or not a row says so. But it means
+-- they cannot be marked read the way a message can, so every one of them
+-- stayed in the bell for as long as the condition lasted. A badge that never
+-- goes down is a badge nobody reads.
+--
+-- The severity is stored with the dismissal, because it is what makes an
+-- alert news a second time: a budget dismissed at 91% spent has to come back
+-- when it goes over, or reading it once buries the thing it was warning
+-- about. And a dismissal is pruned as soon as its alert stops being derived
+-- at all, so the condition recurring next month is news again rather than
+-- something already marked read.
+CREATE TABLE IF NOT EXISTS alert_dismissals (
+  user_id TEXT REFERENCES users(id),
+  alert_id TEXT NOT NULL,            -- deriveAlerts' own id, e.g. "budget:7"
+  severity TEXT NOT NULL,            -- what it was when read: warning | critical
+  dismissed_at TEXT NOT NULL DEFAULT (now() AT TIME ZONE 'utc')::text,
+  PRIMARY KEY (user_id, alert_id)
+);

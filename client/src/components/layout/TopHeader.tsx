@@ -31,7 +31,7 @@ export default function TopHeader({ onOpenNav }: { onOpenNav: () => void }) {
   const { version } = useRefresh();
   // What wants attention, as opposed to what wants filing. Both live behind
   // the one bell so there is a single place to look.
-  const alerts = useAlerts(version);
+  const { alerts, all: allAlerts, dismiss, unread } = useAlerts(version);
 
   useEffect(() => {
     api.listPendingTransactions().then(setPending);
@@ -198,37 +198,91 @@ export default function TopHeader({ onOpenNav }: { onOpenNav: () => void }) {
               <div className="add-widget-menu" style={{ width: 340 }}>
                 {alerts.length > 0 && (
                   <>
-                    <div style={{ fontWeight: 600, fontSize: "0.85rem", padding: "0.3rem 0.5rem 0.5rem" }}>Worth knowing</div>
-                    {alerts.map((alert) => (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "baseline",
+                        justifyContent: "space-between",
+                        gap: "0.5rem",
+                        padding: "0.3rem 0.5rem 0.5rem",
+                      }}
+                    >
+                      <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Worth knowing</span>
+                      {/* The gesture the bell was missing. These alerts are
+                          derived rather than stored, so there was nothing to
+                          mark read and the badge stayed up for as long as the
+                          condition lasted. */}
                       <button
+                        onClick={() => void dismiss(alerts)}
+                        style={{ fontSize: "0.72rem", padding: "0.15rem 0.4rem" }}
+                      >
+                        Mark all read
+                      </button>
+                    </div>
+                    {alerts.map((alert) => (
+                      <div
                         key={alert.id}
-                        onClick={() => {
-                          setOpen(false);
-                          navigate(alert.href);
-                        }}
                         style={{
-                          display: "block",
-                          width: "100%",
-                          textAlign: "left",
-                          background: "transparent",
-                          border: "none",
+                          display: "flex",
+                          alignItems: "flex-start",
+                          gap: "0.3rem",
                           borderBottom: "1px solid var(--gridline)",
-                          padding: "0.4rem 0.5rem",
-                          cursor: "pointer",
                         }}
                       >
-                        <div
+                        <button
+                          onClick={() => {
+                            setOpen(false);
+                            navigate(alert.href);
+                          }}
                           style={{
-                            fontSize: "0.83rem",
-                            color: alert.severity === "critical" ? "var(--critical)" : "var(--text)",
+                            display: "block",
+                            flex: 1,
+                            minWidth: 0,
+                            textAlign: "left",
+                            background: "transparent",
+                            border: "none",
+                            padding: "0.4rem 0.5rem",
+                            cursor: "pointer",
                           }}
                         >
-                          {alert.title}
-                        </div>
-                        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{alert.detail}</div>
-                      </button>
+                          <div
+                            style={{
+                              fontSize: "0.83rem",
+                              color: alert.severity === "critical" ? "var(--critical)" : "var(--text)",
+                            }}
+                          >
+                            {alert.title}
+                          </div>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{alert.detail}</div>
+                        </button>
+                        {/* Per alert as well as all at once: reading one and
+                            leaving the others is the ordinary case, and a
+                            single "clear everything" makes that impossible
+                            without losing the ones not dealt with. */}
+                        <button
+                          onClick={() => void dismiss([alert])}
+                          aria-label={`Mark read: ${alert.title}`}
+                          title="Mark read"
+                          style={{ padding: "0.3rem", display: "flex", alignSelf: "center", flexShrink: 0 }}
+                        >
+                          <Check size={13} color="var(--text-muted)" />
+                        </button>
+                      </div>
                     ))}
                   </>
+                )}
+                {/* An alert that vanished with no trace of where it went is
+                    its own kind of wrong, so the panel says what it is
+                    holding back and offers it straight back. */}
+                {alerts.length === 0 && allAlerts.length > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.3rem 0.5rem 0.5rem" }}>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", flex: 1 }}>
+                      {allAlerts.length} read {allAlerts.length === 1 ? "alert is" : "alerts are"} still true.
+                    </span>
+                    <button onClick={() => void unread()} style={{ fontSize: "0.72rem", padding: "0.15rem 0.4rem" }}>
+                      Show
+                    </button>
+                  </div>
                 )}
                 <div style={{ fontWeight: 600, fontSize: "0.85rem", padding: "0.3rem 0.5rem 0.5rem" }}>New transactions</div>
                 {pending.length === 0 ? (

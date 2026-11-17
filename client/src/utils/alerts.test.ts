@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Account, Budget } from "../api/client.js";
-import { deriveAlerts } from "./alerts.js";
+import { deriveAlerts, undismissed, type Alert } from "./alerts.js";
 import type { Forecast, UpcomingBill } from "./forecast.js";
 
 const FROM = "2026-11-10";
@@ -154,5 +154,53 @@ describe("a statement that stopped arriving", () => {
     // critical, so they lead regardless of kind. A statement that is merely
     // late is a warning and sits under both.
     expect(kinds).toEqual(["sync", "budget", "statement", "statement"]);
+  });
+});
+
+describe("what has already been read", () => {
+  const alert = (over: Partial<Alert>): Alert => ({
+    id: "budget:7",
+    kind: "budget",
+    severity: "warning",
+    title: "Groceries nearly spent",
+    detail: "91% of €400",
+    href: "/budgets",
+    ...over,
+  });
+
+  it("hides an alert that has been read", () => {
+    expect(undismissed([alert({})], [{ alert_id: "budget:7", severity: "warning" }])).toEqual([]);
+  });
+
+  it("leaves the ones that have not", () => {
+    const other = alert({ id: "sync:a1", kind: "sync" });
+    expect(undismissed([alert({}), other], [{ alert_id: "budget:7", severity: "warning" }])).toEqual([other]);
+  });
+
+  /**
+   * The rule that keeps this from being a way to bury a problem. These ids
+   * name a *thing* rather than a state, so a budget read at 91% spent would
+   * otherwise never say anything again when it went over — and the one alert
+   * worth having is the one buried.
+   */
+  it("brings an alert back when it gets worse", () => {
+    const worse = alert({ severity: "critical", title: "Groceries over budget" });
+    expect(undismissed([worse], [{ alert_id: "budget:7", severity: "warning" }])).toEqual([worse]);
+  });
+
+  // Read at its worst, and it stays read. Saying the same thing twice is what
+  // teaches somebody to ignore the bell.
+  it("keeps it hidden once read at critical", () => {
+    const worse = alert({ severity: "critical" });
+    expect(undismissed([worse], [{ alert_id: "budget:7", severity: "critical" }])).toEqual([]);
+  });
+
+  // An alert that merely goes on being true has been read.
+  it("does not bring one back for being unchanged", () => {
+    expect(undismissed([alert({})], [{ alert_id: "budget:7", severity: "warning" }])).toEqual([]);
+  });
+
+  it("copes with a dismissal for an alert that no longer exists", () => {
+    expect(undismissed([], [{ alert_id: "budget:7", severity: "warning" }])).toEqual([]);
   });
 });

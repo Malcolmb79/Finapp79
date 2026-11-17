@@ -1172,6 +1172,19 @@ export const api = {
   deleteHolding: (id: string) => request<void>(`/holdings/${id}`, { method: "DELETE" }),
 
   listSubscriptionReviews: () => request<SubscriptionReview[]>("/subscription-reviews"),
+
+  /**
+   * What has been read in the bell — see server/src/routes/alertDismissals.ts.
+   * Kept on the server rather than in this browser, because the badge not
+   * going down is the complaint, and clearing it on a phone has to clear it
+   * on the desktop too.
+   */
+  listAlertDismissals: () => request<{ alert_id: string; severity: string; dismissed_at: string }[]>("/alert-dismissals"),
+  dismissAlerts: (alerts: { alert_id: string; severity: string }[]) =>
+    request<{ dismissed: number }>("/alert-dismissals", { method: "POST", body: JSON.stringify({ alerts }) }),
+  /** Forgets the dismissals of alerts no longer being derived. */
+  pruneAlertDismissals: (live: string[]) =>
+    request<void>("/alert-dismissals/prune", { method: "POST", body: JSON.stringify({ live }) }),
   /** Stamps a look. An omitted `reviewed` leaves the existing date alone. */
   reviewSubscription: (review: { merchant_key: string; label: string; reviewed?: boolean }) =>
     request<SubscriptionReview>("/subscription-reviews", { method: "POST", body: JSON.stringify(review) }),

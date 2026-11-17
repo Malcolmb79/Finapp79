@@ -34,6 +34,35 @@ export interface Alert {
   href: string;
 }
 
+export interface AlertDismissal {
+  alert_id: string;
+  severity: string;
+}
+
+/**
+ * The alerts somebody has not already read.
+ *
+ * Reading one hides it — but only in the state it was read in. The ids here
+ * name a *thing* (`budget:7`), not a state, so dismissing by id alone would
+ * mean a budget read at 91% spent never says anything again when it goes
+ * over, and the one alert worth having is the one buried.
+ *
+ * So the severity is part of the test, and a warning that becomes critical is
+ * news again. Nothing else is: an alert that merely goes on being true has
+ * been read, and saying it a second time is what teaches somebody to ignore
+ * the bell.
+ */
+export function undismissed(alerts: Alert[], dismissals: AlertDismissal[]): Alert[] {
+  const read = new Map(dismissals.map((d) => [d.alert_id, d.severity]));
+  return alerts.filter((alert) => {
+    const at = read.get(alert.id);
+    if (at === undefined) return true;
+    // Worse than when it was read. "Critical" is the only escalation there
+    // is, so this is the whole of the rule rather than a ranking.
+    return alert.severity === "critical" && at !== "critical";
+  });
+}
+
 /** A budget this far through is worth saying something about. */
 const BUDGET_WARN_AT = 0.9;
 

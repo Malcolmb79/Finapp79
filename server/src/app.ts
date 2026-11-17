@@ -30,6 +30,7 @@ import { rulesRouter } from "./routes/rules.js";
 import { cronRouter } from "./routes/cron.js";
 import { savingsRouter } from "./routes/savings.js";
 import { subscriptionReviewsRouter } from "./routes/subscriptionReviews.js";
+import { alertDismissalsRouter } from "./routes/alertDismissals.js";
 import { transactionsRouter } from "./routes/transactions.js";
 
 // Top-level await: on Vercel this re-runs once per cold start (schema.sql
@@ -133,6 +134,7 @@ app.use("/api/properties", propertiesRouter);
 app.use("/api/btl-deals", btlDealsRouter);
 app.use("/api/notes", notesRouter);
 app.use("/api/subscription-reviews", subscriptionReviewsRouter);
+app.use("/api/alert-dismissals", alertDismissalsRouter);
 app.use("/api/household", householdRouter);
 app.use("/api/import/statement", importStatementRouter);
 app.use("/api/fx", fxRouter);
