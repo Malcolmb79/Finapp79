@@ -115,18 +115,33 @@ export function checkStatement(
   let accountMatches: boolean | null = null;
   if (accountNumber && account.iban) accountMatches = sameAccount(accountNumber, account.iban);
 
-  // Fall back to the range the rows actually cover when the document doesn't
-  // state a period — it still lets the dialog show what's about to land.
   const dates = rows.map((r) => r.date).sort();
-  const periodStart = mapping.periodStart ?? dates[0] ?? null;
-  const periodEnd = mapping.periodEnd ?? dates[dates.length - 1] ?? null;
+  const outside = (start: string, end: string) => rows.filter((r) => r.date < start || r.date > end).length;
+
+  /**
+   * A period that excludes the statement's own transactions was misread.
+   *
+   * The warning this feeds is for one mistake — a statement imported into the
+   * wrong month — and it is worth having. But a Barclayloan whose period came
+   * back as "01 Aug 2025 to 01 Aug 2025" flagged twenty-one of its own
+   * twenty-three rows as falling outside it, which is not a statement about
+   * the file: it is the reading of the period being wrong. A period the
+   * document states has to contain most of what the document contains, or it
+   * is not the period, and the rows' own range is the better answer.
+   */
+  const stated =
+    mapping.periodStart && mapping.periodEnd && outside(mapping.periodStart, mapping.periodEnd) <= rows.length / 2
+      ? { start: mapping.periodStart, end: mapping.periodEnd }
+      : null;
+
+  // Falls back to the range the rows actually cover — when the document
+  // doesn't state a period, and when what it stated cannot be believed.
+  const periodStart = stated?.start ?? dates[0] ?? null;
+  const periodEnd = stated?.end ?? dates[dates.length - 1] ?? null;
 
   // Only meaningful against a period the document itself stated: comparing
   // rows to a range derived from those same rows can never find anything.
-  const outsidePeriod =
-    mapping.periodStart && mapping.periodEnd
-      ? rows.filter((r) => r.date < mapping.periodStart! || r.date > mapping.periodEnd!).length
-      : 0;
+  const outsidePeriod = stated ? outside(stated.start, stated.end) : 0;
 
   return { accountNumber, accountMatches, periodStart, periodEnd, outsidePeriod };
 }

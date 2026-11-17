@@ -12,6 +12,9 @@ import {
   applyMappingIndexed,
   hasDateShape,
   inferMapping,
+  withBalanceSigns,
+  balanceSigns,
+  balanceStatements,
   looksLikeName,
   parseDelimited,
   splitPreamble,
@@ -277,7 +280,10 @@ importStatementRouter.post("/preview", async (req, res) => {
   }
 
   const { preamble, table } = splitPreamble(grid);
-  const mapping = body.mapping ?? (await inferMapping(table, preamble));
+  // A mapping sent back from the dialog has the user's column choices in it,
+  // so which column is the running balance is re-derived against those rather
+  // than carried over from the inference that preceded them.
+  const mapping = body.mapping ? withBalanceSigns(body.mapping, table) : await inferMapping(table, preamble);
   const entries = applyMappingIndexed(table, mapping);
   const rows = entries.map((entry) => entry.parsed);
   const summaryNames = nameUnnamedRows(rows, chargeLines(grid, mapping.decimalSeparator));
@@ -310,8 +316,32 @@ importStatementRouter.post("/preview", async (req, res) => {
     })
   );
 
+  /**
+   * What the running balance settled, where it was used at all.
+   *
+   * Said out loud rather than left implicit, because the dialog's other
+   * answer to a statement that comes out all one way is a "flip all" button —
+   * and on a loan statement flipping is also wrong: the interest goes one way
+   * and the direct debits the other. Naming the evidence is what lets
+   * somebody tell "it read the balance" from "it guessed", and the count is
+   * what makes it checkable.
+   */
+  const balanceDirection = (() => {
+    if (!mapping.signFromBalance) return null;
+    const body2 = mapping.hasHeader ? table.slice(1) : table;
+    const states = balanceStatements(body2, mapping);
+    const signs = balanceSigns(body2, mapping) ?? [];
+    const movements = signs.filter((_, i) => states[i] == null);
+    return {
+      column: mapping.balanceColumn,
+      resolved: movements.filter((s) => s != null).length,
+      statements: states.filter((f) => f != null).length,
+    };
+  })();
+
   res.json({
     mapping,
+    balanceDirection,
     // Column labels for the editor's dropdowns, taken from the first row that
     // actually carries data — not table[0]. On a PDF the top of the grid is
     // letterhead, and labelling from it offers a single unusable column with
@@ -407,7 +437,10 @@ importStatementRouter.post("/categorise", async (req, res) => {
   }
 
   const { preamble, table } = splitPreamble(grid);
-  const mapping = body.mapping ?? (await inferMapping(table, preamble));
+  // A mapping sent back from the dialog has the user's column choices in it,
+  // so which column is the running balance is re-derived against those rather
+  // than carried over from the inference that preceded them.
+  const mapping = body.mapping ? withBalanceSigns(body.mapping, table) : await inferMapping(table, preamble);
   const rows = applyMapping(table, mapping);
 
   res.json(await categoriseImport(req.user!.id, rows));
@@ -433,7 +466,10 @@ importStatementRouter.post("/", async (req, res) => {
   }
 
   const { preamble, table } = splitPreamble(grid);
-  const mapping = body.mapping ?? (await inferMapping(table, preamble));
+  // A mapping sent back from the dialog has the user's column choices in it,
+  // so which column is the running balance is re-derived against those rather
+  // than carried over from the inference that preceded them.
+  const mapping = body.mapping ? withBalanceSigns(body.mapping, table) : await inferMapping(table, preamble);
   const rows = applyMapping(table, mapping);
 
   if (rows.length === 0) {

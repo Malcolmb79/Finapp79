@@ -29,6 +29,8 @@ const mapping: StatementMapping = {
   dateColumn: 1,
   defaultYear: 2026,
   signFromMarker: false,
+  balanceColumn: null,
+  signFromBalance: false,
   dateFormat: "dmy",
   amountColumn: 3,
   debitColumn: null,

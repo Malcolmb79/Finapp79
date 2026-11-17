@@ -25,6 +25,9 @@ const MODEL = "claude-opus-5";
 // Enough rows for the model to tell DD/MM from MM/DD (needs a day > 12) and to
 // see whether a debit column is ever populated, without sending the statement.
 const SAMPLE_ROWS = 12;
+// A run of dated rows marks the table; one stray dated row does not.
+const DATA_WINDOW = 5;
+const DATA_RUN = 3;
 
 export type DateFormat = "iso" | "dmy" | "mdy";
 
@@ -65,6 +68,30 @@ export interface StatementMapping {
    * every row look like income.
    */
   signFromMarker: boolean;
+  /**
+   * A running-balance column, when the statement prints one.
+   *
+   * Never imported as a transaction — it is read for direction only. See
+   * `signFromBalance`.
+   */
+  balanceColumn: number | null;
+  /**
+   * Direction read from the running balance rather than from the amount.
+   *
+   * The case this exists for: a statement with separate *Payments out* and
+   * *Payments in* columns, extracted from a PDF where only one of the two is
+   * ever filled on a row. The whitespace fallback collapses them into one
+   * column, and what is lost is precisely the direction — so a Barclayloan
+   * statement imports its interest charges, its loan advance and its direct
+   * debits all as money arriving. Nothing in the amounts can distinguish that
+   * from a genuine run of income, which is why `invertAmounts` exists; but
+   * here the document does say, in the balance it prints beside every row.
+   *
+   * Grounded the same way `statementCharges.ts` is: the balance is a second,
+   * independent statement of the same fact, and a row is only claimed when
+   * the arithmetic can only work one way round. See `balanceSigns`.
+   */
+  signFromBalance: boolean;
   /** How the mapping was arrived at — surfaced to the user after an import. */
   source: "ai" | "heuristic";
   /**
@@ -374,6 +401,10 @@ const HEADER_PATTERNS: { key: keyof StatementMapping; pattern: RegExp }[] = [
 // column parses as dates, which parse as numbers — and that works regardless
 // of what language the headers are in.
 function heuristicMapping(rows: string[][], preamble: string[][] = []): StatementMapping {
+  return withBalanceSigns(heuristicColumns(rows, preamble), rows);
+}
+
+function heuristicColumns(rows: string[][], preamble: string[][] = []): StatementMapping {
   const header = rows[0] ?? [];
   const looksLikeHeader = header.some((cell) => /[a-z]/i.test(cell)) && !hasDateShape(header[0] ?? "");
 
@@ -533,6 +564,10 @@ function heuristicMapping(rows: string[][], preamble: string[][] = []): Statemen
     dateColumn,
     defaultYear,
     signFromMarker,
+    // Filled in by withBalanceSigns, which needs a finished mapping to test
+    // the candidate columns against.
+    balanceColumn: null,
+    signFromBalance: false,
     // Day-first is the safe default: most non-US exports are DD/MM, and
     // normaliseDate overrides it whenever a day above 12 makes the real order
     // unambiguous either way.
@@ -568,7 +603,21 @@ export async function inferMapping(rows: string[][], preamble: string[][] = []):
   // transaction. Handing the model the first N rows shows it none of the
   // table, so it maps columns off letterhead and the import comes back empty.
   // One row before the first data row is included, since that's the header.
-  const firstDataRow = rows.findIndex((row) => row.length > 1 && row.some((c) => hasDateShape(c)));
+  // Where the table *starts*, not where the first date appears. A PDF's
+  // extraction is in page order, not reading order: this Barclayloan puts one
+  // transaction from the top of page two ahead of the address block, and
+  // sampling from it showed the model twelve rows of letterhead and a single
+  // 01 August row. It mapped columns off that, and reported the statement's
+  // period as "01 Aug 2025 to 01 Aug 2025" — which then flagged twenty-one of
+  // its own twenty-three transactions as falling outside it.
+  //
+  // So the start of the table is the first row with a run of dated rows after
+  // it. One stray cannot make a run.
+  const dated = rows.map((row) => row.length > 1 && row.some((c) => hasDateShape(c)));
+  const runStart = dated.findIndex(
+    (_, i) => dated.slice(i, i + DATA_WINDOW).filter(Boolean).length >= DATA_RUN
+  );
+  const firstDataRow = runStart >= 0 ? runStart : dated.indexOf(true);
   const sampleStart = firstDataRow > 0 ? firstDataRow - 1 : 0;
   const sample = rows
     .slice(sampleStart, sampleStart + SAMPLE_ROWS)
@@ -578,8 +627,13 @@ export async function inferMapping(rows: string[][], preamble: string[][] = []):
   // The lines above the table are where a statement names its bank and shows
   // an IBAN — the only place bankName can come from. They're shown separately
   // so they can't be mistaken for table rows and skew the column indices.
-  const header = preamble
-    .slice(0, SAMPLE_ROWS)
+  // `splitPreamble` finds nothing on a PDF, whose every row is padded to the
+  // same width — so the letterhead stays inside the table and the model is
+  // shown no header at all. The rows above where the table starts are that
+  // letterhead, and they are where a statement names its bank, its account
+  // and the period it covers.
+  const header = (preamble.length > 0 ? preamble : rows.slice(0, sampleStart))
+    .slice(0, SAMPLE_ROWS * 2)
     .map((row) => row.join(" "))
     .filter((line) => line.trim() !== "")
     .join("\n");
@@ -628,13 +682,21 @@ export async function inferMapping(rows: string[][], preamble: string[][] = []):
     // defaultYear and signFromMarker are structural facts the heuristic
     // derives from the whole document, not judgement calls — so they're taken
     // from it rather than asked of the model.
-    const inferred: StatementMapping = {
-      ...parsed,
-      invertAmounts: false,
-      defaultYear: fallback.defaultYear,
-      signFromMarker: fallback.signFromMarker,
-      source: "ai",
-    };
+    const inferred: StatementMapping = withBalanceSigns(
+      {
+        ...parsed,
+        invertAmounts: false,
+        defaultYear: fallback.defaultYear,
+        signFromMarker: fallback.signFromMarker,
+        // Structural, like the two above, and dependent on which column the
+        // model chose for the amount — so it is derived against this mapping
+        // rather than carried over from the heuristic's.
+        balanceColumn: null,
+        signFromBalance: false,
+        source: "ai",
+      },
+      rows
+    );
 
     // The model sees a sample; the heuristic sees every row. When the model's
     // mapping reads fewer transactions than the heuristic's, it has misread
@@ -669,6 +731,11 @@ function mappedColumns(mapping: StatementMapping): Set<number> {
       mapping.creditColumn,
       mapping.counterpartyColumn,
       mapping.descriptionColumn,
+      // The balance is spoken for too, for `strayName`'s purposes: a row with
+      // no description would otherwise be named after the balance beside it.
+      // `withBalanceSigns` uses its own set, since it has to be free to
+      // re-pick the column it is looking for.
+      mapping.balanceColumn,
     ].filter((column): column is number => column != null)
   );
 }
@@ -782,6 +849,178 @@ export function sectionSigns(rows: string[][], dateColumn: number | null): (1 | 
   return sawCredit && sawDebit ? signs : null;
 }
 
+/**
+ * A printed balance as money *held*, so one subtraction works for every
+ * statement.
+ *
+ * A loan prints what is owed and marks it `DR`; a current account prints what
+ * is there and marks it nothing. Read as held — owed becomes negative — the
+ * relationship is the same on both: the balance after a row, minus the
+ * balance before it, is the transaction. An interest charge on a loan moves
+ * −22,900 to −23,261.61, a delta of −361.61, which is money out in exactly
+ * the sense the rest of this app means it. No separate flag for which kind of
+ * statement it is: the marker beside the figure already says.
+ */
+function heldBalance(raw: string, decimalSeparator: "." | ","): number | null {
+  const value = normaliseAmount(raw, decimalSeparator);
+  if (value == null) return null;
+  return /\b(dr|od)\.?$/i.test(raw.trim()) ? -Math.abs(value) : value;
+}
+
+/** How much of the file must reconcile before the balance is believed. */
+const BALANCE_AGREEMENT = 0.6;
+const BALANCE_MIN_ROWS = 3;
+/** Below this share of negatives, the file is unsigned and one `DR` is a summary line. */
+const SIGNED_SHARE = 0.2;
+/** Balances are money, so two that differ by less than this are the same figure. */
+const CENT = 0.005;
+
+/**
+ * Each row's direction, read off the running balance.
+ *
+ * Deliberately **order-free**. The obvious implementation walks the rows and
+ * subtracts each balance from the one before it, which needs the file to be
+ * in order — and a PDF is not: this statement's own extraction puts a row
+ * from the top of page two ahead of the address block. Sorting by date does
+ * not rescue it either, since two rows on 01 September have no order between
+ * them that the page preserves.
+ *
+ * So each row is tested against the balances of the *whole* statement rather
+ * than against its neighbour. A row whose amount is `A` and balance `B` was
+ * preceded by a balance of either `B − A` (the amount came in) or `B + A` (it
+ * went out). If exactly one of those appears anywhere in the file, the
+ * direction can only be that one. If both appear, or neither does, the row is
+ * left undecided rather than guessed at — the same exactly-one discipline as
+ * `nameUnnamedRows` and the loan matcher, and for the same reason: a
+ * coincidence read as an explanation is worse than an unanswered row.
+ *
+ * Returns null when the statement gives nothing to work with, so the caller
+ * can fall back to what it did before.
+ */
+/**
+ * The rows that state a balance rather than a movement, and the figure each
+ * one states.
+ *
+ * A running-balance statement prints, beside every movement, the balance it
+ * produced. So a row carrying an amount and *no* balance is not a movement —
+ * it is the opening line, a carried-forward figure, or the "Closing Balance
+ * 19,883.52 DR" this Barclayloan ends on, which otherwise imports as a
+ * £19,883 transaction and puts the account out by the whole of itself.
+ *
+ * Identified positively rather than by a threshold on how many rows carry a
+ * balance: the figure in its amount column has to **be** a balance — either
+ * one printed elsewhere in the file, or zero, which is the one balance that
+ * can never appear elsewhere because nothing precedes it. A share would have
+ * been wrong on a short statement, where an opening and a closing line are a
+ * quarter of the rows.
+ *
+ * They are wanted twice: dropped from the import, and *kept* as balances,
+ * because the first movement on a statement is settled by the opening line
+ * and by nothing else — on this file that is the £22,900 advance, the largest
+ * row in it.
+ */
+export function balanceStatements(rows: string[][], mapping: StatementMapping): (number | null)[] {
+  if (mapping.balanceColumn == null || mapping.amountColumn == null) return rows.map(() => null);
+
+  const balances = rows.map((row) => heldBalance(cell(row, mapping.balanceColumn), mapping.decimalSeparator));
+  const known = balances.filter((b): b is number => b != null);
+
+  return rows.map((row, index) => {
+    if (balances[index] != null) return null;
+    const figure = heldBalance(cell(row, mapping.amountColumn), mapping.decimalSeparator);
+    if (figure == null) return null;
+    const isBalance = Math.abs(figure) < CENT || known.some((b) => Math.abs(b - figure) < CENT);
+    return isBalance ? figure : null;
+  });
+}
+
+export function balanceSigns(rows: string[][], mapping: StatementMapping): (1 | -1 | null)[] | null {
+  if (mapping.balanceColumn == null || mapping.amountColumn == null) return null;
+
+  const balances = rows.map((row) => heldBalance(cell(row, mapping.balanceColumn), mapping.decimalSeparator));
+  const known = balances.filter((b): b is number => b != null);
+  if (known.length < BALANCE_MIN_ROWS) return null;
+  known.push(...balanceStatements(rows, mapping).filter((f): f is number => f != null));
+
+  const present = (value: number) => known.some((b) => Math.abs(b - value) < CENT);
+
+  return rows.map((row, index) => {
+    const balance = balances[index];
+    const amount = normaliseAmount(cell(row, mapping.amountColumn), mapping.decimalSeparator);
+    if (balance == null || amount == null) return null;
+
+    const size = Math.abs(amount);
+    // A row that moved nothing has the same balance either way round, so
+    // there is no direction in it to read.
+    if (size < CENT) return null;
+
+    const cameIn = present(balance - size);
+    const wentOut = present(balance + size);
+    if (cameIn === wentOut) return null;
+    return cameIn ? 1 : -1;
+  });
+}
+
+/**
+ * The balance column, and whether it can be trusted to say which way each row
+ * ran.
+ *
+ * A structural fact about the document rather than a judgement, so it is
+ * derived here from every row instead of being asked of the model — the same
+ * treatment `defaultYear` and `signFromMarker` get.
+ *
+ * Two guards. It is only consulted where the sign is genuinely missing: a
+ * statement whose amounts carry their own negatives, or a `Cr` marker, or
+ * separate debit and credit columns, has already said which way it runs and
+ * must not be second-guessed. And the column has to **reconcile** — most of
+ * the file's rows resolving, not a handful — because a column of large
+ * numbers that happens to contain one matching difference is a coincidence,
+ * and reading a coincidence as an explanation is the one failure this kind of
+ * inference must not have.
+ */
+export function withBalanceSigns(mapping: StatementMapping, rows: string[][]): StatementMapping {
+  if (mapping.amountColumn == null || mapping.signFromMarker) return mapping;
+
+  const body = mapping.hasHeader ? rows.slice(1) : rows;
+  const amounts = body
+    .map((row) => normaliseAmount(cell(row, mapping.amountColumn), mapping.decimalSeparator))
+    .filter((a): a is number => a != null);
+  // Already signed: the statement has said, and this has nothing to add.
+  //
+  // Judged on the share rather than on any single row, because a statement
+  // that signs nothing still ends with a "Closing Balance 19,883.52 DR" line,
+  // and that one `DR` parses as the only negative in the file. Bailing out on
+  // it left a Barclayloan importing every interest charge, the advance and
+  // every direct debit as money arriving.
+  const negatives = amounts.filter((a) => a < 0).length;
+  if (amounts.length === 0 || negatives >= amounts.length * SIGNED_SHARE) return mapping;
+
+  // Everything except the balance itself, so re-running this on a mapping
+  // that already names one can still find it — which is what happens every
+  // time the user corrects a column in the confirmation dialog and the
+  // mapping comes back from the client.
+  const spoken = mappedColumns({ ...mapping, balanceColumn: null });
+  const columnCount = body.reduce((max, row) => Math.max(max, row.length), 0);
+
+  let best: { column: number; resolved: number } | null = null;
+  for (let column = 0; column < columnCount; column++) {
+    if (spoken.has(column)) continue;
+    const candidate = { ...mapping, balanceColumn: column };
+    const signs = balanceSigns(body, candidate);
+    if (!signs) continue;
+    const resolved = signs.filter((s) => s != null).length;
+    if (resolved > (best?.resolved ?? 0)) best = { column, resolved };
+  }
+
+  if (!best || best.resolved < BALANCE_MIN_ROWS) return mapping;
+  const rowsWithAmounts = body.filter(
+    (row) => normaliseAmount(cell(row, mapping.amountColumn), mapping.decimalSeparator) != null
+  ).length;
+  if (best.resolved < rowsWithAmounts * BALANCE_AGREEMENT) return mapping;
+
+  return { ...mapping, balanceColumn: best.column, signFromBalance: true };
+}
+
 export function applyMapping(rows: string[][], mapping: StatementMapping): ParsedRow[] {
   return applyMappingIndexed(rows, mapping).map((entry) => entry.parsed);
 }
@@ -802,14 +1041,26 @@ export function applyMappingIndexed(
   const body = mapping.hasHeader ? rows.slice(1) : rows;
   const parsed: { line: string[]; parsed: ParsedRow }[] = [];
 
+  // The running balance, where the statement prints one and it reconciles.
+  // Stronger evidence than a section heading: it is the document's own
+  // arithmetic about that very row, rather than a claim about the block the
+  // row sits in.
+  const fromBalance = mapping.signFromBalance ? balanceSigns(body, mapping) : null;
+
+  // The rows that state a balance rather than a movement — see
+  // `balanceStatements`. Only looked for once the balance column has been
+  // believed, so a statement this knows nothing about keeps every row it had.
+  const statesABalance = fromBalance == null ? null : balanceStatements(body, mapping);
+
   // Only consulted where the amounts carry no sign of their own. A statement
   // that marks its figures has already said which way they run, and the
   // headings must not be allowed to overrule it.
-  const signs = mapping.signFromMarker ? null : sectionSigns(body, mapping.dateColumn);
+  const signs = mapping.signFromMarker || fromBalance ? null : sectionSigns(body, mapping.dateColumn);
 
   for (const [index, row] of body.entries()) {
     const date = normaliseDate(cell(row, mapping.dateColumn), mapping.dateFormat, mapping.defaultYear);
     if (!date) continue;
+    if (statesABalance?.[index] != null) continue;
 
     let amount: number | null = null;
     if (mapping.amountColumn != null) {
@@ -818,6 +1069,9 @@ export function applyMappingIndexed(
       // The magnitude comes from the number, the direction from the marker
       // beside it — on these statements the number itself is always unsigned.
       if (amount != null && mapping.signFromMarker) amount = Math.abs(amount) * markerSign(raw);
+      // A row the balance could not settle keeps the sign it had. Forcing a
+      // direction onto it would be the guess this whole path exists to avoid.
+      else if (amount != null && fromBalance?.[index]) amount = Math.abs(amount) * fromBalance[index]!;
       else if (amount != null && signs) amount = Math.abs(amount) * signs[index];
     } else {
       const debit = normaliseAmount(cell(row, mapping.debitColumn), mapping.decimalSeparator);

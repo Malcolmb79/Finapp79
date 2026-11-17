@@ -308,6 +308,12 @@ export interface StatementMapping {
   // Flips every amount's sign — the user's correction for a statement whose
   // amounts are unsigned and money-out is implied rather than written.
   invertAmounts: boolean;
+  // A running-balance column, and whether direction was read from it. Derived
+  // on the server from the whole file; there is no control for them, and they
+  // ride back with the rest of the mapping so a corrected column choice is
+  // re-tested against the same balance.
+  balanceColumn: number | null;
+  signFromBalance: boolean;
   source: "ai" | "heuristic";
   bankName: string | null;
   bankCountry: string | null;
@@ -330,6 +336,15 @@ export interface StatementCheck {
 
 export interface StatementPreview {
   mapping: StatementMapping;
+  /**
+   * What the statement's own running balance settled, when it was used.
+   *
+   * Named rather than left implicit: the dialog's other answer to a statement
+   * that comes out all one way is "flip all", and on a loan statement
+   * flipping is wrong too — the interest runs one way and the direct debits
+   * the other. The count is what makes the claim checkable.
+   */
+  balanceDirection: { column: number | null; resolved: number; statements: number } | null;
   columns: { index: number; label: string }[];
   sample: { date: string; amount: number; description: string | null; counterparty: string | null }[];
   parsed: number;

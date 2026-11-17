@@ -16,6 +16,8 @@ const baseMapping: StatementMapping = {
   invertAmounts: false,
   defaultYear: null,
   signFromMarker: false,
+  balanceColumn: null,
+  signFromBalance: false,
   source: "heuristic",
   bankName: null,
   bankCountry: null,
@@ -71,6 +73,21 @@ describe("statement period", () => {
 
   it("falls back to the range the rows cover when none is stated", () => {
     const check = checkStatement(baseMapping, rows, { iban: null });
+    expect(check).toMatchObject({ periodStart: "2026-06-10", periodEnd: "2026-07-05", outsidePeriod: 0 });
+  });
+
+  /**
+   * A period that excludes the statement's own transactions was misread, and
+   * the warning built on it is then a claim about the file rather than about
+   * the reading. A Barclayloan came back as "01 Aug 2025 to 01 Aug 2025" and
+   * flagged twenty-one of its own twenty-three rows as falling outside it.
+   */
+  it("discards a stated period that excludes most of the statement", () => {
+    const check = checkStatement(
+      { ...baseMapping, periodStart: "2026-08-01", periodEnd: "2026-08-01" },
+      rows,
+      { iban: null }
+    );
     expect(check).toMatchObject({ periodStart: "2026-06-10", periodEnd: "2026-07-05", outsidePeriod: 0 });
   });
 });

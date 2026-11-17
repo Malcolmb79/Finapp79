@@ -427,6 +427,27 @@ export default function StatementImportModal({
               </p>
             )}
 
+            {/* The evidence, where there is some. A statement that prints a
+                running balance has already said which way every row ran, and
+                saying so is what distinguishes a reading from a guess — the
+                more so here, since the alternative on offer below is a "flip
+                all" that would be wrong on a loan statement, where the
+                interest runs one way and the repayments the other. */}
+            {preview.balanceDirection && preview.balanceDirection.resolved > 0 && (
+              <p className="trend-head__detail" style={{ margin: "0.6rem 0" }}>
+                Direction read from the statement&rsquo;s own running balance —{" "}
+                <strong>{preview.balanceDirection.resolved}</strong> of <strong>{preview.parsed}</strong> rows reconcile
+                against it
+                {preview.balanceDirection.statements > 0 && (
+                  <>
+                    , and {preview.balanceDirection.statements} balance line
+                    {preview.balanceDirection.statements === 1 ? " was" : "s were"} left out as not being transactions
+                  </>
+                )}
+                .
+              </p>
+            )}
+
             {preview.parsed > 1 && (preview.direction.inflow === 0 || preview.direction.outflow === 0) && (
               <div
                 role="alert"

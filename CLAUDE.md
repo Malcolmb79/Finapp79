@@ -228,6 +228,62 @@ query, or one user's data leaks into another's response.
   instead of creating duplicates. Enable Banking transactions dedupe the
   same way, preferring the provider's `transaction_id`/`entry_reference`
   and falling back to a content hash if neither is present.
+- **Two columns that a PDF collapses into one, and the direction that goes
+  with them.** A Barclayloan statement prints *Payments out £* and *Payments
+  in £* side by side and fills exactly one per row, so the extractor's
+  whitespace fallback merges them — and what is lost is precisely which. Every
+  interest charge, the £22,900 advance and every direct debit then imported as
+  money arriving. Nothing in the amounts can distinguish that from a genuine
+  run of income, which is why `invertAmounts` exists; but flipping is wrong
+  here too, since on a loan the interest runs one way and the repayments the
+  other.
+
+  The document does say. It says it in the **running balance** beside every
+  row, and `signFromBalance` reads it:
+  - `heldBalance()` reads a printed balance as money *held*, so one
+    subtraction works for every statement: a loan prints what is owed and
+    marks it `DR`, which becomes negative, and then `balance after − balance
+    before` is the transaction on a loan and a current account alike. No flag
+    for which kind of document it is — the marker beside the figure says.
+  - `balanceSigns()` is deliberately **order-free**. Walking the rows and
+    subtracting neighbours needs the file in order, and a PDF is not: this
+    one's extraction puts a row from the top of page two ahead of the address
+    block, and two rows dated 01 September have no order the page preserves.
+    So a row with amount `A` and balance `B` was preceded by `B − A` or by
+    `B + A`, and if exactly one of those appears anywhere in the file, the
+    direction can only be that one. Both, or neither, and the row is left
+    undecided — the same exactly-one discipline as `nameUnnamedRows`.
+  - `balanceStatements()` finds the rows that state a balance rather than a
+    movement. A running-balance statement prints one beside every movement, so
+    a row with an amount and no balance is the opening line or the "Closing
+    Balance 19,883.52 DR" the file ends on — which otherwise imports as a
+    £19,883 transaction and puts the account out by the whole of itself.
+    Identified positively, by the figure *being* a balance printed elsewhere
+    or being zero, rather than by a threshold on how many rows carry one: a
+    share is wrong on a short statement where opening and closing lines are a
+    quarter of the rows. They are kept as balances even so, because the first
+    movement on a statement is settled by the opening line and by nothing
+    else.
+  - The guard that mattered: a file that signs nothing still ends with one
+    `DR`, which parses as the only negative in it. "Any negative means the
+    statement has already said" left the whole thing importing as income, so
+    it is a **share** of negatives that decides.
+  - The proof is arithmetic, not plausibility: the 23 parsed rows total
+    −£19,883.52, which is exactly the balance the statement closes on. There
+    is a test asserting that, and the preview prints how many rows reconciled,
+    because the alternative on offer beside it is a "flip all" button and the
+    user has to be able to tell a reading from a guess.
+- **A sample that showed the model no table.** `inferMapping` sampled from the
+  first row carrying a date; on this file that was the stray page-two row, so
+  twelve rows of letterhead went to the model and it reported the statement's
+  period as "01 Aug 2025 to 01 Aug 2025" — flagging twenty-one of its own
+  twenty-three transactions as outside it. The table now starts where a *run*
+  of dated rows starts, since one stray cannot make a run, and the rows above
+  it are passed as the letterhead, which is where the bank, the account number
+  and the real period are written. `checkStatement` also discards a stated
+  period that excludes most of the statement: a period that does not contain
+  the document's own transactions was misread, and the rows' own range is the
+  better answer.
 - A statement whose **description column is mapped to the wrong field**
   imports perfectly — every date, every amount and the total all correct —
   and the rows arrive with no name, surfacing days later as a review queue of
