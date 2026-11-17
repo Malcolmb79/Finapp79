@@ -1,3 +1,5 @@
+import { monthlyFlow, type FlowKind } from "./monthlyFlow.js";
+
 /**
  * The figures a dashboard header strip carries.
  *
@@ -46,8 +48,28 @@ export function monthKeyOf(date = new Date()): string {
 }
 
 export interface SummaryInput {
-  /** Already converted to one currency, and already excluding transfers between your own accounts. */
+  /**
+   * The spending list: already converted to one currency, already excluding
+   * transfers between your own accounts, and already excluding loan
+   * repayments — money that left the account without being spent.
+   */
   entries: Entry[];
+  /**
+   * Everything that moved, repayments included. Credits are read off this so
+   * none of them can be lost; defaults to `entries`, which is right whenever
+   * no credit carries a repayment rule.
+   */
+  flow?: Entry[];
+  /**
+   * What each category is, which is the only thing that can say whether a
+   * credit is income. See `monthlyFlow` — the strip reads it the same way the
+   * cash-flow card and the flow chart do, because a tile headed "Income"
+   * disagreeing with the card underneath it by the value of a refund is worse
+   * than either figure being wrong alone.
+   */
+  kind: (id: number | null) => FlowKind | null;
+  /** Whether any category is declared income at all, so a setup state can say so. */
+  anyIncomeCategory?: boolean;
   month: string;
   /** Sum of every monthly cap, in the same currency. */
   budgeted: number;
@@ -64,30 +86,77 @@ export interface SummaryInput {
  * which sounds obvious and is the usual bug: a refund filed as a negative
  * expense quietly reduces the spending figure rather than appearing as the
  * inflow it is.
+ *
+ * And income is the *declared* thing rather than the positive thing. Every
+ * credit used to count, so this tile reported a household earning money from
+ * its own refunds — and then divided spending by that figure to say what
+ * share of "what came in" had gone.
  */
-export function summaryFigures({ entries, month, budgeted, debt, saved }: SummaryInput): SummaryFigure[] {
+export function summaryFigures({
+  entries,
+  flow,
+  kind,
+  anyIncomeCategory = true,
+  month,
+  budgeted,
+  debt,
+  saved,
+}: SummaryInput): SummaryFigure[] {
   const inMonth = entries.filter((e) => e.booking_date.startsWith(month));
-  const income = round(inMonth.filter((e) => e.amount > 0).reduce((sum, e) => sum + e.amount, 0));
-  const spent = round(inMonth.filter((e) => e.amount < 0).reduce((sum, e) => sum + Math.abs(e.amount), 0));
-  const left = round(income - spent);
+  const flowInMonth = (flow ?? entries).filter((e) => e.booking_date.startsWith(month));
+  const position = monthlyFlow({ flow: flowInMonth, spending: inMonth }, kind);
+  const income = round(position.income);
+  const otherIn = round(position.otherIn);
+  const spent = round(position.expenses);
+  const left = round(position.saved);
+  // What came in, earned or not: the denominator of "share of what came in",
+  // which is a question about money arriving rather than about earnings.
+  const arrived = round(income + otherIn);
 
-  return [
+  const figures: SummaryFigure[] = [
     {
       key: "income",
-      label: "Income",
-      amount: income,
+      // Nothing declared is a setup state, not a month that earned nothing.
+      // "Income €0.00" over a month with a salary in it would be a plain lie.
+      label: anyIncomeCategory ? "Income" : "Money in",
+      amount: anyIncomeCategory ? income : arrived,
       basis: "month",
-      detail: `${inMonth.filter((e) => e.amount > 0).length} payments in`,
+      detail: anyIncomeCategory
+        ? (() => {
+            // Narrowing income to the declared categories makes a count of one
+            // the ordinary case rather than a rarity, and "1 payments in" then
+            // reads as a bug in the figure beside it.
+            const paid = flowInMonth.filter((e) => e.amount > 0 && kind(e.category_id ?? null)?.countsAsIncome).length;
+            return `${paid} payment${paid === 1 ? "" : "s"} in`;
+          })()
+        : "nothing marked as income yet",
     },
+  ];
+
+  if (anyIncomeCategory && otherIn > 0) {
+    figures.push({
+      key: "otherIn",
+      label: "Other in",
+      amount: otherIn,
+      basis: "month",
+      // Named rather than folded into income, and named rather than dropped:
+      // money that arrived has to show somewhere or the strip stops
+      // reconciling against the bank.
+      detail: "not counted as income",
+    });
+  }
+
+  figures.push(
     {
       key: "spent",
       label: "Spent",
       amount: spent,
       basis: "month",
-      // Against income rather than against the budget: the budget may cover
-      // only some categories, and a share of a partial total means nothing.
-      detail: income > 0 ? `${Math.round((spent / income) * 100)}% of what came in` : null,
-      tone: income > 0 && spent > income ? "bad" : undefined,
+      // Against what came in rather than against the budget: the budget may
+      // cover only some categories, and a share of a partial total means
+      // nothing.
+      detail: arrived > 0 ? `${Math.round((spent / arrived) * 100)}% of what came in` : null,
+      tone: arrived > 0 && spent > arrived ? "bad" : undefined,
     },
     {
       key: "left",
@@ -107,8 +176,10 @@ export function summaryFigures({ entries, month, budgeted, debt, saved }: Summar
       detail: budgeted > 0 ? `${round(Math.max(0, budgeted - spent)) > 0 ? `${round(budgeted - spent)} still allowed` : "fully spent"}` : "nothing capped",
     },
     { key: "debt", label: "Owed", amount: round(debt), basis: "now", detail: null, tone: debt > 0 ? "bad" : undefined },
-    { key: "saved", label: "Saved", amount: round(saved), basis: "now", detail: null, tone: saved > 0 ? "good" : undefined },
-  ];
+    { key: "saved", label: "Saved", amount: round(saved), basis: "now", detail: null, tone: saved > 0 ? "good" : undefined }
+  );
+
+  return figures;
 }
 
 /* ----------------------------------------------------------- spend per day */

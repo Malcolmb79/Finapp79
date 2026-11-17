@@ -836,10 +836,45 @@ about what a salary is.
   though it repeated, where a card saying where the month's income came from
   would be wrong to leave one out.
 
-Still sign-based, and deliberately left so for now: the `Monthly cash flow`
-card and the Analytics totals. Those feed the savings rate, and narrowing them
-to the flag would silently drop every income category nobody has marked yet.
-That is a change to make once the flags are known to be complete, not before.
+**And the totals go the same way, which took one more decision.** The
+`Monthly cash flow` card, the `This month at a glance` strip and the Analytics
+totals are two numbers rather than a list, so there is no band to move a
+refund into — and narrowing income alone would have left the €40 on the
+spending side and reported a household €40 worse off than it is. A wrong
+figure in place of a wrong label is the worse trade.
+
+So `utils/monthlyFlow.ts` is the one definition all three read, and it returns
+three figures rather than two:
+
+- **income** — credits in a category called income.
+- **expenses** — spending, *net of* the credits filed against it. The netting
+  is what keeps the arithmetic honest: `saved` comes out at exactly what it
+  always did, every credit minus every debit, so the change moved what the
+  figures claim and not what the month was worth. That identity is the one
+  thing a reader can check against their own bank statement, and there is a
+  test asserting it.
+- **otherIn** — every credit that nothing could net away: one nobody has
+  filed, and the excess where a category took back more than it ever spent.
+  Its own figure, because folding it into income is the original bug and
+  dropping it would stop the card reconciling against the account. The three
+  of them add up to `saved`, printed side by side.
+
+Two lists in, not one. Credits come off the full flow list so none can be
+lost; debits come off the spending list so a loan repayment is not reported as
+spending. Passing one list for both is wrong in one direction or the other.
+
+Nothing flagged is a **setup state**, not a month that earned nothing: with no
+category declared, the tile reads `Money in` over the full figure rather than
+`Income €0.00` over a month with a salary in it. That was the objection to
+making this change earlier, and saying which of the two it is answers it.
+
+The category cards on Analytics — `Share of spending`, `Spend by category` —
+stay **gross**, so a page can show €453.97 of category spending above a
+€417.65 expenses total. That is deliberate and is the rule
+`categoryBreakdown.ts` already states: a refund reported separately keeps both
+facts, where netting it hides that the money was spent at all. The headline
+cannot do that, because it has to reconcile; the breakdown can, because it is
+answering what was spent rather than what it cost.
 
 ### Subscriptions: a tag, not a shape
 

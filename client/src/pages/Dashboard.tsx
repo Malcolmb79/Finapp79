@@ -53,6 +53,8 @@ import { useMeasuredWidth } from "../utils/useMeasuredWidth.js";
 import AccountAvatar from "../components/AccountAvatar.js";
 import TransactionDetailModal from "../components/TransactionDetailModal.js";
 import CashFlowSankey from "../components/dashboard/CashFlowSankey.js";
+import type { FlowCategory } from "../utils/cashFlowSankey.js";
+import { monthlyFlow } from "../utils/monthlyFlow.js";
 import SpendingCalendar from "../components/dashboard/SpendingCalendar.js";
 import MonthComparison from "../components/dashboard/MonthComparison.js";
 import { accountBalance, amountDrawn, isBorrowing, accountTxSums, isLiability, repaymentMirrors, spendingTransactions, visibleAccounts, visibleTransactions } from "../utils/accountBalance.js";
@@ -378,6 +380,26 @@ export default function Dashboard() {
   const spendTx = spendingTransactions(flowTx);
 
   /**
+   * What a category is, for every figure that has to tell money that was
+   * earned from money that merely arrived.
+   *
+   * Resolved once and handed to all of them — the cash-flow totals, the month
+   * bars and the flow chart. Three separate readings of "is this income" is
+   * three chances for one page to disagree with itself, which is how refunds
+   * came to sit on the income side of one card while another had already
+   * stopped counting them.
+   */
+  const byCategoryId = new Map(categories.map((c) => [c.id, c]));
+  const categoryKind = (id: number | null): FlowCategory | null => {
+    if (id == null) return null;
+    const found = byCategoryId.get(id);
+    return found ? { name: found.name, countsAsIncome: !!found.counts_as_income, isTransfer: !!found.is_transfer } : null;
+  };
+  // Nothing marked is a setup state rather than a month that earned nothing,
+  // and the card has to be able to say which.
+  const anyIncomeCategory = categories.some((c) => c.counts_as_income);
+
+  /**
    * Where the balance goes next, from what repeats.
    *
    * Anchored on spendable accounts rather than net worth, which is the whole
@@ -432,8 +454,17 @@ export default function Dashboard() {
     .filter((tx) => tx.booking_date.startsWith(thisMonthKey))
     .reduce((sum, tx) => sum + tx.amount, 0);
 
-  const income = flowTx.filter((tx) => tx.amount > 0).reduce((sum, tx) => sum + tx.amount, 0);
-  const expenses = Math.abs(spendTx.filter((tx) => tx.amount < 0).reduce((sum, tx) => sum + tx.amount, 0));
+  /**
+   * Income is the declared thing, not the positive thing.
+   *
+   * A credit used to be income by virtue of being a credit, which reported a
+   * household earning money from its own bus fares and divided the savings
+   * rate by a denominator containing its own refunds. `monthlyFlow` reads
+   * `counts_as_income` instead and nets a refund against the category it came
+   * back to, so what was saved comes out exactly as it did before — the
+   * figures stopped claiming the wrong thing without any of them moving.
+   */
+  const { income, otherIn, expenses } = monthlyFlow({ flow: flowTx, spending: spendTx }, categoryKind);
 
   const monthKeys = [...new Set(convertedTx.map((tx) => tx.booking_date.slice(0, 7)))].sort().slice(-6);
   const monthFlows: MonthFlow[] = monthKeys.map((key) => {
@@ -442,10 +473,12 @@ export default function Dashboard() {
     // money that was already yours.
     const monthTx = flowTx.filter((tx) => tx.booking_date.startsWith(key));
     const monthSpend = spendTx.filter((tx) => tx.booking_date.startsWith(key));
+    const flow = monthlyFlow({ flow: monthTx, spending: monthSpend }, categoryKind);
     return {
       label: monthLabel(key),
-      income: monthTx.filter((tx) => tx.amount > 0).reduce((s, tx) => s + tx.amount, 0),
-      expenses: Math.abs(monthSpend.filter((tx) => tx.amount < 0).reduce((s, tx) => s + tx.amount, 0)),
+      income: flow.income,
+      otherIn: flow.otherIn,
+      expenses: flow.expenses,
       // What the bar is made of, so clicking it opens exactly that.
       month: key,
     };
@@ -644,6 +677,12 @@ export default function Dashboard() {
 
   const glanceFigures = summaryFigures({
     entries: glanceEntries,
+    // Credits off the full list, debits off the spending one — the same split
+    // the cash-flow card makes, so the strip and the card cannot report
+    // different incomes for the same month.
+    flow: flowTx.map((tx) => ({ amount: tx.amount, booking_date: tx.booking_date, category_id: tx.category_id })),
+    kind: categoryKind,
+    anyIncomeCategory,
     month: glanceMonth,
     budgeted: budgetedTotal,
     debt: totalDebt,
@@ -788,7 +827,17 @@ export default function Dashboard() {
         ),
     },
     cashflow: {
-      body: <CashFlowCard income={income} expenses={expenses} months={monthFlows} currency={rates?.base ?? null} mode={config.modes.cashflow} />,
+      body: (
+        <CashFlowCard
+          income={income}
+          otherIn={otherIn}
+          expenses={expenses}
+          months={monthFlows}
+          currency={rates?.base ?? null}
+          mode={config.modes.cashflow}
+          anyIncomeCategory={anyIncomeCategory}
+        />
+      ),
     },
     spendingCalendar: {
       // The month on screen, not a fixed "this month": the page has a range
@@ -817,13 +866,9 @@ export default function Dashboard() {
           // The whole category, not just its name: whether a credit is income
           // cannot be read off the amount, and grouping by name alone put
           // refunds on the income side as "Transport" and "Miscellaneous".
-          category={(id) => {
-            if (id == null) return null;
-            const found = categories.find((c) => c.id === id);
-            return found
-              ? { name: found.name, countsAsIncome: !!found.counts_as_income, isTransfer: !!found.is_transfer }
-              : null;
-          }}
+          // The same reading the cash-flow totals use, so the card and the
+          // picture of it cannot disagree.
+          category={categoryKind}
           currency={rates?.base ?? null}
         />
       ),

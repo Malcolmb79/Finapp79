@@ -18,6 +18,15 @@ function monthHref(month: string): string {
 export interface MonthFlow {
   label: string;
   income: number;
+  /**
+   * Money that arrived and that nothing calls income.
+   *
+   * Drawn stacked on the income bar rather than left out, because the bar has
+   * to account for the month's money — and not merged into it, because a
+   * green bar that silently contains refunds is the thing this card was
+   * getting wrong.
+   */
+  otherIn?: number;
   expenses: number;
   /**
    * Where this bar's figures came from, as `YYYY-MM`.
@@ -57,26 +66,48 @@ const MIN_CHART_HEIGHT = 60;
 // was which - it could not stop the colour saying the opposite. It also
 // matches the flow view, which already draws its income side in --good.
 const INCOME_FILL = "var(--good)";
+// The same green at half strength, so the stacked part reads as money in
+// without claiming to be the earned part of it.
+const OTHER_IN_OPACITY = 0.45;
 const EXPENSE_FILL = "var(--text-muted)";
 const EXPENSE_OPACITY = 0.55;
 
 export default function CashFlowCard({
   income,
+  otherIn = 0,
   expenses,
   months,
   currency,
   mode = "chart",
+  anyIncomeCategory = true,
 }: {
   income: number;
+  /**
+   * Credits nothing calls income: one nobody has filed, or a refund larger
+   * than its category ever spent. Shown as its own figure rather than added
+   * to income, since a total that quietly includes refunds is the bug, and
+   * rather than dropped, since money that arrived has to show somewhere or
+   * the card stops reconciling against the bank statement.
+   */
+  otherIn?: number;
   expenses: number;
   months: MonthFlow[];
   /** Every figure here combines accounts, so it is already converted into this. */
   currency: string | null;
   mode?: "chart" | "number";
+  /**
+   * Whether any category has been declared income at all.
+   *
+   * Nothing flagged is a setup state, not a month that earned nothing. With
+   * none set, every credit lands in `otherIn` and an "Income €0.00" tile over
+   * a month containing a salary would be a plain lie — so the card says which
+   * of the two it is.
+   */
+  anyIncomeCategory?: boolean;
 }) {
   const money = (value: number) => (currency ? formatCurrency(value, currency) : value.toFixed(2));
-  const saved = income - expenses;
-  const max = Math.max(1, ...months.flatMap((m) => [m.income, m.expenses]));
+  const saved = income + otherIn - expenses;
+  const max = Math.max(1, ...months.flatMap((m) => [m.income + (m.otherIn ?? 0), m.expenses]));
 
   // Height as well as width: the chart has to leave room for the labels
   // beneath it, and a fixed height inside a resizable card either crops them
@@ -100,14 +131,29 @@ export default function CashFlowCard({
           that doesn't work. A swatch beside each total costs no space and
           puts the answer where the eye already is, rather than in a legend
           off to one side. */}
-      <div className="stat-row" style={{ marginBottom: "1rem" }}>
+      <div className="stat-row" style={{ marginBottom: otherIn > 0 || !anyIncomeCategory ? "0.4rem" : "1rem" }}>
+        {/* With nothing declared there is no income figure to print, only a
+            total of what arrived — and calling that "Income" would be the
+            very claim this card stopped making. */}
         <div>
           <p className="stat-tile__label" style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
             <span style={{ width: 9, height: 9, borderRadius: 2, background: INCOME_FILL, flexShrink: 0 }} aria-hidden />
-            Income
+            {anyIncomeCategory ? "Income" : "Money in"}
           </p>
-          <p className="stat-tile__value">{money(income)}</p>
+          <p className="stat-tile__value">{money(anyIncomeCategory ? income : income + otherIn)}</p>
         </div>
+        {anyIncomeCategory && otherIn > 0 && (
+          <div>
+            <p className="stat-tile__label" style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+              <span
+                style={{ width: 9, height: 9, borderRadius: 2, background: INCOME_FILL, opacity: OTHER_IN_OPACITY, flexShrink: 0 }}
+                aria-hidden
+              />
+              Other in
+            </p>
+            <p className="stat-tile__value">{money(otherIn)}</p>
+          </div>
+        )}
         <div>
           <p className="stat-tile__label" style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
             <span
@@ -124,6 +170,20 @@ export default function CashFlowCard({
         </div>
       </div>
 
+      {/* Said once, under the figures, rather than as a tooltip nobody opens.
+          Both sentences exist because a figure that needs explaining and does
+          not get it is the figure that gets quoted wrongly. */}
+      {!anyIncomeCategory ? (
+        <p className="trend-head__detail" style={{ marginBottom: "0.8rem" }}>
+          No category is marked as income yet, so none of this is counted as earnings. Mark one on the Transactions page.
+        </p>
+      ) : otherIn > 0 ? (
+        <p className="trend-head__detail" style={{ marginBottom: "0.8rem" }}>
+          Other in is money nothing calls income — a credit not yet filed, or a refund larger than its category spent.
+          Refunds filed against a category come off that category&rsquo;s spending instead.
+        </p>
+      ) : null}
+
       {mode !== "chart" ? null : months.length === 0 ? (
         <p className="empty-state">Nothing to show yet.</p>
       ) : (
@@ -137,14 +197,32 @@ export default function CashFlowCard({
             <line x1="0" y1={chartHeight - 1} x2={plotWidth} y2={chartHeight - 1} stroke="var(--gridline)" strokeWidth="1" />
             {months.map((m, i) => {
               const slotX = i * slot;
-              const incomeH = (m.income / max) * (chartHeight - 8);
-              const expenseH = (m.expenses / max) * (chartHeight - 8);
+              const monthOther = m.otherIn ?? 0;
+              const scale = (value: number) => (value / max) * (chartHeight - 8);
+              const incomeH = scale(m.income);
+              const otherH = scale(monthOther);
+              const expenseH = scale(m.expenses);
               const baseline = chartHeight - 1;
               const x1 = slotX + slot / 2 - barWidth - 2;
               const x2 = slotX + slot / 2 + 2;
               const bars = (
                 <>
+                  {/* The earned part at the bottom, what nothing calls income
+                      stacked above it. Merging them would put refunds back
+                      inside a bar read as income; leaving the second out would
+                      draw a month shorter than the money that arrived in it. */}
                   <rect x={x1} y={baseline - incomeH} width={barWidth} height={incomeH} rx="4" fill={INCOME_FILL} />
+                  {otherH > 0 && (
+                    <rect
+                      x={x1}
+                      y={baseline - incomeH - otherH}
+                      width={barWidth}
+                      height={otherH}
+                      rx="4"
+                      fill={INCOME_FILL}
+                      opacity={OTHER_IN_OPACITY}
+                    />
+                  )}
                   <rect x={x2} y={baseline - expenseH} width={barWidth} height={expenseH} rx="4" fill={EXPENSE_FILL} opacity={EXPENSE_OPACITY} />
                   {/* A transparent rect over the whole slot, so the month can
                       be hit anywhere above its label rather than only on two
@@ -153,6 +231,7 @@ export default function CashFlowCard({
                   <rect x={slotX} y={0} width={slot} height={chartHeight} fill="transparent" />
                   <title>
                     {`${m.label}: ${money(m.income)} in, ${money(m.expenses)} out`}
+                    {monthOther > 0 ? `, ${money(monthOther)} other in` : ""}
                     {m.month ? " — open this month" : ""}
                   </title>
                 </>

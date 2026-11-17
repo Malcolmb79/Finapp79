@@ -7,6 +7,13 @@ const tx = (booking_date: string, amount: number, category_id: number | null = n
   category_id,
 });
 
+/**
+ * Income is the declared thing, not the positive thing: 1 and 2 are the
+ * categories marked as income, and nothing else counts however it is signed.
+ */
+const kind = (id: number | null) =>
+  id == null ? null : { countsAsIncome: id === 1 || id === 2, isTransfer: id === 9 };
+
 const month = "2026-11";
 const entries: Entry[] = [
   tx("2026-11-01", 4200, 1),
@@ -20,7 +27,7 @@ const entries: Entry[] = [
 ];
 
 describe("summaryFigures", () => {
-  const figures = summaryFigures({ entries, month, budgeted: 2500, debt: 9400, saved: 4800 });
+  const figures = summaryFigures({ entries, kind, month, budgeted: 2500, debt: 9400, saved: 4800 });
   const figure = (key: string) => figures.find((f) => f.key === key)!;
 
   it("totals the month's income and spending separately", () => {
@@ -29,20 +36,72 @@ describe("summaryFigures", () => {
   });
 
   /**
-   * The usual bug: a refund filed as a negative expense quietly reduces the
-   * spending figure instead of appearing as the inflow it is. Income is
-   * strictly the positives and spending strictly the negatives.
+   * A refund is not income, and it is not a separate inflow either — it is
+   * money coming back to the thing it was spent on. €120 back on a category
+   * that spent €292 means that category cost €172, which is what happened.
+   *
+   * The tile used to add the €120 to income, which is how a household came to
+   * be reported as earning money from its own refunds.
    */
-  it("keeps money in and money out on their own sides", () => {
+  it("takes a refund off the category it came back to, not onto income", () => {
     const withRefund = summaryFigures({
       entries: [...entries, tx("2026-11-20", 120, 4)],
+      kind,
       month,
       budgeted: 0,
       debt: 0,
       saved: 0,
     });
-    expect(withRefund.find((f) => f.key === "spent")!.amount).toBe(1742);
-    expect(withRefund.find((f) => f.key === "income")!.amount).toBe(5120);
+    expect(withRefund.find((f) => f.key === "spent")!.amount).toBe(1622);
+    expect(withRefund.find((f) => f.key === "income")!.amount).toBe(5000);
+    // And what was left over is unchanged by where the €120 was counted,
+    // which is the one figure a reader can check against their bank.
+    expect(withRefund.find((f) => f.key === "left")!.amount).toBe(3378);
+  });
+
+  /**
+   * A credit nobody has filed is not netted against unrelated unfiled
+   * spending — that would invent the connection — so it is reported as its
+   * own figure under a heading that claims nothing.
+   */
+  it("gives an unfiled credit its own tile rather than calling it income", () => {
+    const withUnfiled = summaryFigures({
+      entries: [...entries, tx("2026-11-20", 75)],
+      kind,
+      month,
+      budgeted: 0,
+      debt: 0,
+      saved: 0,
+    });
+    expect(withUnfiled.find((f) => f.key === "income")!.amount).toBe(5000);
+    expect(withUnfiled.find((f) => f.key === "otherIn")!.amount).toBe(75);
+  });
+
+  // Nothing to say when there is nothing uncounted: the tile only appears
+  // where money arrived that nothing calls income.
+  it("has no other-in tile when every credit is declared income", () => {
+    expect(figures.some((f) => f.key === "otherIn")).toBe(false);
+  });
+
+  /**
+   * Nothing marked is a setup state, not a month that earned nothing. An
+   * "Income €0.00" tile over a month with a salary in it would be a plain lie,
+   * so the figure is reported under a heading that does not claim earnings.
+   */
+  it("reports what arrived when no category is marked as income", () => {
+    const unset = summaryFigures({
+      entries,
+      kind: () => ({ countsAsIncome: false, isTransfer: false }),
+      anyIncomeCategory: false,
+      month,
+      budgeted: 0,
+      debt: 0,
+      saved: 0,
+    });
+    const first = unset.find((f) => f.key === "income")!;
+    expect(first.label).toBe("Money in");
+    expect(first.amount).toBe(5000);
+    expect(unset.some((f) => f.key === "otherIn")).toBe(false);
   });
 
   it("ignores every other month", () => {
@@ -50,7 +109,7 @@ describe("summaryFigures", () => {
   });
 
   it("names a shortfall rather than printing a negative left-over", () => {
-    const tight = summaryFigures({ entries: [tx("2026-11-01", 1000), tx("2026-11-02", -1600)], month, budgeted: 0, debt: 0, saved: 0 });
+    const tight = summaryFigures({ entries: [tx("2026-11-01", 1000), tx("2026-11-02", -1600)], kind, month, budgeted: 0, debt: 0, saved: 0 });
     const left = tight.find((f) => f.key === "left")!;
     expect(left.label).toBe("Short by");
     expect(left.amount).toBe(600);
@@ -77,12 +136,12 @@ describe("summaryFigures", () => {
   });
 
   it("has nothing to compare against on a month with no income", () => {
-    const noIncome = summaryFigures({ entries: [tx("2026-11-02", -50)], month, budgeted: 0, debt: 0, saved: 0 });
+    const noIncome = summaryFigures({ entries: [tx("2026-11-02", -50)], kind, month, budgeted: 0, debt: 0, saved: 0 });
     expect(noIncome.find((f) => f.key === "spent")!.detail).toBeNull();
   });
 
   it("says when nothing has been capped", () => {
-    const uncapped = summaryFigures({ entries, month, budgeted: 0, debt: 0, saved: 0 });
+    const uncapped = summaryFigures({ entries, kind, month, budgeted: 0, debt: 0, saved: 0 });
     expect(uncapped.find((f) => f.key === "budgeted")!.detail).toBe("nothing capped");
   });
 });

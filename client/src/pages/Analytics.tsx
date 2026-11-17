@@ -6,6 +6,7 @@ import TrendLine from "../components/dashboard/TrendLine.js";
 import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCanvas.js";
 import { useEffect, useState } from "react";
 import CashFlowCard, { type MonthFlow } from "../components/dashboard/CashFlowCard.js";
+import { monthlyFlow, type FlowKind } from "../utils/monthlyFlow.js";
 import MagnitudeBarList from "../components/dashboard/MagnitudeBarList.js";
 import StatTile from "../components/dashboard/StatTile.js";
 import { api, type Account, type Category, type Policy, type Transaction, type TransactionRule } from "../api/client.js";
@@ -71,6 +72,21 @@ export default function Analytics() {
   const flowTx = excludeTransfers(convertedTx, transferIds);
 
   /**
+   * What a category is, for every figure that has to tell money that was
+   * earned from money that merely arrived.
+   *
+   * The same reading the Dashboard uses, so the two pages cannot report
+   * different incomes for one month.
+   */
+  const byCategoryId = new Map(categories.map((c) => [c.id, c]));
+  const categoryKind = (id: number | null): FlowKind | null => {
+    if (id == null) return null;
+    const found = byCategoryId.get(id);
+    return found ? { countsAsIncome: !!found.counts_as_income, isTransfer: !!found.is_transfer } : null;
+  };
+  const anyIncomeCategory = categories.some((c) => c.counts_as_income);
+
+  /**
    * The same transactions with the date range lifted off, for the widgets
    * that look for a rhythm.
    *
@@ -97,10 +113,12 @@ export default function Analytics() {
     // Spending only on the expenses side: a loan repayment leaves the account
     // but is not money spent — see spendingTransactions.
     const monthSpend = spendingTransactions(monthTx);
+    const flow = monthlyFlow({ flow: monthTx, spending: monthSpend }, categoryKind);
     return {
       label: monthLabel(key),
-      income: monthTx.filter((tx) => tx.amount > 0).reduce((s, tx) => s + tx.amount, 0),
-      expenses: Math.abs(monthSpend.filter((tx) => tx.amount < 0).reduce((s, tx) => s + tx.amount, 0)),
+      income: flow.income,
+      otherIn: flow.otherIn,
+      expenses: flow.expenses,
     };
   });
 
@@ -121,13 +139,28 @@ export default function Analytics() {
   // of all of them.
   const rangedTx = spendingTransactions(flowTx);
 
-  const totalIncome = flowTx.filter((tx) => tx.amount > 0).reduce((s, tx) => s + tx.amount, 0);
-  const totalExpenses = Math.abs(rangedTx.filter((tx) => tx.amount < 0).reduce((s, tx) => s + tx.amount, 0));
+  /**
+   * Income is the declared thing, not the positive thing.
+   *
+   * Every credit used to count, which put a household's own refunds in the
+   * denominator of its savings rate. `monthlyFlow` reads `counts_as_income`
+   * and nets a refund against the category it came back to, so what was saved
+   * is unchanged — only what the figures claim about themselves moved.
+   */
+  const totals = monthlyFlow({ flow: flowTx, spending: rangedTx }, categoryKind);
+  const totalIncome = totals.income;
+  const totalExpenses = totals.expenses;
   // Per month of window, not per month the data happens to touch: a 30-day
   // span is one month even when it straddles two, and dividing by the two it
   // touches would halve every average on the page.
   const windowMonths = rangeMonthCount(range) ?? Math.max(1, monthKeys.length);
-  const avgMonthlyIncome = totalIncome / windowMonths;
+  // Everything that arrived, earned or not. The savings rate divides by this
+  // rather than by declared income alone: the question it answers is what
+  // share of the money that came in stayed, and a rate over 100% — which
+  // dividing by income alone would produce for a month of large refunds —
+  // answers no question at all.
+  const totalArrived = totals.income + totals.otherIn;
+  const avgMonthlyIncome = (anyIncomeCategory ? totalIncome : totalArrived) / windowMonths;
   const avgMonthlyExpenses = totalExpenses / windowMonths;
 
   const categoryNames = new Map(categories.map((c) => [c.id, c.name]));
@@ -158,12 +191,15 @@ export default function Analytics() {
   // number most personal finance tools lead with, and the one that says
   // whether a month worked — a high income month with higher spending is not
   // a good month, and neither total alone shows that.
-  const savingsRate = totalIncome > 0 ? ((totalIncome - totalExpenses) / totalIncome) * 100 : null;
-  const monthlySavings = monthFlows.map((m) => ({
-    label: m.label,
-    rate: m.income > 0 ? ((m.income - m.expenses) / m.income) * 100 : null,
-    saved: m.income - m.expenses,
-  }));
+  const savingsRate = totalArrived > 0 ? (totals.saved / totalArrived) * 100 : null;
+  const monthlySavings = monthFlows.map((m) => {
+    const arrived = m.income + (m.otherIn ?? 0);
+    return {
+      label: m.label,
+      rate: arrived > 0 ? ((arrived - m.expenses) / arrived) * 100 : null,
+      saved: arrived - m.expenses,
+    };
+  });
   const bestMonth = [...monthlySavings].filter((m) => m.rate != null).sort((a, b) => (b.rate ?? 0) - (a.rate ?? 0))[0];
 
   // This month against last, by category. A total tells you what you spent;
@@ -237,7 +273,16 @@ export default function Analytics() {
       accentVar: "--accent",
       defaultWidth: 672,
       defaultHeight: 340,
-      render: () => <CashFlowCard income={totalIncome} expenses={totalExpenses} months={monthFlows} currency={rates?.base ?? null} />,
+      render: () => (
+        <CashFlowCard
+          income={totalIncome}
+          otherIn={totals.otherIn}
+          expenses={totalExpenses}
+          months={monthFlows}
+          currency={rates?.base ?? null}
+          anyIncomeCategory={anyIncomeCategory}
+        />
+      ),
     },
     {
       id: "savingsRate",
@@ -256,7 +301,7 @@ export default function Analytics() {
               {savingsRate.toFixed(1)}%
             </p>
             <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", margin: "0 0 0.5rem" }}>
-              {money(totalIncome - totalExpenses)} kept of {money(totalIncome)}
+              {money(totals.saved)} kept of {money(totalArrived)} in
               {bestMonth?.rate != null && ` · best ${bestMonth.label} at ${bestMonth.rate.toFixed(0)}%`}
             </p>
             <TrendLine points={monthlySavings.map((m) => ({ label: m.label, value: m.rate }))} format={(v) => `${v.toFixed(1)}%`} />
@@ -409,7 +454,10 @@ export default function Analytics() {
       defaultHeight: 200,
       render: () => (
         <div className="stat-row" style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <StatTile label="Avg income" value={money(avgMonthlyIncome)} />
+          {/* "Avg income" over a figure containing refunds was the same wrong
+              claim as the card above it. With nothing declared there is no
+              income figure to print, only what arrived. */}
+          <StatTile label={anyIncomeCategory ? "Avg income" : "Avg money in"} value={money(avgMonthlyIncome)} />
           <StatTile label="Avg expenses" value={money(avgMonthlyExpenses)} />
         </div>
       ),
