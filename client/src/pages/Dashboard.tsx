@@ -55,6 +55,8 @@ import TransactionDetailModal from "../components/TransactionDetailModal.js";
 import CashFlowSankey from "../components/dashboard/CashFlowSankey.js";
 import type { FlowCategory } from "../utils/cashFlowSankey.js";
 import { monthlyFlow } from "../utils/monthlyFlow.js";
+import { categorySpend } from "../utils/categorySpend.js";
+import RefundNote from "../components/RefundNote.js";
 import SpendingCalendar from "../components/dashboard/SpendingCalendar.js";
 import MonthComparison from "../components/dashboard/MonthComparison.js";
 import { accountBalance, amountDrawn, isBorrowing, accountTxSums, isLiability, repaymentMirrors, spendingTransactions, visibleAccounts, visibleTransactions } from "../utils/accountBalance.js";
@@ -590,25 +592,28 @@ export default function Dashboard() {
   const categoryRange = config.ranges.category ?? "all";
   const categoryTx = categoryRange === "month" ? spendTx.filter((tx) => tx.booking_date.startsWith(thisMonthKey)) : spendTx;
 
-  const spendByCategory = new Map<string, number>();
-  for (const tx of categoryTx) {
-    if (tx.amount >= 0) continue;
-    const name = tx.category_id != null ? (categoryNames.get(tx.category_id) ?? "Unknown") : "Uncategorized";
-    spendByCategory.set(name, (spendByCategory.get(name) ?? 0) + Math.abs(tx.amount));
-  }
-  // The chart is keyed by name because that is what it shows; the link needs
-  // the id back. "Uncategorized" is the one row with no id and the one most
-  // worth clicking, so it gets the sentinel the table understands.
-  const categoryIdByName = new Map(categories.map((c) => [c.name, c.id]));
-  const categoryRows = [...spendByCategory.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([label, value]) => {
-      const id = categoryIdByName.get(label);
-      const filter = label === "Uncategorized" ? "none" : id != null ? String(id) : null;
-      // "Unknown" — a category id with no matching row — has nothing to
-      // filter by, so it stays unclickable rather than linking nowhere.
-      return { label, value, href: filter ? `/transactions?category=${encodeURIComponent(filter)}` : undefined };
-    });
+  /**
+   * What each category cost, refunds netted against the category they came
+   * back to — the same reading Analytics uses, so the two pages cannot report
+   * different totals for the same category.
+   */
+  const spendByCategory = categorySpend(
+    categoryTx,
+    (id) => (id == null ? "Uncategorized" : (categoryNames.get(id) ?? "Unknown")),
+    categoryKind
+  );
+  // Every row carries its id now, so every bar links — including the one that
+  // could not be named, which used to be keyed by the word "Unknown" and so
+  // had nothing to filter by. "Uncategorized" has no id and the sentinel the
+  // transactions table understands.
+  const categoryRows = spendByCategory.rows.map((row) => {
+    const filter = row.categoryId == null ? "none" : String(row.categoryId);
+    return {
+      label: row.name,
+      value: row.total,
+      href: `/transactions?category=${encodeURIComponent(filter)}`,
+    };
+  });
 
   const accountNames = new Map(accounts.map((a) => [a.id, a.name]));
 
@@ -962,7 +967,12 @@ export default function Dashboard() {
           ))}
         </div>
       ),
-      body: <MagnitudeBarList data={categoryRows} currency={rates?.base ?? null} mode={config.modes.category} />,
+      body: (
+        <>
+          <MagnitudeBarList data={categoryRows} currency={rates?.base ?? null} mode={config.modes.category} />
+          <RefundNote spend={spendByCategory} money={(v) => (rates ? formatCurrency(v, rates.base) : v.toFixed(2))} />
+        </>
+      ),
     },
     budgets: {
       headerExtra: (

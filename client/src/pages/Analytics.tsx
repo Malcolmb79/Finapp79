@@ -7,6 +7,8 @@ import WidgetCanvas, { type WidgetSpec } from "../components/dashboard/WidgetCan
 import { useEffect, useState } from "react";
 import CashFlowCard, { type MonthFlow } from "../components/dashboard/CashFlowCard.js";
 import { monthlyFlow, type FlowKind } from "../utils/monthlyFlow.js";
+import { categorySpend } from "../utils/categorySpend.js";
+import RefundNote from "../components/RefundNote.js";
 import MagnitudeBarList from "../components/dashboard/MagnitudeBarList.js";
 import StatTile from "../components/dashboard/StatTile.js";
 import { api, type Account, type Category, type Policy, type Transaction, type TransactionRule } from "../api/client.js";
@@ -164,18 +166,20 @@ export default function Analytics() {
   const avgMonthlyExpenses = totalExpenses / windowMonths;
 
   const categoryNames = new Map(categories.map((c) => [c.id, c.name]));
-  const totalSpend = rangedTx.filter((tx) => tx.amount < 0).reduce((s, tx) => s + Math.abs(tx.amount), 0);
 
-  const categoryStats = new Map<string, { total: number; count: number }>();
-  for (const tx of rangedTx) {
-    if (tx.amount >= 0) continue;
-    const name = tx.category_id != null ? (categoryNames.get(tx.category_id) ?? "Unknown") : "Uncategorized";
-    const entry = categoryStats.get(name) ?? { total: 0, count: 0 };
-    entry.total += Math.abs(tx.amount);
-    entry.count += 1;
-    categoryStats.set(name, entry);
-  }
-  const categoryRows = [...categoryStats.entries()].sort((a, b) => b[1].total - a[1].total);
+  /**
+   * What each category cost, which is not the same as what was paid out of it.
+   *
+   * These cards totalled the debits and ignored the credits, so the page
+   * printed €453.97 of category spending above a €417.65 expenses headline
+   * with nothing on it saying why the two disagreed — and the gap was a
+   * refund the reader had no way to see. `categorySpend` nets a refund
+   * against the category it came back to and reports what it took off, so the
+   * shares add up to the expenses figure beside them without hiding anything.
+   */
+  const spendByCategory = categorySpend(rangedTx, (id) => (id == null ? "Uncategorized" : (categoryNames.get(id) ?? "Unknown")), categoryKind);
+  const totalSpend = spendByCategory.total;
+  const categoryRows = spendByCategory.rows;
 
   const merchantStats = new Map<string, { total: number; count: number }>();
   for (const tx of rangedTx) {
@@ -210,15 +214,17 @@ export default function Analytics() {
   lastMonthDate.setMonth(lastMonthDate.getMonth() - 1);
   const lastMonthKey = lastMonthDate.toISOString().slice(0, 7);
 
+  /**
+   * The same netting as the cards above, which matters more here than
+   * anywhere: this one reports a *change*, and a refund landing in one of the
+   * two months moves the figure by its whole value. A €120 return in October
+   * and nothing else different reads as November costing €120 more.
+   */
   const spendIn = (monthKey: string) => {
-    const totals = new Map<string, number>();
     // Flow list: a transfer out is not this month spending more on anything.
-    for (const tx of flowTx) {
-      if (tx.amount >= 0 || !tx.booking_date.startsWith(monthKey)) continue;
-      const name = tx.category_id != null ? (categoryNames.get(tx.category_id) ?? "Unknown") : "Uncategorized";
-      totals.set(name, (totals.get(name) ?? 0) + Math.abs(tx.amount));
-    }
-    return totals;
+    const month = flowTx.filter((tx) => tx.booking_date.startsWith(monthKey));
+    const spend = categorySpend(month, (id) => (id == null ? "Uncategorized" : (categoryNames.get(id) ?? "Unknown")), categoryKind);
+    return new Map(spend.rows.map((row) => [row.name, row.total]));
   };
   const thisMonthSpend = spendIn(thisMonthKey);
   const lastMonthSpend = spendIn(lastMonthKey);
@@ -315,7 +321,12 @@ export default function Analytics() {
       accentVar: "--accent-3",
       defaultWidth: 328,
       defaultHeight: 320,
-      render: () => <DonutChart data={categoryRows.map(([label, s]) => ({ label, value: s.total }))} currency={rates?.base ?? null} />,
+      render: () => (
+        <>
+          <DonutChart data={categoryRows.map((r) => ({ label: r.name, value: r.total }))} currency={rates?.base ?? null} />
+          <RefundNote spend={spendByCategory} money={money} />
+        </>
+      ),
     },
     {
       id: "categoryBars",
@@ -324,7 +335,12 @@ export default function Analytics() {
       accentVar: "--accent-4",
       defaultWidth: 328,
       defaultHeight: 320,
-      render: () => <MagnitudeBarList data={categoryRows.map(([label, s]) => ({ label, value: s.total }))} currency={rates?.base ?? null} />,
+      render: () => (
+        <>
+          <MagnitudeBarList data={categoryRows.map((r) => ({ label: r.name, value: r.total }))} currency={rates?.base ?? null} />
+          <RefundNote spend={spendByCategory} money={money} />
+        </>
+      ),
     },
     {
       id: "movers",
@@ -517,12 +533,12 @@ export default function Analytics() {
               </tr>
             </thead>
             <tbody>
-              {categoryRows.map(([name, s]) => (
-                <tr key={name}>
-                  <td>{name}</td>
-                  <td>{s.count}</td>
-                  <td>{money(s.total)}</td>
-                  <td>{totalSpend > 0 ? ((s.total / totalSpend) * 100).toFixed(1) : "0.0"}%</td>
+              {categoryRows.map((row) => (
+                <tr key={row.name}>
+                  <td>{row.name}</td>
+                  <td>{row.count}</td>
+                  <td>{money(row.total)}</td>
+                  <td>{totalSpend > 0 ? ((row.total / totalSpend) * 100).toFixed(1) : "0.0"}%</td>
                 </tr>
               ))}
             </tbody>

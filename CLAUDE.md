@@ -1033,13 +1033,39 @@ category declared, the tile reads `Money in` over the full figure rather than
 `Income €0.00` over a month with a salary in it. That was the objection to
 making this change earlier, and saying which of the two it is answers it.
 
-The category cards on Analytics — `Share of spending`, `Spend by category` —
-stay **gross**, so a page can show €453.97 of category spending above a
-€417.65 expenses total. That is deliberate and is the rule
-`categoryBreakdown.ts` already states: a refund reported separately keeps both
-facts, where netting it hides that the money was spent at all. The headline
-cannot do that, because it has to reconcile; the breakdown can, because it is
-answering what was spent rather than what it cost.
+**And the category cards net too**, through `utils/categorySpend.ts` — the
+Analytics donut, its bar list and table, `What moved this month`, and the
+Dashboard's own spend-by-category widget, which built the same figure three
+separate ways and all three totalled the debits and ignored the credits. A
+page showed €453.97 of category spending above a €417.65 expenses headline
+with nothing on it saying why the two disagreed, and the gap was a refund the
+reader had no way to see. Netted, the shares add up to the expenses figure
+beside them.
+
+Three decisions in it worth not undoing:
+
+- **Nothing is hidden by the netting.** `RefundNote` prints what came off —
+  "€40.00 of refunds taken off the categories they came back to" — because
+  netting in silence trades one invisible fact for another: before, the refund
+  was missing from the total; after, it would be missing from the screen. The
+  detail stays in `categoryBreakdown.ts`, one click away through the
+  category's own name, which still reports a category's refunds **separately**
+  rather than netting them. That is not a contradiction: a total that has to
+  reconcile against the expenses figure must net, and a breakdown answering
+  "what happened in this category" keeps both facts.
+- **A category that took back more than it ever spent is named, not drawn.**
+  As a bar it would be negative or zero-width, and a chart of magnitudes has
+  no honest way to show that.
+- **But only if it spent something.** A category that just receives did not
+  "take back" anything, and the first live run said "Salary took back €2,184
+  more than it spent" of a month's wages — a sentence about a refund that did
+  not happen. Those credits are income or `otherIn`, which is `monthlyFlow`'s
+  question; a spend-by-category chart has nothing to say about them.
+
+`What moved this month` needed it most of all: it reports a *change*, so a
+refund landing in one of the two months moves the figure by its whole value —
+a €120 return in October and nothing else different reads as November costing
+€120 more.
 
 ### Subscriptions: a tag, not a shape
 
